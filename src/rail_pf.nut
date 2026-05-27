@@ -141,6 +141,9 @@ class RailPathFinder {
     static CHUNK = 50;
     function FindPath(limitCount, eventPoller) {
         Log.Info(Log.PHASE_TRACK, "Pathfinding... max_chunks=" + limitCount);
+        // AITestMode: all AI* build calls inside callbacks become dry-run checks.
+        // Without this, _Neighbours/_GetBridgesAndTunnels would actually lay track.
+        local _test_mode = AITestMode();
         local counter = 0;
         local raw = false;
         while (raw == false) {
