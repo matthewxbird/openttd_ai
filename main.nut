@@ -17,10 +17,12 @@ require("src/signals.nut");
 require("src/trains.nut");
 require("src/route.nut");
 require("src/state.nut");
+require("src/autoreplace.nut");
 
 class MvBAI extends AIController {
-    state    = null;
-    railtype = null;
+    state        = null;
+    railtype     = null;
+    auto_replace = null;
 
     function Start();
     function Save();
@@ -38,8 +40,9 @@ function MvBAI::Start() {
     Log.Info(Log.PHASE_BOOT, "MvB AI starting. Hello, OpenTTD!");
 
     Money.TakeMaxLoan();
-    this.railtype = Railtype.PickAndSet();
-    this.state    = State();
+    this.railtype     = Railtype.PickAndSet();
+    this.state        = State();
+    this.auto_replace = AutoReplace();
 
     Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan/build loop.");
 
@@ -68,7 +71,10 @@ function MvBAI::Start() {
             }
         }
 
-        // 3. Surplus loan repay if cash is healthy.
+        // 3. Yearly engine roster review.
+        this.auto_replace.Tick(this.railtype, this.state);
+
+        // 4. Surplus loan repay if cash is healthy.
         Money.RepaySurplusIfAny();
 
         Log.Info(Log.PHASE_LOOP,
