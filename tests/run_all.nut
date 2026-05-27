@@ -1,0 +1,24 @@
+// tests/run_all.nut
+// Entrypoint for sq.exe. Loads stubs, source modules, test files, then
+// prints a summary and exits non-zero on failure.
+//
+// Run from repo root:
+//   sq.exe tests/run_all.nut
+
+dofile("tests/stubs/ai_stubs.nut");
+dofile("tests/test_helpers.nut");
+
+// Source modules under test (pure ones only).
+dofile("src/scoring.nut");
+
+// Test files.
+dofile("tests/test_scoring.nut");
+
+print("\n----\n");
+print("passed: " + Tests.passed + "\n");
+print("failed: " + Tests.failed + "\n");
+
+if (Tests.failed > 0) {
+    throw "TESTS FAILED";
+}
+print("ALL TESTS PASSED\n");
