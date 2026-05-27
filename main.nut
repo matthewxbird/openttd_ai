@@ -3,6 +3,8 @@
 // v1 scaffold: set the company name, log a hello, sleep forever.
 // Real logic gets layered in commit-by-commit.
 
+require("src/logger.nut");
+
 class MvBAI extends AIController {
     function Start();
     function Save();
@@ -17,8 +19,8 @@ function MvBAI::Start() {
         while (!AICompany.SetName("MvB AI #" + i)) i++;
     }
 
-    AILog.Info("[BOOT] MvB AI starting. Hello, OpenTTD!");
-    AILog.Info("[BOOT] v1 scaffold — no building logic yet, will sleep.");
+    Log.Info(Log.PHASE_BOOT, "MvB AI starting. Hello, OpenTTD!");
+    Log.Info(Log.PHASE_BOOT, "v1 scaffold - no building logic yet, will sleep.");
 
     // Idle loop. Each Sleep tick is ~74 game-days-per-tick units;
     // 1000 ticks ~= a couple of in-game weeks.
