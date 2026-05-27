@@ -1,4 +1,4 @@
-﻿// src/track_builder.nut
+// src/track_builder.nut
 // Build a double-track rail line between two "front-of-station" tiles.
 //
 // Uses our custom RailPathFinder (src/rail_pf.nut) â€” no external library

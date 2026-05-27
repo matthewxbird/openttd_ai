@@ -1,4 +1,4 @@
-﻿// src/money.nut
+// src/money.nut
 // Loan + cash helpers. The pure parts (ShouldRepay) live here too so tests
 // can verify the thresholds without OpenTTD running.
 //

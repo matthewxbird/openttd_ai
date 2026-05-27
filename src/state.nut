@@ -1,4 +1,4 @@
-﻿// src/state.nut
+// src/state.nut
 // In-memory session state: built routes + blacklist.
 // One global instance lives on the AI controller; not persisted across
 // save/load in v1.

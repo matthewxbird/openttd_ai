@@ -1,4 +1,4 @@
-﻿// src/signals.nut
+// src/signals.nut
 // Place one-way PBS signals along a built path. PBS_ONEWAY blocks
 // wrong-direction entry, which is what we want on a double-track main
 // line (each track flows in only one direction).

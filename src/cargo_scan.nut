@@ -1,4 +1,4 @@
-﻿// src/cargo_scan.nut
+// src/cargo_scan.nut
 // Walk all cargoes the current climate offers, find every (producer,
 // accepter) industry pair for each cargo, score it by ROI, and return
 // a ranked candidate list. No building - just looking.

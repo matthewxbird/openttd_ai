@@ -1,4 +1,4 @@
-﻿// src/trains.nut
+// src/trains.nut
 // Pick an engine + wagon for a cargo, buy them at a depot, attach
 // wagons, set orders, and start the train.
 //

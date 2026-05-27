@@ -1,4 +1,4 @@
-﻿// src/railtype.nut
+// src/railtype.nut
 // Pick the best rail type available right now and make it "current"
 // so subsequent AIRail builds use it.
 //

@@ -1,4 +1,4 @@
-﻿// src/rail_pf.nut
+// src/rail_pf.nut
 // Custom rail pathfinder wrapping the AyStar engine.
 // Adapted from AAAHogEx by rei-artist (https://github.com/rei-artist/AAAHogEx).
 //
