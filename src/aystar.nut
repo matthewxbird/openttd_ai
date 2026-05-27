@@ -112,11 +112,6 @@ class AyStar {
         return false; // still running, call again
     }
 
-    // Convenience: construct a Path node. Same signature as AyStar.Path
-    // constructor, forwarded so callers can write _pathfinder.Path(...).
-    function Path(parent, tile, direction, mode, cost_fn, self) {
-        return AyStar.Path(parent, tile, direction, mode, cost_fn, self);
-    }
 }
 
 

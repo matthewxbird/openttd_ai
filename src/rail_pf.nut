@@ -127,8 +127,8 @@ class RailPathFinder {
         // AyStar starts with the correct directional context.
         local nsources = [];
         foreach (node in sources) {
-            local path = this._pathfinder.Path(null, node[1], 0xFF, null, RailPathFinder._Cost, this);
-            path = this._pathfinder.Path(path, node[0], 0xFF, null, RailPathFinder._Cost, this);
+            local path = AyStar.Path(null, node[1], 0xFF, null, RailPathFinder._Cost, this);
+            path = AyStar.Path(path, node[0], 0xFF, null, RailPathFinder._Cost, this);
             nsources.push(path);
         }
         this._pathfinder.InitializePath(nsources, goals, ignored_tiles);
