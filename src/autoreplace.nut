@@ -3,8 +3,6 @@
 // current railtype, and set autoreplace from any older engine to the
 // new best. AIGroup.GROUP_ALL is fine for company-wide replacement.
 
-require("logger.nut");
-require("trains.nut");
 
 class AutoReplace {
 

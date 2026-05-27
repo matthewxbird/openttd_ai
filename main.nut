@@ -10,6 +10,8 @@ require("src/scoring.nut");
 require("src/candidates.nut");
 require("src/cargo_scan.nut");
 require("src/station_builder.nut");
+require("src/aystar.nut");
+require("src/rail_pf.nut");
 require("src/track_builder.nut");
 require("src/signals.nut");
 require("src/trains.nut");

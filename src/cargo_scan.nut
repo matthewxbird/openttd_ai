@@ -6,9 +6,6 @@
 // Heavy AI* usage here: AICargoList, AIIndustryList_CargoProducing/Accepting,
 // AIIndustry, AIMap. Verified in-game, not in unit tests.
 
-require("logger.nut");
-require("scoring.nut");
-require("candidates.nut");
 
 class CargoScan {
 

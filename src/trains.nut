@@ -5,7 +5,6 @@
 // "Best engine" = lowest running cost per (top_speed * capacity).
 // Lower is better. Wagons evaluated the same way but only on capacity.
 
-require("logger.nut");
 
 class Trains {
 

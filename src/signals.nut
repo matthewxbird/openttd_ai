@@ -6,7 +6,6 @@
 // We skip the first and last few tiles (station throat) and place a
 // signal every N tiles.
 
-require("logger.nut");
 
 class Signals {
 

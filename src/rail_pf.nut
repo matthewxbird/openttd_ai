@@ -42,8 +42,6 @@
 //   pf2.InitializePath([[dst, dst_prev]], [[src, src_prev]]);
 //   local path2 = pf2.FindPath(500, null);
 
-require("logger.nut");
-require("aystar.nut");
 
 // Directions: 0=W 1=E 2=N 3=S (matching AAAHogEx _dir encoding).
 // Stored as integer 0-3. 0xFF = "any direction" for source nodes.

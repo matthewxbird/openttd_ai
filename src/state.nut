@@ -3,8 +3,6 @@
 // One global instance lives on the AI controller; not persisted across
 // save/load in v1.
 
-require("route.nut");
-require("candidates.nut");
 
 class State {
     routes    = null;   // map: route_key -> Route record

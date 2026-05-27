@@ -11,8 +11,6 @@
 // Returns a pair { out, back } where each value is an array of tile indices
 // in travel order, or null if that direction failed.
 
-require("logger.nut");
-require("rail_pf.nut");
 
 class TrackBuilder {
 

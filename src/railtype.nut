@@ -5,7 +5,6 @@
 // "Best" = highest max speed among rail types we can actually build.
 // Falls back to first available if speeds are all zero/unknown.
 
-require("logger.nut");
 
 class Railtype {
     // Pick the best available rail type. Returns the RailType id, or

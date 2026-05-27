@@ -7,7 +7,6 @@
 //  - Each loop tick, if cash is comfortably above the loan, repay one step.
 //  - HasFunds(estimate) checks bank balance before kicking off a build.
 
-require("logger.nut");
 
 class Money {
     // -- PURE function (testable without AI* calls) -----------------------
