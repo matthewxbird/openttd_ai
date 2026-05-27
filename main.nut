@@ -4,6 +4,7 @@
 // Real logic gets layered in commit-by-commit.
 
 require("src/logger.nut");
+require("src/money.nut");
 
 class MvBAI extends AIController {
     function Start();
@@ -20,6 +21,9 @@ function MvBAI::Start() {
     }
 
     Log.Info(Log.PHASE_BOOT, "MvB AI starting. Hello, OpenTTD!");
+
+    Money.TakeMaxLoan();
+
     Log.Info(Log.PHASE_BOOT, "v1 scaffold - no building logic yet, will sleep.");
 
     // Idle loop. Each Sleep tick is ~74 game-days-per-tick units;
