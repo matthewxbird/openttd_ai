@@ -3,8 +3,6 @@
 // Scan -> rank -> try to build the top route -> sleep -> repeat.
 // Built routes are remembered in `state`; failed pairs go on the blacklist.
 
-import("pathfinder.rail", "RailPF", 1);
-
 require("src/logger.nut");
 require("src/money.nut");
 require("src/railtype.nut");
@@ -123,22 +121,23 @@ function MvBAI::TryBuildRoute(c) {
     }
 
     // Track: two passes for double track.
-    route.path_out = TrackBuilder.BuildTrack(
-        route.src_station.front_tile, route.dst_station.front_tile, "out");
+    // src_station.tile is just inside the station; front_tile is just outside.
+    // Passing both gives the pathfinder correct directional entry context.
+    local tracks = TrackBuilder.BuildDoubleTracks(
+        route.src_station.front_tile, route.src_station.tile,
+        route.dst_station.front_tile, route.dst_station.tile);
+    route.path_out  = tracks.out;
+    route.path_back = tracks.back;
     if (route.path_out == null) {
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
         return false;
     }
-    route.path_back = TrackBuilder.BuildTrack(
-        route.dst_station.front_tile, route.src_station.front_tile, "back");
-    if (route.path_back == null) {
-        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
-        return false;
-    }
 
-    // Signals.
-    Signals.PlaceAlong(route.path_out, true, "out");
-    Signals.PlaceAlong(route.path_back, true, "back");
+    // Signals on both tracks (back track may be null on very awkward terrain).
+    Signals.PlaceAlong(route.path_out,  true,  "out");
+    if (route.path_back != null) {
+        Signals.PlaceAlong(route.path_back, true, "back");
+    }
 
     // Trains.
     local engine = Trains.PickEngine(c.cargo, this.railtype);

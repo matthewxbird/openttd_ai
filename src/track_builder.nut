@@ -1,86 +1,116 @@
 // src/track_builder.nut
-// Use the Pathfinder.Rail library to find a rail path between two
-// "front" tiles, then build that path tile-by-tile (rail/bridge/tunnel).
+// Build a double-track rail line between two "front-of-station" tiles.
 //
-// For double-track we run the pathfinder twice (once per direction).
-// Simple and dumb: the two tracks are independent. They may end up
-// nowhere near each other - acceptable for v1.
+// Uses our custom RailPathFinder (src/rail_pf.nut) — no external library
+// dependency. Runs in two passes:
+//   Pass 1 ("out"): src_front → dst_front, isOutward=true
+//     The cost function reserves room for a parallel return track.
+//   Pass 2 ("back"): dst_front → src_front, reversePath = out-path result
+//     The cost function uses the out-path to guide the back track parallel.
 //
-// Pathfinder.Rail must be imported in main.nut with:
-//   import("pathfinder.rail", "RailPF", 1);
-// We reference `RailPF` (the imported class name) at call time.
+// Returns a pair { out, back } where each value is an array of tile indices
+// in travel order, or null if that direction failed.
 
 require("src/logger.nut");
+require("src/rail_pf.nut");
 
 class TrackBuilder {
 
-    static MAX_PF_ITERATIONS = 10000;   // safety cap per attempt
-    static PF_ITER_STEP      = 250;     // run pathfinder in chunks for logging
+    static MAX_CHUNKS = 500;   // pathfinder chunks per attempt
+    static RETRY_CHUNKS = 800; // chunks for the relaxed-cost retry
 
-    // Find + build one track between two endpoints.
-    // src_front / dst_front are the "front of station" tiles.
-    // Retries once with relaxed cost if first attempt fails.
-    // Returns array of tiles in the built path, or null on failure.
-    static function BuildTrack(src_front, dst_front, label) {
-        local path = TrackBuilder._FindPath(src_front, dst_front, label, false);
-        if (path == null) {
-            Log.Warn(Log.PHASE_TRACK, "[" + label + "] retry with relaxed cost");
-            path = TrackBuilder._FindPath(src_front, dst_front, label, true);
-        }
-        if (path == null) {
-            Log.Err(Log.PHASE_TRACK, "[" + label + "] pathfinder gave up");
-            return null;
+    // Build both tracks. Returns { out, back } (either may be null on failure).
+    // src_front, dst_front: first tile outside each station entrance (from
+    //   StationBuilder.BuildAt result.front_tile).
+    // src_prev, dst_prev:   the tile BEFORE front_tile along the approach
+    //   direction, so the pathfinder starts with correct directional context.
+    //   If null, a synthetic neighbour tile is inferred from the front tile.
+    static function BuildDoubleTracks(src_front, src_prev, dst_front, dst_prev) {
+        if (src_prev == null) src_prev = src_front + AIMap.GetTileIndex(-1, 0);
+        if (dst_prev == null) dst_prev = dst_front + AIMap.GetTileIndex(-1, 0);
+
+        // --- Pass 1: out track ---
+        Log.Info(Log.PHASE_TRACK, "Pass 1 (out): pathfinding src→dst");
+        local out_tiles = TrackBuilder._RunPathfinder(
+            src_front, src_prev, dst_front, dst_prev,
+            true,  // isOutward
+            null,  // no reversePath yet
+            "out");
+        if (out_tiles == null) {
+            Log.Err(Log.PHASE_TRACK, "Out track: pathfinding failed both attempts.");
+            return { out = null, back = null };
         }
 
-        return TrackBuilder._BuildPath(path, label);
+        // Reconstruct a Path chain from the tile array for use as reversePath.
+        local out_path_chain = TrackBuilder._TilesToPathChain(out_tiles);
+
+        // --- Pass 2: back track ---
+        Log.Info(Log.PHASE_TRACK, "Pass 2 (back): pathfinding dst→src alongside out-track");
+        local back_tiles = TrackBuilder._RunPathfinder(
+            dst_front, dst_prev, src_front, src_prev,
+            false,        // isOutward = false for back track
+            out_path_chain, // guide the back track to run parallel
+            "back");
+        if (back_tiles == null) {
+            Log.Warn(Log.PHASE_TRACK, "Back track: pathfinding failed; single track only.");
+        }
+
+        return { out = out_tiles, back = back_tiles };
     }
 
-    // Returns array of tiles (from src to dst) or null.
-    static function _FindPath(src_front, dst_front, label, relaxed) {
-        local pf = RailPF();
-        pf.cost.max_cost     = relaxed ? 200000 : 100000;
-        pf.cost.tile         = 100;
-        pf.cost.diagonal_tile = 80;
-        // Pathfinder.Rail wants pairs of [tile, tile-in-front-of-tile]
-        // so it knows direction of entry/exit.
+    // Single pass: find a path then physically build it.
+    // Returns the tile array on success, null on failure.
+    static function _RunPathfinder(src_f, src_p, dst_f, dst_p,
+                                    is_outward, rev_path, label) {
+        local tiles = TrackBuilder._FindPath(
+            src_f, src_p, dst_f, dst_p, is_outward, rev_path,
+            TrackBuilder.MAX_CHUNKS, label);
+
+        if (tiles == null) {
+            // Retry with larger budget and relaxed cost.
+            Log.Warn(Log.PHASE_TRACK, "[" + label + "] retry with relaxed budget");
+            tiles = TrackBuilder._FindPathRelaxed(
+                src_f, src_p, dst_f, dst_p, is_outward, rev_path, label);
+        }
+        if (tiles == null) return null;
+
+        return TrackBuilder._BuildPath(tiles, label);
+    }
+
+    // Invoke RailPathFinder with standard cost settings.
+    static function _FindPath(src_f, src_p, dst_f, dst_p,
+                               is_outward, rev_path, max_chunks, label) {
+        local pf = RailPathFinder();
+        pf.isOutward   = is_outward;
+        pf.reversePath = rev_path;
         pf.InitializePath(
-            [[src_front, src_front + AIMap.GetTileIndex(1, 0)]],  // source: shoot in some direction
-            [[dst_front, dst_front + AIMap.GetTileIndex(1, 0)]]   // dest
-        );
-
-        local iters = 0;
-        local result = false;
-        while (result == false && iters < TrackBuilder.MAX_PF_ITERATIONS) {
-            result = pf.FindPath(TrackBuilder.PF_ITER_STEP);
-            iters += TrackBuilder.PF_ITER_STEP;
-            Log.Info(Log.PHASE_TRACK, "[" + label + "] pathfinder iter=" + iters);
-        }
-
-        if (result == null || result == false) {
-            return null;
-        }
-
-        // Walk the linked Path back from goal to start, collect tiles.
-        local tiles = [];
-        local node = result;
-        while (node != null) {
-            tiles.append(node.GetTile());
-            node = node.GetParent();
-        }
-        // Reverse so order is src -> dst.
-        local reversed = [];
-        for (local i = tiles.len() - 1; i >= 0; i--) reversed.append(tiles[i]);
-
-        Log.Info(Log.PHASE_TRACK, "[" + label + "] path found, length=" + reversed.len());
-        return reversed;
+            [[src_f, src_p]],
+            [[dst_f, dst_p]]);
+        return pf.FindPath(max_chunks, null);
     }
 
-    // Build rail/bridges/tunnels along a tile list. Returns the list on
-    // success (so caller can place signals), null if any step failed
-    // unrecoverably.
+    // Retry with relaxed budget: double max_cost, allow more chunks.
+    static function _FindPathRelaxed(src_f, src_p, dst_f, dst_p,
+                                      is_outward, rev_path, label) {
+        local pf = RailPathFinder();
+        pf._max_cost        = 10000000;
+        pf._max_bridge_length = 30;
+        pf._max_tunnel_length = 20;
+        pf.isOutward   = is_outward;
+        pf.reversePath = rev_path;
+        pf.InitializePath(
+            [[src_f, src_p]],
+            [[dst_f, dst_p]]);
+        return pf.FindPath(TrackBuilder.RETRY_CHUNKS, null);
+    }
+
+    // Physically lay rail/bridges/tunnels along a tile list.
+    // Returns the tile list on success (with warnings for any per-tile errors),
+    // or null if the path is too short to be useful.
     static function _BuildPath(tiles, label) {
-        if (tiles.len() < 3) {
-            Log.Err(Log.PHASE_TRACK, "[" + label + "] path too short to build");
+        if (tiles == null || tiles.len() < 3) {
+            Log.Err(Log.PHASE_TRACK, "[" + label + "] path too short (" +
+                (tiles != null ? tiles.len() : 0) + " tiles)");
             return null;
         }
 
@@ -95,16 +125,29 @@ class TrackBuilder {
             local step = AIMap.DistanceManhattan(prev, cur);
 
             if (step > 1) {
-                // Gap means bridge or tunnel.
-                if (AITunnel.GetOtherTunnelEnd(prev) == cur) {
-                    if (AITunnel.BuildTunnel(AIVehicle.VT_RAIL, prev)) tunnels++;
-                    else Log.Warn(Log.PHASE_TRACK, "tunnel fail: " + AIError.GetLastErrorString());
+                // Multi-tile step = bridge or existing tunnel.
+                if (AITunnel.IsTunnelTile(prev) &&
+                        AITunnel.GetOtherTunnelEnd(prev) == cur) {
+                    // Existing tunnel, no build needed.
+                    tunnels++;
+                } else if (AITunnel.GetOtherTunnelEnd(prev) == cur) {
+                    if (AITunnel.BuildTunnel(AIVehicle.VT_RAIL, prev)) {
+                        tunnels++;
+                    } else {
+                        Log.Warn(Log.PHASE_TRACK,
+                            "[" + label + "] tunnel build failed at " + prev
+                            + ": " + AIError.GetLastErrorString());
+                    }
                 } else {
-                    local bridge_list = AIBridgeList_Length(step + 1);
-                    if (!bridge_list.IsEmpty()) {
-                        local bridge_type = bridge_list.Begin();
-                        if (AIBridge.BuildBridge(AIVehicle.VT_RAIL, bridge_type, prev, cur)) bridges++;
-                        else Log.Warn(Log.PHASE_TRACK, "bridge fail: " + AIError.GetLastErrorString());
+                    local bl = AIBridgeList_Length(step + 1);
+                    if (!bl.IsEmpty()) {
+                        if (AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), prev, cur)) {
+                            bridges++;
+                        } else {
+                            Log.Warn(Log.PHASE_TRACK,
+                                "[" + label + "] bridge build failed at " + prev
+                                + ": " + AIError.GetLastErrorString());
+                        }
                     }
                 }
                 continue;
@@ -115,13 +158,30 @@ class TrackBuilder {
             } else {
                 local err = AIError.GetLastError();
                 if (err != AIError.ERR_ALREADY_BUILT) {
-                    Log.Warn(Log.PHASE_TRACK, "rail fail at " + cur + ": " + AIError.GetLastErrorString());
+                    Log.Warn(Log.PHASE_TRACK,
+                        "[" + label + "] rail fail at tile " + cur
+                        + ": " + AIError.GetLastErrorString());
                 }
             }
         }
 
         Log.Info(Log.PHASE_TRACK,
-            "[" + label + "] built rail=" + built + " bridges=" + bridges + " tunnels=" + tunnels);
+            "[" + label + "] built " + built + " rail, "
+            + bridges + " bridges, " + tunnels + " tunnels.");
         return tiles;
+    }
+
+    // Reconstruct a lightweight AyStar.Path chain from an ordered tile array.
+    // Used to pass the out-path result as `reversePath` to the back-track PF.
+    // The chain doesn't need real costs — just tile linkage.
+    static function _TilesToPathChain(tiles) {
+        if (tiles == null || tiles.len() == 0) return null;
+        // Cost function that returns 0 (we only need the tile structure).
+        local zero_cost = function(self_, path, tile, dir, mode) { return 0; };
+        local chain = null;
+        foreach (tile in tiles) {
+            chain = AyStar.Path(chain, tile, 0xFF, null, zero_cost, null);
+        }
+        return chain;
     }
 }

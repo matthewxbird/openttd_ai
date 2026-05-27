@@ -49,6 +49,8 @@ AI Debug window.
        route.nut
        state.nut
        autoreplace.nut
+       aystar.nut
+       rail_pf.nut
    ```
 
    **For development**, symlink instead of copying so edits flow through.
@@ -57,10 +59,10 @@ AI Debug window.
    mklink /J "%USERPROFILE%\Documents\OpenTTD\ai\MvB_AI" "C:\dev\openttd_ai"
    ```
 
-4. **Install the Pathfinder.Rail library** (one-time):
-   - Start OpenTTD.
-   - Game Options → "Check Online Content".
-   - Filter to "AI Libraries", tick **"Pathfinder - Rail"**, click Download.
+4. **No library install needed.** The pathfinder is fully custom (`src/aystar.nut`
+   + `src/rail_pf.nut`), adapted from
+   [AAAHogEx](https://github.com/rei-artist/AAAHogEx). No online content
+   download required.
 
 ---
 
