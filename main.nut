@@ -5,6 +5,7 @@
 
 require("src/logger.nut");
 require("src/money.nut");
+require("src/railtype.nut");
 
 class MvBAI extends AIController {
     function Start();
@@ -23,6 +24,7 @@ function MvBAI::Start() {
     Log.Info(Log.PHASE_BOOT, "MvB AI starting. Hello, OpenTTD!");
 
     Money.TakeMaxLoan();
+    Railtype.PickAndSet();
 
     Log.Info(Log.PHASE_BOOT, "v1 scaffold - no building logic yet, will sleep.");
 
