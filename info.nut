@@ -11,7 +11,7 @@ class MvBAIInfo extends AIInfo {
     function GetDate()          { return "2026-05-27"; }
     function CreateInstance()   { return "MvBAI"; }
     function GetShortName()     { return "MVBA"; }  // 4 chars, unique tag
-    function GetAPIVersion()    { return "1.12"; }  // adjust to match your OpenTTD if needed
+    function GetAPIVersion()    { return "15"; }  // valid range: "12".."15". Use "14" for stable 14.x release.
     function GetURL()           { return ""; }
 
     // Optional settings would go here. None for v1.
