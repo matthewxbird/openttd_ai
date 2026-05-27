@@ -6,6 +6,9 @@
 require("src/logger.nut");
 require("src/money.nut");
 require("src/railtype.nut");
+require("src/scoring.nut");
+require("src/candidates.nut");
+require("src/cargo_scan.nut");
 
 class MvBAI extends AIController {
     function Start();
@@ -26,12 +29,17 @@ function MvBAI::Start() {
     Money.TakeMaxLoan();
     Railtype.PickAndSet();
 
-    Log.Info(Log.PHASE_BOOT, "v1 scaffold - no building logic yet, will sleep.");
+    Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan loop.");
 
-    // Idle loop. Each Sleep tick is ~74 game-days-per-tick units;
-    // 1000 ticks ~= a couple of in-game weeks.
+    local blacklist = Blacklist();
+
     while (true) {
-        this.Sleep(1000);
+        local cands  = CargoScan.Scan();
+        local ranked = Candidates.Rank(cands, blacklist);
+        CargoScan.LogTop(ranked, 5);
+
+        Log.Info(Log.PHASE_LOOP, "Sleeping ~1 month. (build logic not wired yet)");
+        this.Sleep(2220);  // ~30 game days
     }
 }
 

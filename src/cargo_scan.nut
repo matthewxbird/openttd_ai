@@ -1,0 +1,88 @@
+// src/cargo_scan.nut
+// Walk all cargoes the current climate offers, find every (producer,
+// accepter) industry pair for each cargo, score it by ROI, and return
+// a ranked candidate list. No building - just looking.
+//
+// Heavy AI* usage here: AICargoList, AIIndustryList_CargoProducing/Accepting,
+// AIIndustry, AIMap. Verified in-game, not in unit tests.
+
+require("src/logger.nut");
+require("src/scoring.nut");
+require("src/candidates.nut");
+
+class CargoScan {
+
+    // How many days the income estimate uses. ~30 days = 1 month, a
+    // reasonable expected delivery time for a medium route.
+    static INCOME_DAYS = 30;
+
+    // Build full list of candidate routes across all cargoes.
+    // Returns array of { cargo, producer, accepter, distance, score }.
+    static function Scan() {
+        local out = [];
+        local cargoes = AICargoList();
+        Log.Info(Log.PHASE_SCAN, "Cargoes detected: " + cargoes.Count());
+
+        foreach (cargo, _ in cargoes) {
+            CargoScan._ScanCargo(cargo, out);
+        }
+        Log.Info(Log.PHASE_SCAN, "Total candidate pairs: " + out.len());
+        return out;
+    }
+
+    // Append candidates for a single cargo to `out`.
+    static function _ScanCargo(cargo, out) {
+        local cargo_label = AICargo.GetCargoLabel(cargo);
+
+        local producers = AIIndustryList_CargoProducing(cargo);
+        local accepters = AIIndustryList_CargoAccepting(cargo);
+        if (producers.IsEmpty() || accepters.IsEmpty()) return;
+
+        Log.Info(Log.PHASE_SCAN,
+            cargo_label + ": " + producers.Count() + " producers, "
+            + accepters.Count() + " accepters");
+
+        foreach (prod_id, _ in producers) {
+            local prod_loc = AIIndustry.GetLocation(prod_id);
+            local prod_amt = AIIndustry.GetLastMonthProduction(prod_id, cargo);
+            if (prod_amt <= 0) continue;
+
+            foreach (acc_id, _ in accepters) {
+                if (acc_id == prod_id) continue;
+                local acc_loc  = AIIndustry.GetLocation(acc_id);
+                local dist     = AIMap.DistanceManhattan(prod_loc, acc_loc);
+                if (dist <= 0) continue;
+
+                local payment      = AICargo.GetCargoIncome(cargo, dist, CargoScan.INCOME_DAYS);
+                local build_cost   = Scoring.BuildCostEstimate(dist);
+                // Accepter capacity is hard to read directly; assume large
+                // so producer is the binding side. v1 simplification.
+                local roi          = Scoring.EstimateROI(prod_amt, 99999, payment, build_cost);
+
+                out.append({
+                    cargo    = cargo,
+                    producer = prod_id,
+                    accepter = acc_id,
+                    distance = dist,
+                    score    = roi,
+                });
+            }
+        }
+    }
+
+    // Log the top N candidates for visibility in the AI Debug window.
+    static function LogTop(ranked, n = 5) {
+        local limit = ranked.len() < n ? ranked.len() : n;
+        for (local i = 0; i < limit; i++) {
+            local c = ranked[i];
+            local cargo_label = AICargo.GetCargoLabel(c.cargo);
+            local prod_name   = AIIndustry.GetName(c.producer);
+            local acc_name    = AIIndustry.GetName(c.accepter);
+            Log.Info(Log.PHASE_RANK,
+                "#" + (i + 1) + " " + cargo_label
+                + " | " + prod_name + " -> " + acc_name
+                + " | dist=" + c.distance
+                + " | ROI=" + c.score);
+        }
+    }
+}
