@@ -1,11 +1,11 @@
-// src/railtype.nut
+﻿// src/railtype.nut
 // Pick the best rail type available right now and make it "current"
 // so subsequent AIRail builds use it.
 //
 // "Best" = highest max speed among rail types we can actually build.
 // Falls back to first available if speeds are all zero/unknown.
 
-require("src/logger.nut");
+require("logger.nut");
 
 class Railtype {
     // Pick the best available rail type. Returns the RailType id, or

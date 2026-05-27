@@ -1,10 +1,10 @@
-// src/state.nut
+﻿// src/state.nut
 // In-memory session state: built routes + blacklist.
 // One global instance lives on the AI controller; not persisted across
 // save/load in v1.
 
-require("src/route.nut");
-require("src/candidates.nut");
+require("route.nut");
+require("candidates.nut");
 
 class State {
     routes    = null;   // map: route_key -> Route record

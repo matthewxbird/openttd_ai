@@ -1,10 +1,10 @@
-// src/autoreplace.nut
+﻿// src/autoreplace.nut
 // Yearly tick: for each cargo we serve, re-pick the best engine for the
 // current railtype, and set autoreplace from any older engine to the
 // new best. AIGroup.GROUP_ALL is fine for company-wide replacement.
 
-require("src/logger.nut");
-require("src/trains.nut");
+require("logger.nut");
+require("trains.nut");
 
 class AutoReplace {
 

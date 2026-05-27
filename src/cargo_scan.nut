@@ -1,4 +1,4 @@
-// src/cargo_scan.nut
+﻿// src/cargo_scan.nut
 // Walk all cargoes the current climate offers, find every (producer,
 // accepter) industry pair for each cargo, score it by ROI, and return
 // a ranked candidate list. No building - just looking.
@@ -6,9 +6,9 @@
 // Heavy AI* usage here: AICargoList, AIIndustryList_CargoProducing/Accepting,
 // AIIndustry, AIMap. Verified in-game, not in unit tests.
 
-require("src/logger.nut");
-require("src/scoring.nut");
-require("src/candidates.nut");
+require("logger.nut");
+require("scoring.nut");
+require("candidates.nut");
 
 class CargoScan {
 

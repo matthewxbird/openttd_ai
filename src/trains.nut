@@ -1,11 +1,11 @@
-// src/trains.nut
+﻿// src/trains.nut
 // Pick an engine + wagon for a cargo, buy them at a depot, attach
 // wagons, set orders, and start the train.
 //
 // "Best engine" = lowest running cost per (top_speed * capacity).
 // Lower is better. Wagons evaluated the same way but only on capacity.
 
-require("src/logger.nut");
+require("logger.nut");
 
 class Trains {
 

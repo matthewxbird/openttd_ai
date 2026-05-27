@@ -1,4 +1,4 @@
-// src/station_builder.nut
+﻿// src/station_builder.nut
 // Find a flat 2xN strip near an industry and build a double-track
 // terminus station there, with a depot adjacent to one platform.
 //
@@ -9,7 +9,7 @@
 // "front_tile" is the tile in front of the station entrance - this is
 // what the pathfinder uses as the connection point.
 
-require("src/logger.nut");
+require("logger.nut");
 
 class StationBuilder {
 

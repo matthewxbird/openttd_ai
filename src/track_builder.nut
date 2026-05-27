@@ -1,18 +1,18 @@
-// src/track_builder.nut
+﻿// src/track_builder.nut
 // Build a double-track rail line between two "front-of-station" tiles.
 //
-// Uses our custom RailPathFinder (src/rail_pf.nut) — no external library
+// Uses our custom RailPathFinder (src/rail_pf.nut) â€” no external library
 // dependency. Runs in two passes:
-//   Pass 1 ("out"): src_front → dst_front, isOutward=true
+//   Pass 1 ("out"): src_front â†’ dst_front, isOutward=true
 //     The cost function reserves room for a parallel return track.
-//   Pass 2 ("back"): dst_front → src_front, reversePath = out-path result
+//   Pass 2 ("back"): dst_front â†’ src_front, reversePath = out-path result
 //     The cost function uses the out-path to guide the back track parallel.
 //
 // Returns a pair { out, back } where each value is an array of tile indices
 // in travel order, or null if that direction failed.
 
-require("src/logger.nut");
-require("src/rail_pf.nut");
+require("logger.nut");
+require("rail_pf.nut");
 
 class TrackBuilder {
 
@@ -30,7 +30,7 @@ class TrackBuilder {
         if (dst_prev == null) dst_prev = dst_front + AIMap.GetTileIndex(-1, 0);
 
         // --- Pass 1: out track ---
-        Log.Info(Log.PHASE_TRACK, "Pass 1 (out): pathfinding src→dst");
+        Log.Info(Log.PHASE_TRACK, "Pass 1 (out): pathfinding srcâ†’dst");
         local out_tiles = TrackBuilder._RunPathfinder(
             src_front, src_prev, dst_front, dst_prev,
             true,  // isOutward
@@ -45,7 +45,7 @@ class TrackBuilder {
         local out_path_chain = TrackBuilder._TilesToPathChain(out_tiles);
 
         // --- Pass 2: back track ---
-        Log.Info(Log.PHASE_TRACK, "Pass 2 (back): pathfinding dst→src alongside out-track");
+        Log.Info(Log.PHASE_TRACK, "Pass 2 (back): pathfinding dstâ†’src alongside out-track");
         local back_tiles = TrackBuilder._RunPathfinder(
             dst_front, dst_prev, src_front, src_prev,
             false,        // isOutward = false for back track
@@ -173,7 +173,7 @@ class TrackBuilder {
 
     // Reconstruct a lightweight AyStar.Path chain from an ordered tile array.
     // Used to pass the out-path result as `reversePath` to the back-track PF.
-    // The chain doesn't need real costs — just tile linkage.
+    // The chain doesn't need real costs â€” just tile linkage.
     static function _TilesToPathChain(tiles) {
         if (tiles == null || tiles.len() == 0) return null;
         // Cost function that returns 0 (we only need the tile structure).

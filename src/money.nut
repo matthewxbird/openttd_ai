@@ -1,4 +1,4 @@
-// src/money.nut
+﻿// src/money.nut
 // Loan + cash helpers. The pure parts (ShouldRepay) live here too so tests
 // can verify the thresholds without OpenTTD running.
 //
@@ -7,7 +7,7 @@
 //  - Each loop tick, if cash is comfortably above the loan, repay one step.
 //  - HasFunds(estimate) checks bank balance before kicking off a build.
 
-require("src/logger.nut");
+require("logger.nut");
 
 class Money {
     // -- PURE function (testable without AI* calls) -----------------------
