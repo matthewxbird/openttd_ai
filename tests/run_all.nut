@@ -10,9 +10,11 @@ dofile("tests/test_helpers.nut");
 
 // Source modules under test (pure ones only).
 dofile("src/scoring.nut");
+dofile("src/candidates.nut");
 
 // Test files.
 dofile("tests/test_scoring.nut");
+dofile("tests/test_candidates.nut");
 
 print("\n----\n");
 print("passed: " + Tests.passed + "\n");
