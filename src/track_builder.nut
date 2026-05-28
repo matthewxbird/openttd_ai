@@ -16,6 +16,8 @@ class TrackBuilder {
 
     static MAX_CHUNKS = 500;   // pathfinder chunks per attempt
     static RETRY_CHUNKS = 800; // chunks for the relaxed-cost retry
+    static MAX_SMOOTH  = 2;    // terraform bumps up to this height diff; bigger = ramp
+    static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
 
     // Build both tracks. Returns { out, back } (either may be null on failure).
     // src_front, dst_front: first tile outside each station entrance (from
@@ -124,12 +126,34 @@ class TrackBuilder {
         local built = 0;
         local bridges = 0;
         local tunnels = 0;
+        local leveled = 0;
+
+        // Height the current flat run is held at. Terraforming keeps a run of
+        // ground tiles co-planar (a cutting/embankment) instead of riding every
+        // little bump; a bigger natural step resets the run so a ramp forms.
+        local level_h = AITile.GetMaxHeight(tiles[1]);
 
         for (local i = 1; i < tiles.len() - 1; i++) {
             local prev = tiles[i - 1];
             local cur  = tiles[i];
             local next = tiles[i + 1];
             local step = AIMap.DistanceManhattan(prev, cur);
+
+            // ---- TERRAFORM: smooth the ground under straight rail ----------
+            // Skip bridge/tunnel spans and the tiles right next to a station.
+            local near_station = (i < TrackBuilder.STATION_GUARD)
+                || (i >= tiles.len() - 1 - TrackBuilder.STATION_GUARD);
+            local next_step = AIMap.DistanceManhattan(cur, next);
+            if (step == 1 && next_step == 1 && !near_station) {
+                local nat = AITile.GetMaxHeight(cur);
+                if (abs(nat - level_h) > TrackBuilder.MAX_SMOOTH) {
+                    level_h = nat;  // big change: start a new level, let a ramp form
+                }
+                if (TrackBuilder._FlattenToHeight(cur, level_h)) leveled++;
+            } else if (step > 1) {
+                // After a bridge/tunnel, re-anchor the level to the far end.
+                level_h = AITile.GetMaxHeight(cur);
+            }
 
             if (step > 1) {
                 // Multi-tile step = bridge or existing tunnel.
@@ -174,8 +198,38 @@ class TrackBuilder {
 
         Log.Info(Log.PHASE_TRACK,
             "[" + label + "] built " + built + " rail, "
-            + bridges + " bridges, " + tunnels + " tunnels.");
+            + bridges + " bridges, " + tunnels + " tunnels, "
+            + leveled + " tiles leveled.");
         return tiles;
+    }
+
+    // Terraform a single tile FLAT at `target` height by raising/lowering each
+    // corner one step at a time. Best-effort: every AI* call is allowed to fail
+    // (e.g. blocked by a neighbour) and we just stop. Returns true if the tile
+    // ends up flat at the target height.
+    static function _FlattenToHeight(tile, target) {
+        // corner query constant -> matching single-corner slope mask to move it.
+        local corners = [
+            [AITile.CORNER_W, AITile.SLOPE_W],
+            [AITile.CORNER_S, AITile.SLOPE_S],
+            [AITile.CORNER_E, AITile.SLOPE_E],
+            [AITile.CORNER_N, AITile.SLOPE_N],
+        ];
+        for (local guard = 0; guard < 16; guard++) {
+            if (AITile.GetSlope(tile) == AITile.SLOPE_FLAT
+                    && AITile.GetMaxHeight(tile) == target) {
+                return true;
+            }
+            local moved = false;
+            foreach (c in corners) {
+                local ch = AITile.GetCornerHeight(tile, c[0]);
+                if (ch < target)      { if (AITile.RaiseTile(tile, c[1])) moved = true; }
+                else if (ch > target) { if (AITile.LowerTile(tile, c[1])) moved = true; }
+            }
+            if (!moved) break;  // can't make progress (blocked) — give up
+        }
+        return AITile.GetSlope(tile) == AITile.SLOPE_FLAT
+            && AITile.GetMaxHeight(tile) == target;
     }
 
     // Reconstruct a lightweight AyStar.Path chain from an ordered tile array.

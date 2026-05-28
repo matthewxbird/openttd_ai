@@ -58,6 +58,7 @@ class RailPathFinder {
     _cost_tight_turn     = null;
     _cost_slope          = null;
     _cost_bridge_per_tile = null;
+    _cost_bridge_fixed   = null;  // flat overhead per bridge (discourage trivial bridges)
     _cost_tunnel_per_tile = null;
     _cost_coast          = null;
     _cost_crossing_rail  = null;
@@ -89,6 +90,7 @@ class RailPathFinder {
         this._cost_tight_turn     = 1500;
         this._cost_slope          = 100;
         this._cost_bridge_per_tile = 100;
+        this._cost_bridge_fixed   = 500;   // trivial dip-bridges lose to terraformed ground
         this._cost_tunnel_per_tile = 0;    // tunnels preferred over climbing
         this._cost_coast          = 20;
         this._cost_crossing_rail  = 50;
@@ -277,8 +279,10 @@ class RailPathFinder {
                 // Tunnel
                 cost += total_tiles * (self._cost_tile + self._cost_tunnel_per_tile);
             } else {
-                // Bridge
-                cost += total_tiles * (self._cost_tile + self._cost_bridge_per_tile);
+                // Bridge: per-tile cost + a flat overhead so a short bridge
+                // over a small dip loses to a ground route we can terraform.
+                cost += self._cost_bridge_fixed
+                    + total_tiles * (self._cost_tile + self._cost_bridge_per_tile);
             }
 
             // DOUBLE-TRACK: if building outward, check the parallel tile is
