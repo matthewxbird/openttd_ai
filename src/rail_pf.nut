@@ -361,16 +361,23 @@ class RailPathFinder {
         }
 
         // ---- REVERSE-TRACK GUIDE PENALTY --------------------------------
-        // When _reverseNears is set (building the back track), steer AWAY from
-        // tiles that are far from the already-built out-track. The out-path
-        // tiles have level 0; adjacent tiles level 1; and so on up to 20.
-        // Higher level = farther from out-track = bigger penalty (we want the
-        // back track close to the out-track for a proper double-track layout).
+        // When _reverseNears is set (building the back track) we want it to hug
+        // the out-track ONE tile to the side (level 1) for a clean parallel
+        // double track. _reverseNears tags: level 0 = on the out-path itself,
+        // level 1 = adjacent, ... up to 20 = far. So the penalty is a V with
+        // its minimum at level 1:
+        //   level 0  -> huge  (never build ON the out-track: collision)
+        //   level 1  -> zero  (the sweet spot we want)
+        //   level n  -> grows with distance from the out-track
+        //   off-guide -> max  (keep the search in a tight corridor = fast)
+        // The old formula was inverted: it made "far away" free, so the back
+        // track wandered off and the open set exploded.
         if (self._reverseNears != null && t[0] in self._reverseNears) {
             local level = self._reverseNears[t[0]];
-            cost += self._cost_guide * (20 - level);  // invert: level 0 = max penalty, level 20 = none
+            if (level == 0) cost += self._cost_guide * 20;
+            else            cost += self._cost_guide * (level - 1);
         } else if (self._reverseNears != null) {
-            cost += self._cost_guide * 20;  // totally off the guide line
+            cost += self._cost_guide * 25;  // totally off the guide line
         }
 
         return path.GetCost() + cost;
