@@ -71,6 +71,13 @@ class StationBuilder {
         local front_tile = StationBuilder._FrontTile(tile, direction);
         local enter_tile = StationBuilder._EnterTile(tile, direction);
 
+        // Each platform needs its OWN approach tile. The two platforms sit
+        // side-by-side (perpendicular to the track axis), so platform 1's
+        // front/enter are platform 0's offset by one tile sideways. Giving
+        // each main-line track its own platform avoids a crossover (tight
+        // S-curve) at the throat.
+        local perp = StationBuilder._PerpStep(direction);
+
         // Depot is NOT built here. Terminus depots at the station end force
         // trains to reverse and block the platform. DepotBuilder places a
         // spur depot off the mainline instead, after tracks are laid.
@@ -80,12 +87,22 @@ class StationBuilder {
             + " at tile=" + tile + " dir=" + direction);
 
         return {
-            station_id = station_id,
-            tile       = tile,
-            front_tile = front_tile,
-            enter_tile = enter_tile,
-            direction  = direction,
+            station_id   = station_id,
+            tile         = tile,
+            front_tile   = front_tile,         // platform 0
+            enter_tile   = enter_tile,
+            front_tile_b = front_tile + perp,  // platform 1
+            enter_tile_b = enter_tile + perp,
+            direction    = direction,
         };
+    }
+
+    // One-tile step perpendicular to the track axis (separates the 2 platforms).
+    static function _PerpStep(direction) {
+        if (direction == AIRail.RAILTRACK_NE_SW) {
+            return AIMap.GetTileIndex(0, 1);  // axis along x -> platforms along y
+        }
+        return AIMap.GetTileIndex(1, 0);      // axis along y -> platforms along x
     }
 
     // One tile in front of the station exit (just outside the platforms).

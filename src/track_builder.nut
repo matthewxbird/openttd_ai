@@ -18,21 +18,27 @@ class TrackBuilder {
     static RETRY_CHUNKS = 800; // chunks for the relaxed-cost retry
     static MAX_SMOOTH  = 2;    // terraform bumps up to this height diff; bigger = ramp
     static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
+    static LEAD_IN     = 3;    // straight tiles out of each platform before any curve
 
-    // Build both tracks. Returns { out, back } (either may be null on failure).
-    // src_front, dst_front: first tile outside each station entrance (from
-    //   StationBuilder.BuildAt result.front_tile).
-    // src_prev, dst_prev:   the tile BEFORE front_tile along the approach
-    //   direction, so the pathfinder starts with correct directional context.
-    //   If null, a synthetic neighbour tile is inferred from the front tile.
-    static function BuildDoubleTracks(src_front, src_prev, dst_front, dst_prev) {
-        if (src_prev == null) src_prev = src_front + AIMap.GetTileIndex(-1, 0);
-        if (dst_prev == null) dst_prev = dst_front + AIMap.GetTileIndex(-1, 0);
+    // Build both tracks between two stations. Returns { out, back }.
+    // `src`, `dst`: StationBuilder.BuildAt result tables. Each has front_tile/
+    //   enter_tile (platform 0) and front_tile_b/enter_tile_b (platform 1).
+    //
+    // The out-track uses platform 0 at both stations; the back-track uses
+    // platform 1. Each track gets its OWN platform so neither has to cross
+    // over at the throat (which is what caused the tight S-curve). Before
+    // pathfinding we lay a straight lead-in stub out of each platform so any
+    // curve is pushed well clear of the station entrance.
+    static function BuildDoubleTracks(src, dst) {
+        local src_h = AITile.GetMaxHeight(src.enter_tile);
+        local dst_h = AITile.GetMaxHeight(dst.enter_tile);
 
-        // --- Pass 1: out track ---
-        Log.Info(Log.PHASE_TRACK, "Pass 1 (out): pathfinding srcâ†’dst");
+        // --- Pass 1: out track (platform 0 -> platform 0) ---
+        Log.Info(Log.PHASE_TRACK, "Pass 1 (out): straight lead-ins + pathfind srcâ†’dst");
+        local s_out = TrackBuilder._BuildLeadIn(src.enter_tile, src.front_tile, src_h);
+        local d_out = TrackBuilder._BuildLeadIn(dst.enter_tile, dst.front_tile, dst_h);
         local out_tiles = TrackBuilder._RunPathfinder(
-            src_front, src_prev, dst_front, dst_prev,
+            s_out.tip, s_out.prev, d_out.tip, d_out.prev,
             true,  // isOutward
             null,  // no reversePath yet
             "out");
@@ -44,11 +50,13 @@ class TrackBuilder {
         // Reconstruct a Path chain from the tile array for use as reversePath.
         local out_path_chain = TrackBuilder._TilesToPathChain(out_tiles);
 
-        // --- Pass 2: back track ---
-        Log.Info(Log.PHASE_TRACK, "Pass 2 (back): pathfinding dstâ†’src alongside out-track");
+        // --- Pass 2: back track (platform 1 -> platform 1) ---
+        Log.Info(Log.PHASE_TRACK, "Pass 2 (back): straight lead-ins + pathfind dstâ†’src");
+        local s_back = TrackBuilder._BuildLeadIn(src.enter_tile_b, src.front_tile_b, src_h);
+        local d_back = TrackBuilder._BuildLeadIn(dst.enter_tile_b, dst.front_tile_b, dst_h);
         local back_tiles = TrackBuilder._RunPathfinder(
-            dst_front, dst_prev, src_front, src_prev,
-            false,        // isOutward = false for back track
+            d_back.tip, d_back.prev, s_back.tip, s_back.prev,
+            false,          // isOutward = false for back track
             out_path_chain, // guide the back track to run parallel
             "back");
         if (back_tiles == null) {
@@ -56,6 +64,31 @@ class TrackBuilder {
         }
 
         return { out = out_tiles, back = back_tiles };
+    }
+
+    // Lay a straight lead-in stub out of a platform along the platform axis,
+    // so the main line approaches the station dead straight (no tight turn at
+    // the throat). Best-effort: stops early if terrain blocks it.
+    //   enter -> front is the one-tile outward step; we extend up to LEAD_IN
+    //   tiles further. Returns { tip, prev } for the pathfinder to start from:
+    //   tip = furthest tile reached, prev = the tile one step toward the station.
+    static function _BuildLeadIn(enter, front, target_h) {
+        local step = front - enter;          // unit step pointing AWAY from station
+        local prev = enter;
+        local cur  = front;
+        local tip  = front;
+        local back = enter;                  // tile one step toward station from tip
+        for (local k = 0; k < TrackBuilder.LEAD_IN; k++) {
+            local next = cur + step;
+            if (!AIMap.IsValidTile(next)) break;
+            if (!AITile.IsBuildable(next)) break;
+            TrackBuilder._FlattenToHeight(cur,  target_h);
+            TrackBuilder._FlattenToHeight(next, target_h);
+            if (!AIRail.BuildRail(prev, cur, next)) break;  // rail on `cur`
+            back = cur;
+            prev = cur; cur = next; tip = next;
+        }
+        return { tip = tip, prev = back };
     }
 
     // Single pass: find a path then physically build it.
