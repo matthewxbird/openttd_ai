@@ -63,8 +63,11 @@ class RailPathFinder {
     _cost_crossing_rail  = null;
     _cost_level_crossing = null;
     _cost_guide          = null;  // per-level reverse-separation penalty
+    _cost_curve_spacing  = null;  // penalty when 2+ corners fall within a train length
+    _cost_uphill         = null;  // per-tile penalty for an ascending (climbing) step
     _estimate_rate       = null;  // heuristic multiplier (>1 = faster, less optimal)
     _max_slope           = null;  // height diff over this many tiles triggers slope cost
+    _curve_window        = null;  // lookback tiles that count as "one train length"
     _max_bridge_length   = null;
     _max_tunnel_length   = null;
 
@@ -91,8 +94,11 @@ class RailPathFinder {
         this._cost_crossing_rail  = 50;
         this._cost_level_crossing = 900;
         this._cost_guide          = 900;   // per level of reverse-tile distance
+        this._cost_curve_spacing  = 600;   // corners closer than a train length = 55km/h cap
+        this._cost_uphill         = 80;    // each climbing tile drags train speed down
         this._estimate_rate       = 3;     // inflate heuristic â†’ faster search
         this._max_slope           = 2;     // penalise if height changes >= 2 over 4 tiles
+        this._curve_window        = 6;     // ~longest-train length; corners within = tight
         this._max_bridge_length   = 20;
         this._max_tunnel_length   = 11;
 
@@ -226,6 +232,32 @@ class RailPathFinder {
             // Tight 180: dirs[0]==dirs[1] and dirs[2]==dirs[3] and they're opposite.
             if (dirs[0] == dirs[1] && dirs[2] == dirs[3] && dirs[0] != dirs[2]) {
                 cost += self._cost_tight_turn;
+            }
+        }
+
+        // ---- CURVE SPACING (tight-curve speed limit) -------------------
+        // OpenTTD speed-caps a train (down to 55 km/h) when its body spans
+        // two corners at once. Avoid that by leaving straight tiles between
+        // curves >= the longest train. Detect 2+ heading changes inside the
+        // train-length lookback window and penalise. Heading uses a 2-tile
+        // vector (t[k]-t[k+2]) so a smooth diagonal zig-zag reads as ONE
+        // heading, not a string of corners.
+        if (self._cost_curve_spacing > 0 && t.len() >= 4) {
+            local span = t.len() - 2;            // number of 2-tile headings
+            if (span > self._curve_window) span = self._curve_window;
+            local changes = 0;
+            for (local k = 0; k + 1 < span; k++) {
+                if ((t[k] - t[k + 2]) != (t[k + 1] - t[k + 3])) changes++;
+            }
+            if (changes >= 2) cost += self._cost_curve_spacing;
+        }
+
+        // ---- PER-TILE GRADIENT (climbing slows trains) -----------------
+        // Each ascending tile drags real train speed down regardless of the
+        // steep-gradient check below. Travel goes t[1] -> t[0] (t[0] newest).
+        if (self._cost_uphill > 0 && t.len() >= 2) {
+            if (AITile.GetMaxHeight(t[0]) > AITile.GetMaxHeight(t[1])) {
+                cost += self._cost_uphill;
             }
         }
 
