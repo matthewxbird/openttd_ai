@@ -19,7 +19,6 @@ class TrackBuilder {
     static MAX_SMOOTH  = 2;    // only flatten isolated bumps/dips up to this height diff
     static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
     static LEAD_IN     = 3;    // straight tiles out of each platform before any curve
-    static TERRAFORM_MIN_CASH = 500000; // skip ALL terraforming below this bank balance
 
     // Build both tracks between two stations. Returns { out, back }.
     // `src`, `dst`: StationBuilder.BuildAt result tables. Each has front_tile/
@@ -79,15 +78,12 @@ class TrackBuilder {
         local cur  = front;
         local tip  = front;
         local back = enter;                  // tile one step toward station from tip
-        local may_terraform = Money.Cash() >= TrackBuilder.TERRAFORM_MIN_CASH;
         for (local k = 0; k < TrackBuilder.LEAD_IN; k++) {
             local next = cur + step;
             if (!AIMap.IsValidTile(next)) break;
             if (!AITile.IsBuildable(next)) break;
-            if (may_terraform) {
-                TrackBuilder._FlattenToHeight(cur,  target_h);
-                TrackBuilder._FlattenToHeight(next, target_h);
-            }
+            TrackBuilder._FlattenToHeight(cur,  target_h);
+            TrackBuilder._FlattenToHeight(next, target_h);
             if (!AIRail.BuildRail(prev, cur, next)) break;  // rail on `cur`
             back = cur;
             prev = cur; cur = next; tip = next;
@@ -165,10 +161,6 @@ class TrackBuilder {
         local tunnels = 0;
         local leveled = 0;
 
-        // Only terraform if we are flush. Earthworks are expensive; below the
-        // floor we lay rail on the natural ground and accept the bumps.
-        local may_terraform = Money.Cash() >= TrackBuilder.TERRAFORM_MIN_CASH;
-
         for (local i = 1; i < tiles.len() - 1; i++) {
             local prev = tiles[i - 1];
             local cur  = tiles[i];
@@ -184,7 +176,7 @@ class TrackBuilder {
             local near_station = (i < TrackBuilder.STATION_GUARD)
                 || (i >= tiles.len() - 1 - TrackBuilder.STATION_GUARD);
             local next_step = AIMap.DistanceManhattan(cur, next);
-            if (may_terraform && step == 1 && next_step == 1 && !near_station) {
+            if (step == 1 && next_step == 1 && !near_station) {
                 local hp = AITile.GetMaxHeight(prev);
                 local hc = AITile.GetMaxHeight(cur);
                 local hn = AITile.GetMaxHeight(next);
