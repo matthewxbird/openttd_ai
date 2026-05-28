@@ -15,8 +15,10 @@ class Route {
             dst_station = null,
             path_out    = null,   // array of tiles producer -> accepter
             path_back   = null,   // array of tiles accepter -> producer
-            depot_tile  = null,   // spur depot off the out-track mainline
+            depot_tiles = null,   // array of spur depots off the out-track mainline
+            depot_tile  = null,   // primary depot (where trains are built)
             train_id    = -1,
+            trains      = null,   // array of all vehicle ids on this route
             status      = "planned",  // planned | built | failed
         };
     }

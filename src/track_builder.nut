@@ -141,11 +141,25 @@ class TrackBuilder {
             src_f, src_p, dst_f, dst_p, is_outward, guide_tiles,
             TrackBuilder.MAX_CHUNKS, label);
 
+        // A path that doesn't actually reach the destination is worse than no
+        // path: building it lays a dead-end track and any train dispatched on
+        // it strands at the station, unable to leave. Treat a non-arriving
+        // (partial / budget-exhausted) result as failure so the route is
+        // blacklisted instead of half-built.
+        if (tiles != null && !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
+            Log.Warn(Log.PHASE_TRACK, "[" + label + "] path did not reach destination; discarding");
+            tiles = null;
+        }
+
         if (tiles == null) {
             // Retry with larger budget and relaxed cost.
             Log.Warn(Log.PHASE_TRACK, "[" + label + "] retry with relaxed budget");
             tiles = TrackBuilder._FindPathRelaxed(
                 src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, label);
+            if (tiles != null && !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
+                Log.Warn(Log.PHASE_TRACK, "[" + label + "] relaxed path still short; giving up");
+                tiles = null;
+            }
         }
         if (tiles == null) return null;
 
@@ -159,6 +173,17 @@ class TrackBuilder {
         }
 
         return TrackBuilder._BuildPath(tiles, label);
+    }
+
+    // Did the path actually arrive at the destination? True if its last tile
+    // is the dest approach (front) or platform-entry tile, or adjacent to one.
+    static function _Reaches(tiles, dst_f, dst_p) {
+        if (tiles == null || tiles.len() == 0) return false;
+        local last = tiles[tiles.len() - 1];
+        if (last == dst_f || last == dst_p) return true;
+        if (AIMap.DistanceManhattan(last, dst_f) <= 1) return true;
+        if (dst_p != null && AIMap.DistanceManhattan(last, dst_p) <= 1) return true;
+        return false;
     }
 
     // Invoke RailPathFinder with standard cost settings.

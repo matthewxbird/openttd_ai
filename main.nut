@@ -19,6 +19,7 @@ require("src/trains.nut");
 require("src/route.nut");
 require("src/state.nut");
 require("src/autoreplace.nut");
+require("src/maintenance.nut");
 
 class MvBAI extends AIController {
     state        = null;
@@ -48,6 +49,11 @@ function MvBAI::Start() {
     Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan/build loop.");
 
     while (true) {
+        // 0. Health pass: check existing lines + trains before building more.
+        //    Reports cargo waiting + station ratings, flags stuck trains, and
+        //    tops up busy routes with another train.
+        Maintenance.Tick(this.state, this.railtype);
+
         // 1. Scan + rank.
         local cands  = CargoScan.Scan();
         local ranked = Candidates.Rank(cands, this.state.blacklist);
@@ -142,7 +148,11 @@ function MvBAI::TryBuildRoute(c) {
         route.src_station, route.dst_station);
     route.path_out  = tracks.out;
     route.path_back = tracks.back;
-    if (route.path_out == null) {
+    // BOTH tracks are required. With only the out track, a train reaches the
+    // destination and then has no way home (the back platform is unconnected
+    // and signals are one-way) - it strands. Fail the route instead.
+    if (route.path_out == null || route.path_back == null) {
+        Log.Err(Log.PHASE_TRACK, "Incomplete double track (out or back missing); abandoning route.");
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
         return false;
     }
@@ -153,13 +163,14 @@ function MvBAI::TryBuildRoute(c) {
         Signals.PlaceAlong(route.path_back, true, "back");
     }
 
-    // Spur depot off the out-track mainline (not at the station end).
-    route.depot_tile = DepotBuilder.New(route.path_out);
-    if (route.depot_tile == null) {
+    // Spur depots off the out-track mainline (not at the station end).
+    route.depot_tiles = DepotBuilder.New(route.path_out);
+    if (route.depot_tiles == null) {
         Log.Err(Log.PHASE_DEPOT, "No depot could be built; abandoning route.");
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
         return false;
     }
+    route.depot_tile = route.depot_tiles[0];   // primary: where trains are built
 
     // Trains.
     local engine = Trains.PickEngine(c.cargo, this.railtype);
@@ -180,6 +191,7 @@ function MvBAI::TryBuildRoute(c) {
         return false;
     }
 
+    route.trains = [route.train_id];
     route.status = "built";
     this.state.AddRoute(route);
     Log.Info(Log.PHASE_RANK, "Route built and running. Total routes: " + this.state.CountRoutes());
