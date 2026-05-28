@@ -106,7 +106,9 @@ class RailPathFinder {
         this._cost_uphill         = 80;    // each climbing tile drags train speed down
         this._cost_height_change  = 200;   // prefer routes that stay at one height
         this._cost_sawtooth       = 2500;  // never zig-zag up/down (kills train speed)
-        this._estimate_rate       = 3;     // inflate heuristic â†’ faster search
+        this._estimate_rate       = 1;     // admissible: heuristic = true flat cost,
+                                           // so A* stays optimal (clean diagonals,
+                                           // not greedy S-curves) yet still fast
         this._max_slope           = 2;     // penalise if height changes >= 2 over 4 tiles
         this._curve_window        = 6;     // ~longest-train length; corners within = tight
         this._max_bridge_length   = 20;
