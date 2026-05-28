@@ -70,29 +70,20 @@ class StationBuilder {
         // makes the first segment look like a bridge and the build fails.
         local front_tile = StationBuilder._FrontTile(tile, direction);
         local enter_tile = StationBuilder._EnterTile(tile, direction);
-        local depot_tile = StationBuilder._DepotTile(tile, direction);
 
-        // Try to place a depot. If it fails (terrain etc.), we keep the
-        // station but report no depot - trains can still run on an
-        // explicit depot built later.
-        local depot_ok = AIRail.BuildRailDepot(depot_tile, tile);
-        if (!depot_ok) {
-            Log.Warn(Log.PHASE_STATION,
-                "Station built but depot failed: " + AIError.GetLastErrorString());
-            depot_tile = null;
-        }
+        // Depot is NOT built here. Terminus depots at the station end force
+        // trains to reverse and block the platform. DepotBuilder places a
+        // spur depot off the mainline instead, after tracks are laid.
 
         Log.Info(Log.PHASE_STATION,
             "Built " + (is_source ? "source" : "dest") + " station id=" + station_id
-            + " at tile=" + tile + " dir=" + direction
-            + (depot_tile != null ? " depot=" + depot_tile : " (no depot)"));
+            + " at tile=" + tile + " dir=" + direction);
 
         return {
             station_id = station_id,
             tile       = tile,
             front_tile = front_tile,
             enter_tile = enter_tile,
-            depot_tile = depot_tile,
             direction  = direction,
         };
     }
@@ -114,13 +105,5 @@ class StationBuilder {
             return tile + AIMap.GetTileIndex(StationBuilder.PLATFORM_LENGTH - 1, 0);
         }
         return tile + AIMap.GetTileIndex(0, StationBuilder.PLATFORM_LENGTH - 1);
-    }
-
-    // One tile beyond the back end (opposite of front) - good spot for a depot.
-    static function _DepotTile(tile, direction) {
-        if (direction == AIRail.RAILTRACK_NE_SW) {
-            return tile + AIMap.GetTileIndex(-1, 0);
-        }
-        return tile + AIMap.GetTileIndex(0, -1);
     }
 }

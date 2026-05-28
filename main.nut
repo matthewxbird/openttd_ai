@@ -10,6 +10,7 @@ require("src/scoring.nut");
 require("src/candidates.nut");
 require("src/cargo_scan.nut");
 require("src/station_builder.nut");
+require("src/depot_builder.nut");
 require("src/aystar.nut");
 require("src/rail_pf.nut");
 require("src/track_builder.nut");
@@ -143,16 +144,24 @@ function MvBAI::TryBuildRoute(c) {
         Signals.PlaceAlong(route.path_back, true, "back");
     }
 
+    // Spur depot off the out-track mainline (not at the station end).
+    route.depot_tile = DepotBuilder.New(route.path_out);
+    if (route.depot_tile == null) {
+        Log.Err(Log.PHASE_DEPOT, "No depot could be built; abandoning route.");
+        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
+        return false;
+    }
+
     // Trains.
     local engine = Trains.PickEngine(c.cargo, this.railtype);
     local wagon  = Trains.PickWagon(c.cargo, this.railtype);
-    if (engine == -1 || wagon == -1 || route.src_station.depot_tile == null) {
-        Log.Err(Log.PHASE_TRAIN, "Cannot dispatch: missing engine/wagon/depot.");
+    if (engine == -1 || wagon == -1) {
+        Log.Err(Log.PHASE_TRAIN, "Cannot dispatch: missing engine/wagon.");
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
         return false;
     }
     local n = Trains.PickNumWagons(c.distance);
-    route.train_id = Trains.BuildTrain(route.src_station.depot_tile, engine, wagon, c.cargo, n);
+    route.train_id = Trains.BuildTrain(route.depot_tile, engine, wagon, c.cargo, n);
     if (route.train_id == -1) {
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
         return false;

@@ -15,6 +15,7 @@ class Log {
     static PHASE_RANK    = "RANK";
     static PHASE_MONEY   = "MONEY";
     static PHASE_STATION = "STATION";
+    static PHASE_DEPOT   = "DEPOT";
     static PHASE_TRACK   = "TRACK";
     static PHASE_SIGNAL  = "SIGNAL";
     static PHASE_TRAIN   = "TRAIN";

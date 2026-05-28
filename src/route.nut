@@ -15,6 +15,7 @@ class Route {
             dst_station = null,
             path_out    = null,   // array of tiles producer -> accepter
             path_back   = null,   // array of tiles accepter -> producer
+            depot_tile  = null,   // spur depot off the out-track mainline
             train_id    = -1,
             status      = "planned",  // planned | built | failed
         };

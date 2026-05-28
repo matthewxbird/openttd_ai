@@ -43,6 +43,7 @@ AI Debug window.
        candidates.nut
        cargo_scan.nut
        station_builder.nut
+       depot_builder.nut
        track_builder.nut
        signals.nut
        trains.nut
