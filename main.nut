@@ -51,6 +51,7 @@ function MvBAI::Start() {
         // 1. Scan + rank.
         local cands  = CargoScan.Scan();
         local ranked = Candidates.Rank(cands, this.state.blacklist);
+        CargoScan.LogPerCargoBest(ranked);
         CargoScan.LogTop(ranked, 5);
 
         // 2. Try to build the best candidate we haven't already built.

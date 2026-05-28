@@ -67,6 +67,25 @@ class CargoScan {
         }
     }
 
+    // Log the single best candidate FOR EACH cargo, so you can confirm the
+    // AI weighed every cargo - not just coal - and see why one wins. `ranked`
+    // must already be sorted by score descending; the first time we see a
+    // cargo is therefore its best route.
+    static function LogPerCargoBest(ranked) {
+        local seen = {};
+        Log.Info(Log.PHASE_RANK, "Best ROI per cargo:");
+        foreach (c in ranked) {
+            if (c.cargo in seen) continue;
+            seen[c.cargo] <- true;
+            Log.Info(Log.PHASE_RANK,
+                "  " + AICargo.GetCargoLabel(c.cargo)
+                + " best ROI=" + c.score
+                + " (" + AIIndustry.GetName(c.producer)
+                + " -> " + AIIndustry.GetName(c.accepter)
+                + ", dist=" + c.distance + ")");
+        }
+    }
+
     // Log the top N candidates for visibility in the AI Debug window.
     static function LogTop(ranked, n = 5) {
         local limit = ranked.len() < n ? ranked.len() : n;
