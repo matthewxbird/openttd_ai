@@ -66,6 +66,8 @@ class RailPathFinder {
     _cost_guide          = null;  // per-level reverse-separation penalty
     _cost_curve_spacing  = null;  // penalty when 2+ corners fall within a train length
     _cost_uphill         = null;  // per-tile penalty for an ascending (climbing) step
+    _cost_height_change  = null;  // per-tile penalty for ANY change in ground height
+    _cost_sawtooth       = null;  // heavy penalty for an up-then-down (or down-up) reversal
     _estimate_rate       = null;  // heuristic multiplier (>1 = faster, less optimal)
     _max_slope           = null;  // height diff over this many tiles triggers slope cost
     _curve_window        = null;  // lookback tiles that count as "one train length"
@@ -98,6 +100,8 @@ class RailPathFinder {
         this._cost_guide          = 900;   // per level of reverse-tile distance
         this._cost_curve_spacing  = 600;   // corners closer than a train length = 55km/h cap
         this._cost_uphill         = 80;    // each climbing tile drags train speed down
+        this._cost_height_change  = 200;   // prefer routes that stay at one height
+        this._cost_sawtooth       = 2500;  // never zig-zag up/down (kills train speed)
         this._estimate_rate       = 3;     // inflate heuristic â†’ faster search
         this._max_slope           = 2;     // penalise if height changes >= 2 over 4 tiles
         this._curve_window        = 6;     // ~longest-train length; corners within = tight
@@ -260,6 +264,23 @@ class RailPathFinder {
         if (self._cost_uphill > 0 && t.len() >= 2) {
             if (AITile.GetMaxHeight(t[0]) > AITile.GetMaxHeight(t[1])) {
                 cost += self._cost_uphill;
+            }
+        }
+
+        // ---- VERTICAL PROFILE: penalise height changes, BAN sawtooth ----
+        // Prefer routes that hold one height. Any height change costs; an
+        // up-then-down or down-then-up reversal within 3 tiles is a sawtooth
+        // (the worst case for train speed) and is penalised hard so the
+        // pathfinder routes around rolling terrain instead of riding over it.
+        if (t.len() >= 3) {
+            local h0 = AITile.GetMaxHeight(t[0]);  // newest
+            local h1 = AITile.GetMaxHeight(t[1]);
+            local h2 = AITile.GetMaxHeight(t[2]);  // older
+            local d01 = h0 - h1;   // latest step
+            local d12 = h1 - h2;   // previous step
+            if (d01 != 0) cost += self._cost_height_change;
+            if (d01 != 0 && d12 != 0 && ((d01 > 0) != (d12 > 0))) {
+                cost += self._cost_sawtooth;
             }
         }
 

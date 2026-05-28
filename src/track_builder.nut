@@ -167,12 +167,12 @@ class TrackBuilder {
             local next = tiles[i + 1];
             local step = AIMap.DistanceManhattan(prev, cur);
 
-            // ---- TERRAFORM: flatten ONLY isolated bumps/dips ---------------
-            // Judge each tile against its immediate neighbours - never hold a
-            // running level (that carved whole hillsides flat). A tile is an
-            // isolated bump/dip when its two neighbours sit at (nearly) the
-            // same height but this tile differs by a little. Sustained grades
-            // (neighbours at different heights) are left as natural ramps.
+            // ---- TERRAFORM: flatten ONLY a clean isolated bump/dip ---------
+            // Both neighbours must be at the SAME height and this tile a little
+            // above/below them. Flattening it to that height yields three level
+            // tiles - never a 1-step cliff between flat tiles (which renders as
+            // sawtooth). Anything graded is left for the pathfinder to avoid;
+            // it now penalises height changes and bans vertical zig-zags.
             local near_station = (i < TrackBuilder.STATION_GUARD)
                 || (i >= tiles.len() - 1 - TrackBuilder.STATION_GUARD);
             local next_step = AIMap.DistanceManhattan(cur, next);
@@ -181,7 +181,7 @@ class TrackBuilder {
                 local hc = AITile.GetMaxHeight(cur);
                 local hn = AITile.GetMaxHeight(next);
                 local d_local = abs(hc - hp);
-                if (abs(hp - hn) <= 1                      // neighbours ~level
+                if (hp == hn                               // neighbours exactly level
                         && d_local >= 1
                         && d_local <= TrackBuilder.MAX_SMOOTH) {  // small bump only
                     if (TrackBuilder._FlattenToHeight(cur, hp)) leveled++;
