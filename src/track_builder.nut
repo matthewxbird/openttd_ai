@@ -72,6 +72,15 @@ class TrackBuilder {
         }
         if (tiles == null) return null;
 
+        // The pathfinder stops at dst_f (the tile OUTSIDE the dest platform).
+        // Append dst_p (the platform-entry tile) so _BuildPath lays the final
+        // rail piece linking the approach through dst_f INTO the station.
+        // (The source side already connects: src_p is prepended as a seed.)
+        if (tiles[tiles.len() - 1] == dst_f
+                && dst_p != null && tiles[tiles.len() - 1] != dst_p) {
+            tiles.push(dst_p);
+        }
+
         return TrackBuilder._BuildPath(tiles, label);
     }
 
