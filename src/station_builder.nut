@@ -18,7 +18,10 @@ class StationBuilder {
 
     // Build a station at a producer.  `is_source = true`.
     // Build a station at an accepter. `is_source = false`.
-    static function BuildAt(industry_id, cargo, is_source) {
+    // partner_tile = location of the OTHER industry on this route; the
+    // station throat is oriented to face it so the main line fans straight
+    // out toward the partner instead of wrapping around the back.
+    static function BuildAt(industry_id, cargo, is_source, partner_tile) {
         local label = is_source ? "producer" : "accepter";
         local tiles;
         if (is_source) tiles = AITileList_IndustryProducing(industry_id, StationBuilder.SEARCH_RADIUS);
@@ -35,7 +38,7 @@ class StationBuilder {
 
         foreach (tile, _ in tiles) {
             foreach (dir in dirs) {
-                local result = StationBuilder._TryBuild(tile, dir, industry_id, cargo, is_source);
+                local result = StationBuilder._TryBuild(tile, dir, industry_id, cargo, is_source, partner_tile);
                 if (result != null) return result;
             }
         }
@@ -45,13 +48,11 @@ class StationBuilder {
     }
 
     // Internal: attempt one (tile, direction) pair. Returns result or null.
-    static function _TryBuild(tile, direction, industry_id, cargo, is_source) {
+    static function _TryBuild(tile, direction, industry_id, cargo, is_source, partner_tile) {
         // Quick reject: target tile must be buildable land.
         if (!AITile.IsBuildable(tile)) return null;
 
         // We rely on AIRail.BuildRailStation to validate the full footprint.
-        // If it succeeds, we then place a depot one tile beyond the
-        // station's "back" end.
         local ok = AIRail.BuildRailStation(
             tile,
             direction,
@@ -63,38 +64,54 @@ class StationBuilder {
 
         local station_id = AIStation.GetStationID(tile);
 
-        // front_tile: first tile just OUTSIDE the station exit.
-        // enter_tile: last platform tile, ADJACENT to front_tile. The
-        // pathfinder needs front + an adjacent prev so its first step is
-        // length 1 — passing the station origin (PLATFORM_LENGTH away)
-        // makes the first segment look like a bridge and the build fails.
-        local front_tile = StationBuilder._FrontTile(tile, direction);
-        local enter_tile = StationBuilder._EnterTile(tile, direction);
+        // A rail station is open at BOTH ends. For a terminus we pick ONE end
+        // as the "throat" (where the main line connects) and leave the other
+        // closed. Choose the end whose exit faces the partner industry, so the
+        // line runs straight toward it instead of looping around the back.
+        local axis = StationBuilder._AxisStep(direction);
 
-        // Each platform needs its OWN approach tile. The two platforms sit
-        // side-by-side (perpendicular to the track axis), so platform 1's
-        // front/enter are platform 0's offset by one tile sideways. Giving
-        // each main-line track its own platform avoids a crossover (tight
-        // S-curve) at the throat.
+        // Plus end: exit beyond tile + LEN*axis.  Minus end: exit before tile.
+        local plus_front  = tile + axis * StationBuilder.PLATFORM_LENGTH;
+        local plus_enter  = tile + axis * (StationBuilder.PLATFORM_LENGTH - 1);
+        local minus_front = tile - axis;
+        local minus_enter = tile;
+
+        local use_minus =
+            AIMap.DistanceManhattan(minus_front, partner_tile)
+          < AIMap.DistanceManhattan(plus_front,  partner_tile);
+
+        local front_tile = use_minus ? minus_front : plus_front;
+        local enter_tile = use_minus ? minus_enter : plus_enter;
+
+        // The two platforms sit side-by-side (perpendicular to the axis), so
+        // platform 1's throat tiles are platform 0's offset sideways by one.
         local perp = StationBuilder._PerpStep(direction);
 
-        // Depot is NOT built here. Terminus depots at the station end force
-        // trains to reverse and block the platform. DepotBuilder places a
-        // spur depot off the mainline instead, after tracks are laid.
+        // Depot is NOT built here; DepotBuilder places spur depots off the
+        // mainline later. The throat crossover is built by Terminus.
 
         Log.Info(Log.PHASE_STATION,
             "Built " + (is_source ? "source" : "dest") + " station id=" + station_id
-            + " at tile=" + tile + " dir=" + direction);
+            + " at tile=" + tile + " dir=" + direction
+            + " throat=" + (use_minus ? "minus" : "plus") + " toward partner");
 
         return {
             station_id   = station_id,
             tile         = tile,
-            front_tile   = front_tile,         // platform 0
+            front_tile   = front_tile,         // platform 0 throat
             enter_tile   = enter_tile,
-            front_tile_b = front_tile + perp,  // platform 1
+            front_tile_b = front_tile + perp,  // platform 1 throat
             enter_tile_b = enter_tile + perp,
             direction    = direction,
         };
+    }
+
+    // One-tile step ALONG the track axis, pointing toward the plus end.
+    static function _AxisStep(direction) {
+        if (direction == AIRail.RAILTRACK_NE_SW) {
+            return AIMap.GetTileIndex(1, 0);  // axis along x
+        }
+        return AIMap.GetTileIndex(0, 1);      // axis along y
     }
 
     // One-tile step perpendicular to the track axis (separates the 2 platforms).
@@ -103,24 +120,5 @@ class StationBuilder {
             return AIMap.GetTileIndex(0, 1);  // axis along x -> platforms along y
         }
         return AIMap.GetTileIndex(1, 0);      // axis along y -> platforms along x
-    }
-
-    // One tile in front of the station exit (just outside the platforms).
-    static function _FrontTile(tile, direction) {
-        // Offsets per RAILTRACK enum: NE_SW points along x (east-west),
-        // NW_SE points along y (north-south).
-        if (direction == AIRail.RAILTRACK_NE_SW) {
-            return tile + AIMap.GetTileIndex(StationBuilder.PLATFORM_LENGTH, 0);
-        }
-        return tile + AIMap.GetTileIndex(0, StationBuilder.PLATFORM_LENGTH);
-    }
-
-    // Last platform tile, adjacent to front_tile (one step back from front).
-    // Used as the pathfinder's "prev" so the first step length is 1.
-    static function _EnterTile(tile, direction) {
-        if (direction == AIRail.RAILTRACK_NE_SW) {
-            return tile + AIMap.GetTileIndex(StationBuilder.PLATFORM_LENGTH - 1, 0);
-        }
-        return tile + AIMap.GetTileIndex(0, StationBuilder.PLATFORM_LENGTH - 1);
     }
 }

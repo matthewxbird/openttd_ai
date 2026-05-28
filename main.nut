@@ -10,6 +10,7 @@ require("src/scoring.nut");
 require("src/candidates.nut");
 require("src/cargo_scan.nut");
 require("src/station_builder.nut");
+require("src/terminus.nut");
 require("src/depot_builder.nut");
 require("src/aystar.nut");
 require("src/rail_pf.nut");
@@ -116,10 +117,15 @@ function MvBAI::TryBuildRoute(c) {
 
     local route = Route.New(c.cargo, c.producer, c.accepter, c.distance);
 
+    // Each station's throat is oriented to face the OTHER industry, so the
+    // main line runs straight toward its partner (no wrap-around loop).
+    local producer_tile = AIIndustry.GetLocation(c.producer);
+    local accepter_tile = AIIndustry.GetLocation(c.accepter);
+
     // Source station: reuse if we have one at this producer.
     route.src_station = this.state.FindExistingStation(c.producer, true);
     if (route.src_station == null) {
-        route.src_station = StationBuilder.BuildAt(c.producer, c.cargo, true);
+        route.src_station = StationBuilder.BuildAt(c.producer, c.cargo, true, accepter_tile);
     } else {
         Log.Info(Log.PHASE_STATION, "Reusing existing source station id=" + route.src_station.station_id);
     }
@@ -131,7 +137,7 @@ function MvBAI::TryBuildRoute(c) {
     // Dest station.
     route.dst_station = this.state.FindExistingStation(c.accepter, false);
     if (route.dst_station == null) {
-        route.dst_station = StationBuilder.BuildAt(c.accepter, c.cargo, false);
+        route.dst_station = StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile);
     } else {
         Log.Info(Log.PHASE_STATION, "Reusing existing dest station id=" + route.dst_station.station_id);
     }
@@ -156,6 +162,10 @@ function MvBAI::TryBuildRoute(c) {
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
         return false;
     }
+
+    // Throat crossover at each terminus so a train can arrive on the out
+    // track and depart on the back track (it reverses in the platform).
+    Terminus.BuildBothEnds(route.src_station, route.dst_station);
 
     // Signals on both tracks (back track may be null on very awkward terrain).
     Signals.PlaceAlong(route.path_out,  true,  "out");
