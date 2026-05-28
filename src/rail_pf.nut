@@ -81,8 +81,12 @@ class RailPathFinder {
 
     // -- double-track fields ----------------------------------------------
     isOutward    = null;  // true = building out-track (check rev-tile buildability)
-    reversePath  = null;  // AyStar.Path chain for already-built out-track
+    reversePath  = null;  // AyStar.Path chain for already-built out-track (legacy)
+    outTiles     = null;  // array of out-track tiles (src->dst order) for back guide
+    leftHand     = null;  // true = trains drive on the left (default true)
     _reverseNears = null; // table: tile -> distance-level (0=adjacent, 1..20=further)
+    _preferSide  = null;  // table: tile -> true (correct side for left-hand running)
+    _avoidSide   = null;  // table: tile -> true (wrong side; penalise hard)
 
     constructor() {
         this._max_cost            = 5000000;
@@ -110,7 +114,11 @@ class RailPathFinder {
 
         this.isOutward   = null;
         this.reversePath = null;
+        this.outTiles    = null;
+        this.leftHand    = true;
         this._reverseNears = null;
+        this._preferSide   = null;
+        this._avoidSide    = null;
         this._goals_map  = {};
     }
 
@@ -307,20 +315,24 @@ class RailPathFinder {
             }
 
             // DOUBLE-TRACK: if building outward, check the parallel tile is
-            // buildable for the return track. If not, add a separation penalty.
+            // buildable for the return track. The back track will sit one tile
+            // to the right of out-travel (left-hand running), so reserve THAT
+            // side - not the opposite one.
             if (self.isOutward) {
-                local rev = RailPathFinder._RevDir(t[0], t[1]);
-                if (mode != null && mode instanceof RailPathFinder.UndergroundMode) {
-                    // Tunnel: check if parallel tunnel end is reachable
-                    if (AITunnel.GetOtherTunnelEnd(t[0] + rev) != t[1] + rev) {
-                        cost += 3000;
-                    }
-                } else {
-                    // Bridge: check if a parallel bridge can be built
-                    local bl = AIBridgeList_Length(step + 1);
-                    if (bl.IsEmpty() || !AIBridge.BuildBridge(
-                            AIVehicle.VT_RAIL, bl.Begin(), t[1] + rev, t[0] + rev)) {
-                        cost += 3000;
+                local unit = (t[0] - t[1]) / step;
+                local roff = RailPathFinder._RightOffset(unit);
+                local rev  = self.leftHand ? roff : -roff;
+                if (rev != 0) {
+                    if (mode != null && mode instanceof RailPathFinder.UndergroundMode) {
+                        if (AITunnel.GetOtherTunnelEnd(t[0] + rev) != t[1] + rev) {
+                            cost += 3000;
+                        }
+                    } else {
+                        local bl = AIBridgeList_Length(step + 1);
+                        if (bl.IsEmpty() || !AIBridge.BuildBridge(
+                                AIVehicle.VT_RAIL, bl.Begin(), t[1] + rev, t[0] + rev)) {
+                            cost += 3000;
+                        }
                     }
                 }
             }
@@ -372,11 +384,13 @@ class RailPathFinder {
             // (the reverse direction of travel) is buildable for the return
             // track. If not, penalise heavily.
             if (self.isOutward && t.len() >= 2) {
-                local rev = RailPathFinder._RevDir(t[0], t[1]);
-                local side_cur  = t[0] + rev;
-                local side_prev = t[1] + rev;
-                if (!AITile.IsBuildable(side_cur) || !AITile.IsBuildable(side_prev)) {
-                    cost += 3000;
+                local roff = RailPathFinder._RightOffset(t[0] - t[1]);
+                local rev  = self.leftHand ? roff : -roff;
+                if (rev != 0) {
+                    if (!AITile.IsBuildable(t[0] + rev)
+                            || !AITile.IsBuildable(t[1] + rev)) {
+                        cost += 3000;
+                    }
                 }
             }
         }
@@ -393,12 +407,21 @@ class RailPathFinder {
         //   off-guide -> max  (keep the search in a tight corridor = fast)
         // The old formula was inverted: it made "far away" free, so the back
         // track wandered off and the open set exploded.
-        if (self._reverseNears != null && t[0] in self._reverseNears) {
-            local level = self._reverseNears[t[0]];
-            if (level == 0) cost += self._cost_guide * 20;
-            else            cost += self._cost_guide * (level - 1);
-        } else if (self._reverseNears != null) {
-            cost += self._cost_guide * 25;  // totally off the guide line
+        if (self._reverseNears != null) {
+            if (t[0] in self._reverseNears) {
+                local level = self._reverseNears[t[0]];
+                if (level == 0) cost += self._cost_guide * 20;  // never ON the out-track
+                else            cost += self._cost_guide * (level - 1);  // level 1 = free
+            } else {
+                cost += self._cost_guide * 25;  // totally off the guide corridor
+            }
+            // SIDE BIAS (left-hand running): squeeze the back track onto the
+            // preferred side. Wrong side is heavily penalised so the two tracks
+            // stay parallel on consistent sides and never swap (which would
+            // force a crossing). Costs stay non-negative (A* needs that).
+            if (self._avoidSide != null && t[0] in self._avoidSide) {
+                cost += self._cost_guide * 8;
+            }
         }
 
         return path.GetCost() + cost;
@@ -556,23 +579,57 @@ class RailPathFinder {
     // far from the out-path (so both tracks stay parallel).
     // -----------------------------------------------------------------------
     function _BuildReverseNears() {
-        if (this.reversePath == null) {
+        // Prefer the explicit out-tile array; fall back to walking a legacy
+        // reversePath chain if that's all we were given.
+        local src = this.outTiles;
+        if (src == null && this.reversePath != null) {
+            src = [];
+            local node = this.reversePath;
+            while (node != null) { src.append(node.GetTile()); node = node.GetParent(); }
+        }
+        if (src == null || src.len() == 0) {
             this._reverseNears = null;
+            this._preferSide   = null;
+            this._avoidSide    = null;
             return;
         }
-        local nears = {};
-        this._reverseNears = {};
 
-        // Level 0: tiles directly on the out-path itself.
-        local node = this.reversePath;
-        while (node != null) {
-            local t = node.GetTile();
-            this._reverseNears.rawset(t, 0);
-            nears.rawset(t, 0);
-            node = node.GetParent();
+        this._reverseNears = {};
+        this._preferSide   = {};
+        this._avoidSide    = {};
+        local nears = {};
+
+        // Level 0: tiles directly on the out-path itself (back track must
+        // never sit here - that would be a collision / crossing).
+        foreach (t in src) {
+            if (!(t in this._reverseNears)) {
+                this._reverseNears.rawset(t, 0);
+                nears.rawset(t, 0);
+            }
         }
 
-        // Levels 1..20: BFS outward from the out-path tiles.
+        // Tag a PREFERRED and an AVOID side for every straight out-track step.
+        // For left-hand running the return track must hug ONE consistent side
+        // of the out-track. The preferred side is one tile to the right of the
+        // out-direction of travel (so the out train rides the left rail); the
+        // opposite side is penalised so the back track can't drift across.
+        for (local i = 0; i + 1 < src.len(); i++) {
+            local a = src[i];
+            local b = src[i + 1];
+            if (AIMap.DistanceManhattan(a, b) != 1) continue;  // skip bridge/tunnel jumps
+            local right = RailPathFinder._RightOffset(b - a);
+            if (right == 0) continue;
+            local pref = this.leftHand ? right : -right;
+            local av   = -pref;
+            foreach (base in [a, b]) {
+                local pt = base + pref;
+                local at = base + av;
+                if (!(pt in this._reverseNears)) this._preferSide.rawset(pt, true);
+                if (!(at in this._reverseNears)) this._avoidSide.rawset(at, true);
+            }
+        }
+
+        // Levels 1..20: BFS outward from the out-path tiles (search corridor).
         local offsets = [
             AIMap.GetTileIndex(1,0), AIMap.GetTileIndex(-1,0),
             AIMap.GetTileIndex(0,1), AIMap.GetTileIndex(0,-1)
@@ -617,6 +674,18 @@ class RailPathFinder {
     // The perpendicular tile one step to the "right" of the direction of travel.
     // Used to check if there's room for a parallel return track.
     // isRevReverse=false (default): right-hand side of travel.
+    // One-tile offset to the RIGHT of a unit direction of travel `d` (= to-from).
+    // Used to pick the consistent side for the parallel return track so trains
+    // run on the left. Returns 0 for non-unit (diagonal/zero) directions.
+    static function _RightOffset(d) {
+        local mx = AIMap.GetMapSizeX();
+        if (d ==  1)  return  mx;  // travelling +x -> right is +y
+        if (d == -1)  return -mx;  // travelling -x -> right is -y
+        if (d ==  mx) return -1;   // travelling +y -> right is -x
+        if (d == -mx) return  1;   // travelling -y -> right is +x
+        return 0;
+    }
+
     static function _RevDir(cur, prev) {
         local d = cur - prev;
         local mx = AIMap.GetMapSizeX();
