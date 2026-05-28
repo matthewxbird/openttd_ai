@@ -148,8 +148,11 @@ class RailPathFinder {
             if (counter >= limitCount) break;
             raw = this._pathfinder.FindPath(RailPathFinder.CHUNK);
             counter++;
-            Log.Info(Log.PHASE_TRACK, "  chunk " + counter + "/" + limitCount
-                + " open=" + this._pathfinder._open.Count());
+            // Throttle: log every 10 chunks, not every one (AILog is slow).
+            if (counter % 10 == 0) {
+                Log.Info(Log.PHASE_TRACK, "  chunk " + counter + "/" + limitCount
+                    + " open=" + this._pathfinder._open.Count());
+            }
             if (raw == false && eventPoller != null) {
                 if (!eventPoller.OnPathFindingInterval()) {
                     Log.Warn(Log.PHASE_TRACK, "Pathfinding aborted by event poller.");

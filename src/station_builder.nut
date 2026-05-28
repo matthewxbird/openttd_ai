@@ -63,9 +63,13 @@ class StationBuilder {
 
         local station_id = AIStation.GetStationID(tile);
 
-        // Compute front_tile: one tile in the "forward" direction from
-        // the entrance. We use the tile's offset along `direction`.
+        // front_tile: first tile just OUTSIDE the station exit.
+        // enter_tile: last platform tile, ADJACENT to front_tile. The
+        // pathfinder needs front + an adjacent prev so its first step is
+        // length 1 — passing the station origin (PLATFORM_LENGTH away)
+        // makes the first segment look like a bridge and the build fails.
         local front_tile = StationBuilder._FrontTile(tile, direction);
+        local enter_tile = StationBuilder._EnterTile(tile, direction);
         local depot_tile = StationBuilder._DepotTile(tile, direction);
 
         // Try to place a depot. If it fails (terrain etc.), we keep the
@@ -87,12 +91,13 @@ class StationBuilder {
             station_id = station_id,
             tile       = tile,
             front_tile = front_tile,
+            enter_tile = enter_tile,
             depot_tile = depot_tile,
             direction  = direction,
         };
     }
 
-    // One tile in front of the station, along the track direction.
+    // One tile in front of the station exit (just outside the platforms).
     static function _FrontTile(tile, direction) {
         // Offsets per RAILTRACK enum: NE_SW points along x (east-west),
         // NW_SE points along y (north-south).
@@ -100,6 +105,15 @@ class StationBuilder {
             return tile + AIMap.GetTileIndex(StationBuilder.PLATFORM_LENGTH, 0);
         }
         return tile + AIMap.GetTileIndex(0, StationBuilder.PLATFORM_LENGTH);
+    }
+
+    // Last platform tile, adjacent to front_tile (one step back from front).
+    // Used as the pathfinder's "prev" so the first step length is 1.
+    static function _EnterTile(tile, direction) {
+        if (direction == AIRail.RAILTRACK_NE_SW) {
+            return tile + AIMap.GetTileIndex(StationBuilder.PLATFORM_LENGTH - 1, 0);
+        }
+        return tile + AIMap.GetTileIndex(0, StationBuilder.PLATFORM_LENGTH - 1);
     }
 
     // One tile beyond the back end (opposite of front) - good spot for a depot.

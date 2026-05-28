@@ -123,11 +123,13 @@ function MvBAI::TryBuildRoute(c) {
     }
 
     // Track: two passes for double track.
-    // src_station.tile is just inside the station; front_tile is just outside.
-    // Passing both gives the pathfinder correct directional entry context.
+    // front_tile is just outside the station exit; enter_tile is the
+    // adjacent last-platform tile. Passing the adjacent pair gives the
+    // pathfinder a length-1 first step (NOT the full platform length,
+    // which would be mistaken for a bridge and fail to build).
     local tracks = TrackBuilder.BuildDoubleTracks(
-        route.src_station.front_tile, route.src_station.tile,
-        route.dst_station.front_tile, route.dst_station.tile);
+        route.src_station.front_tile, route.src_station.enter_tile,
+        route.dst_station.front_tile, route.dst_station.enter_tile);
     route.path_out  = tracks.out;
     route.path_back = tracks.back;
     if (route.path_out == null) {

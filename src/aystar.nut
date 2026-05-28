@@ -81,9 +81,12 @@ class AyStar {
             local cur_dir  = path.GetDirection();
 
             // Closed-set check: skip this tile+direction if already expanded.
-            // Using a compound key so approaching the same tile from different
-            // directions is treated as distinct (handles junctions).
-            local closed_key = cur_tile.tostring() + "_" + cur_dir.tostring();
+            // Key by tile + ENTRY direction only (low nibble of the compound
+            // dir). Using the full compound dir would treat every distinct
+            // 2-step history as a new state, defeating pruning and blowing up
+            // the open set. Entry-dir gives at most 4 states per tile.
+            local dir_key = (cur_dir == 0xFF) ? "X" : (cur_dir & 0x0F);
+            local closed_key = cur_tile.tostring() + "_" + dir_key.tostring();
             if (closed_key in this._closed) continue;
             if (this._check_dir_fn(cur_tile, 0, cur_dir, this._self)) continue;
             this._closed[closed_key] <- true;
