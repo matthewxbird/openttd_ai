@@ -132,12 +132,12 @@ class AyStar.Path {
     mode       = null;  // optional metadata (e.g. Underground tunnel state)
 
     // cost_fn(cost_self, parent_path, tile, direction, mode) -> int
-    constructor(parent, tile, direction, mode_, cost_fn, cost_self) {
+    constructor(parent_path, tile, direction, mode_, cost_fn, cost_self) {
         this._tile      = tile;
         this._direction = direction;
-        this._parent    = parent;
+        this._parent    = parent_path;
         this.mode       = mode_;
-        this._cost      = cost_fn(cost_self, parent, tile, direction, mode_);
+        this._cost      = cost_fn(cost_self, parent_path, tile, direction, mode_);
     }
 
     function GetTile()      { return this._tile; }
