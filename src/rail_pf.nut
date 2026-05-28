@@ -91,7 +91,7 @@ class RailPathFinder {
         this._cost_crossing_rail  = 50;
         this._cost_level_crossing = 900;
         this._cost_guide          = 900;   // per level of reverse-tile distance
-        this._estimate_rate       = 2;     // inflate heuristic â†’ faster search
+        this._estimate_rate       = 3;     // inflate heuristic â†’ faster search
         this._max_slope           = 2;     // penalise if height changes >= 2 over 4 tiles
         this._max_bridge_length   = 20;
         this._max_tunnel_length   = 11;
@@ -450,13 +450,20 @@ class RailPathFinder {
 
         if (!AITile.IsBuildable(next) || level > AITile.GetMaxHeight(next)) {
             local bdir = RailPathFinder._GetDir(last, cur, cur + dir);
+            // Push ONLY the shortest viable bridge: the first landing on a
+            // buildable tile at the same height. Pushing every length 2..max
+            // explodes the open set (each length is a separate search node).
             for (local i = 2; i < self._max_bridge_length; i++) {
                 local target = cur + dir * i;
                 if (!AIMap.IsValidTile(target)) break;
+                // Landing must be buildable land at the start height.
+                if (!AITile.IsBuildable(target)) continue;
+                if (AITile.GetMaxHeight(target) != level) continue;
                 local bl = AIBridgeList_Length(i + 1);
                 if (!bl.IsEmpty() &&
                         AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), cur, target)) {
                     tiles.push([target, bdir]);
+                    break;  // shortest viable bridge only
                 }
             }
         }
