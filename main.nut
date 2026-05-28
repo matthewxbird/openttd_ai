@@ -62,10 +62,20 @@ function MvBAI::Start() {
                 Log.Info(Log.PHASE_RANK, "Top remaining candidate has non-positive ROI; idle.");
                 break;
             }
-            local est = Scoring.BuildCostEstimate(c.distance);
-            if (!Money.HasFunds(est / 2)) {
-                Log.Info(Log.PHASE_MONEY, "Not enough cash (need ~" + (est/2) + "); waiting.");
-                break;
+            // Affordability: require the FULL estimate plus a margin for
+            // overruns the estimate under-counts (terraforming, bridges) and
+            // an operating buffer. Don't sink the whole bank into one
+            // ambitious line early game. If this candidate is too dear, skip
+            // it and try a cheaper one further down the ranking - do NOT break
+            // (the list is sorted by ROI, not cost, so the priciest route is
+            // often on top and would otherwise block everything).
+            local est    = Scoring.BuildCostEstimate(c.distance);
+            local needed = est + est / 2;   // 1.5x estimate
+            if (!Money.HasFunds(needed)) {
+                Log.Info(Log.PHASE_MONEY,
+                    "Skip " + AICargo.GetCargoLabel(c.cargo) + " dist=" + c.distance
+                    + " (need ~" + needed + ", have " + Money.Cash() + ")");
+                continue;
             }
             if (this.TryBuildRoute(c)) {
                 built_one = true;
