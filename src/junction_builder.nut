@@ -57,4 +57,61 @@ class JunctionBuilder {
         if (!build_fn(true)) return false;   // wouldn't fit - build nothing
         return build_fn(false);
     }
+
+    // FLAT double-track T-junction ("basic one level"). A branch double-track
+    // ties into a main double-track at grade. Layout, main running along `d`
+    // with its two tracks one tile apart on `p` (near track = track 0):
+    //
+    //        a0 == j0 == c0      main track 0  (flow ->, toward c0)
+    //              \\  X
+    //        a1 == j1 == c1      main track 1  (flow <-, toward a1)
+    //              ||
+    //        bn0  bn1            branch double-track approaching from the p side
+    //
+    //   j0 = junction tile on track 0,  j1 = j0 + p (track 1)
+    //   branch tiles sit on the far-p side: t0 = j0 - p (feeds track 0),
+    //                                       t1 = j1 + p (feeds track 1)
+    // The branch merges WITH each track's flow; the one unavoidable conflict is
+    // the single diamond where the branch crosses track 0 to reach track 1 -
+    // protected by PBS. Everything is dry-run via Stamp first.
+    //
+    // Returns true if the junction was stamped. `d` and `p` are unit tile steps
+    // (perpendicular to each other); a0/c0 are j0-d / j0+d.
+    static function BuildFlatDoubleT(j0, d, p) {
+        local j1 = j0 + p;
+        local a0 = j0 - d;  local c0 = j0 + d;
+        local a1 = j1 - d;  local c1 = j1 + d;
+        local t0 = j0 - p;        // branch tile feeding track 0
+        local tx = j1 + p;        // branch tile beyond track 1 (cross landing)
+
+        return JunctionBuilder.Stamp(function(dry) : (j0, j1, a0, c0, a1, c1, t0, tx, d, p) {
+            // Branch -> track 0 merge (with flow toward c0): corner on j0.
+            local ok = JunctionBuilder._Rail(t0, j0, c0, dry);
+            // Branch crosses j0 to reach track 1, merging with its flow (a1):
+            // corner on j0 from t0 toward j1, then j1 toward a1.
+            ok = ok && JunctionBuilder._Rail(t0, j0, j1, dry);
+            ok = ok && JunctionBuilder._Rail(j0, j1, a1, dry);
+            // Keep the main lines through the junction (straights).
+            ok = ok && JunctionBuilder._Rail(a0, j0, c0, dry);
+            ok = ok && JunctionBuilder._Rail(a1, j1, c1, dry);
+            if (ok && !dry) {
+                // Protect the diamond at j0 with two-way PBS on each approach.
+                foreach (s in [[a0, j0], [c0, j0], [t0, j0], [j1, j0]]) {
+                    if (AIRail.IsRailTile(s[0])) AIRail.BuildSignal(s[0], s[1], AIRail.SIGNALTYPE_PBS);
+                }
+            }
+            return ok;
+        });
+    }
+
+    // Build (or test) a rail piece from->tile->to, treating ALREADY_BUILT as ok.
+    static function _Rail(from, tile, to, dry) {
+        if (dry) {
+            local tm = AITestMode();
+            return AIRail.BuildRail(from, tile, to)
+                || AIError.GetLastError() == AIError.ERR_ALREADY_BUILT;
+        }
+        return AIRail.BuildRail(from, tile, to)
+            || AIError.GetLastError() == AIError.ERR_ALREADY_BUILT;
+    }
 }
