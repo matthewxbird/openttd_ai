@@ -62,7 +62,14 @@ function MvBAI::Start() {
         CargoScan.LogTop(ranked, 5);
 
         // 2. Try to build the best candidate we haven't already built.
+        //    But DON'T start a new line while another is still on probation -
+        //    we verify each line actually earns before pouring money into the
+        //    next one (no more building broken lines and moving on).
         local built_one = false;
+        if (this.state.HasProbation()) {
+            Log.Info(Log.PHASE_RANK,
+                "A route is still on probation; holding off on new lines this tick.");
+        } else
         foreach (c in ranked) {
             if (this.state.HasRoute(c.cargo, c.producer, c.accepter)) continue;
             if (c.score <= 0) {
@@ -202,9 +209,13 @@ function MvBAI::TryBuildRoute(c) {
     }
 
     route.trains = [route.train_id];
-    route.status = "built";
+    // Not "built" yet - the line is on PROBATION until a train proves it works
+    // by completing a round trip (or turning a profit). Maintenance promotes it
+    // to "built", or condemns and tears it down if it never earns / gets stuck.
+    route.status = "probation";
     this.state.AddRoute(route);
-    Log.Info(Log.PHASE_RANK, "Route built and running. Total routes: " + this.state.CountRoutes());
+    Log.Info(Log.PHASE_RANK,
+        "Route built; on PROBATION until it earns. Total routes: " + this.state.CountRoutes());
     return true;
 }
 

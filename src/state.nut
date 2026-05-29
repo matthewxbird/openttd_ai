@@ -27,6 +27,21 @@ class State {
         return n;
     }
 
+    // True if any route is still on probation (built but not yet proven to
+    // earn). Used to hold off starting new lines until the current one works.
+    function HasProbation() {
+        foreach (_, r in this.routes) {
+            if (r.status == "probation") return true;
+        }
+        return false;
+    }
+
+    // Drop a route from the registry (after it has been torn down).
+    function RemoveRoute(route) {
+        local k = Route.Key(route.cargo, route.producer, route.accepter);
+        if (k in this.routes) delete this.routes[k];
+    }
+
     // Return existing station record built at this (industry, is_source)
     // pair so we can reuse it instead of building another. v1: looks
     // through all routes and returns the first match.
