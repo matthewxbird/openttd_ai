@@ -18,13 +18,16 @@
 class DepotBuilder {
 
     static SKIP_NEAR_STATION = 3;  // don't put a depot in the station throat
-    static MAX_DEPOTS = 3;         // be generous: several depots per line
-    static SPACING    = 8;         // min tiles between consecutive depots
+    static MAX_DEPOTS = 4;         // be generous: a couple of pairs per line
+    static PAIR_GAP   = 4;         // tiles between the left and right of a pair
+                                   // (>=4 so their junction tiles don't overlap)
+    static SPACING    = 10;        // gap between one pair and the next
 
     // path: out-track tile array (src -> dst), as returned by TrackBuilder.
-    // Builds up to MAX_DEPOTS spur depots spaced along the mainline so a train
-    // can always reach one nearby without a long detour, and always off the
-    // running line (a spur) so it never blocks through traffic.
+    // Builds depots in PAIRS - one on the left of the mainline and one on the
+    // right, staggered a few tiles apart (two sidings can't share the same
+    // mainline tiles without forming an illegal 3-way junction). This spreads
+    // depots evenly on BOTH sides instead of piling them up on one.
     // Returns an array of depot tile indices (>= 1), or null if none built.
     static function New(path) {
         if (path == null || path.len() < DepotBuilder.SKIP_NEAR_STATION + 3) {
@@ -32,34 +35,38 @@ class DepotBuilder {
             return null;
         }
 
-        local depots  = [];
-        local last_idx = -DepotBuilder.SPACING;  // allow the first candidate
+        local depots = [];
+        local i = DepotBuilder.SKIP_NEAR_STATION;
 
-        for (local i = DepotBuilder.SKIP_NEAR_STATION; i < path.len() - 2; i++) {
-            if (i - last_idx < DepotBuilder.SPACING) continue;  // keep them spread out
+        while (i < path.len() - 2 && depots.len() < DepotBuilder.MAX_DEPOTS) {
+            // One depot on the left at i, its partner on the right a few tiles
+            // along, so the pair sits opposite-ish on the two sides.
+            local left  = DepotBuilder._TryBuildAt(path, i, false);
+            local right = (depots.len() + (left != null ? 1 : 0) < DepotBuilder.MAX_DEPOTS)
+                ? DepotBuilder._TryBuildAt(path, i + DepotBuilder.PAIR_GAP, true)
+                : null;
 
-            // Alternate sides: even depots on the left of travel, odd on the
-            // right, so depots are evenly spread on BOTH sides of the mainline.
-            local prefer_right = (depots.len() % 2) == 1;
-            local depot_tile = DepotBuilder._TryBuildAt(path, i, prefer_right);
-            if (depot_tile != null) {
-                depots.push(depot_tile);
-                last_idx = i;
-                if (depots.len() >= DepotBuilder.MAX_DEPOTS) break;
-            }
+            if (left  != null) depots.push(left);
+            if (right != null) depots.push(right);
+
+            // Advance: past this pair plus a gap if we placed anything, else
+            // shuffle along one tile looking for workable ground.
+            i += (left != null || right != null)
+                ? (DepotBuilder.PAIR_GAP + DepotBuilder.SPACING)
+                : 1;
         }
 
         if (depots.len() == 0) {
             Log.Warn(Log.PHASE_DEPOT, "No straight run found for a spur depot.");
             return null;
         }
-        Log.Info(Log.PHASE_DEPOT, "Built " + depots.len() + " spur depot(s) along the line.");
+        Log.Info(Log.PHASE_DEPOT, "Built " + depots.len() + " spur depot(s) (paired both sides).");
         return depots;
     }
 
     // Try to build one depot SIDING off the mainline at path index i.
-    // prefer_right: try the right side of travel first (we alternate sides for
-    // even coverage); otherwise the left side first.
+    // want_right: build on the RIGHT of travel if true, else the LEFT. Only the
+    // requested side is tried (no fallback), so pairs stay one-per-side.
     // Returns the depot tile, or null if this spot isn't usable.
     //
     // The depot sits on a short siding that runs PARALLEL to the mainline, so
@@ -76,9 +83,9 @@ class DepotBuilder {
     //
     // Both moves run WITH the one-way flow, so a built train can leave and a
     // running train can pull in for servicing, with no sharp turn anywhere.
-    static function _TryBuildAt(path, i, prefer_right) {
+    static function _TryBuildAt(path, i, want_right) {
         // Need FOUR collinear, single-step mainline tiles (a,b,c,e).
-        if (i + 2 >= path.len()) return null;
+        if (i < 1 || i + 2 >= path.len()) return null;
         local a = path[i - 1];
         local b = path[i];
         local c = path[i + 1];
@@ -89,7 +96,6 @@ class DepotBuilder {
         if (d != 1 && d != -1 && d != AIMap.GetMapSizeX() && d != -AIMap.GetMapSizeX()) return null;
 
         local right = RailPathFinder._RightOffset(d);
-        local order = prefer_right ? [right, -right] : [-right, right];
 
         // The siding wants flat, level ground. Require the whole footprint
         // (mainline b,c,e plus siding sb,sc,depot) to be FLAT and at the same
@@ -97,7 +103,8 @@ class DepotBuilder {
         // depot+rails that then fail half-built on a slope.
         local base_h = AITile.GetMaxHeight(b);
 
-        foreach (p in order) {
+        // Only the requested side (no fallback) so a pair is one-per-side.
+        foreach (p in [want_right ? right : -right]) {
             local sb    = b + p;       // beside b
             local sc    = c + p;       // beside c (sb + d)
             local depot = sb + p;      // one more tile out, beside the siding
