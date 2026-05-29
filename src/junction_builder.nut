@@ -104,6 +104,10 @@ class JunctionBuilder {
             // merging with row 1's flow both ways (eA<->c1, eA<->the cross).
             ok = ok && JunctionBuilder._Rail(eA, c0, c1, dry);   // straight p-axis on c0 = the diamond
             ok = ok && JunctionBuilder._Rail(eA, c0, j0, dry);   // and toward j0 (west on row 0)
+            // CROSSOVER linking the two main tracks at the junction, so a train
+            // off the branch can reach EITHER direction of the main line.
+            ok = ok && JunctionBuilder._Rail(j0, c0, c1, dry);   // row0 east -> row1 (diagonal)
+            ok = ok && JunctionBuilder._Rail(c1, j1, j0, dry);   // row1 -> row0 west (diagonal)
             if (ok && !dry) {
                 // Two-way PBS guarding the two diamonds (j0 and c0).
                 foreach (s in [[a0, j0], [c0, j0], [wA, j0], [j1, j0],
