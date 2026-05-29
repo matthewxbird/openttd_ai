@@ -41,6 +41,31 @@ class Maintenance {
         foreach (r in condemned_done) state.RemoveRoute(r);
     }
 
+    // True if any BUILT route still has a cargo backlog AND room to grow (more
+    // trains, or a train shorter than the platform). Used to hold off building
+    // NEW routes until existing ones are scaled up to carry all their cargo.
+    // A route already at the train cap with full-length trains is "maxed" and
+    // does NOT block - we can't scale it further.
+    static function NeedsMoreCapacity(state) {
+        foreach (_, r in state.routes) {
+            if (r.status != "built" || r.depot_tile == null) continue;
+            local waiting = AIStation.GetCargoWaiting(r.src_station.station_id, r.cargo);
+            if (waiting < Maintenance.WAITING_FOR_EXTRA) continue;
+
+            local n = 0;
+            local under = false;
+            if (r.trains != null) {
+                foreach (v in r.trains) {
+                    if (!AIVehicle.IsValidVehicle(v)) continue;
+                    n++;
+                    if (Trains.IsUnderLength(v)) under = true;
+                }
+            }
+            if (n < Maintenance.MAX_TRAINS || under) return true;  // can still scale
+        }
+        return false;
+    }
+
     // PROBATION: a freshly built line must prove it works before we trust it.
     // We promote it to "built" once a train has made a full round trip (seen at
     // the destination, then back at the source) or is clearly turning a profit.

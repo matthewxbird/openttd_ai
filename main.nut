@@ -72,6 +72,12 @@ function MvBAI::Start() {
         if (this.state.HasProbation()) {
             Log.Info(Log.PHASE_RANK,
                 "A route is still on probation; holding off on new lines this tick.");
+        } else if (Maintenance.NeedsMoreCapacity(this.state)) {
+            // Scale up existing lines (more trains / longer trains, done by the
+            // health pass) until they carry all their cargo, BEFORE spending on
+            // a brand new route.
+            Log.Info(Log.PHASE_RANK,
+                "Existing route has a backlog with room to grow; scaling it before new lines.");
         } else
         foreach (c in ranked) {
             if (this.state.HasRoute(c.cargo, c.producer, c.accepter)) continue;
