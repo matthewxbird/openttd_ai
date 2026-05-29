@@ -89,7 +89,8 @@ function MvBAI::Start() {
         } else
         foreach (c in ranked) {
             if (this.state.HasRoute(c.cargo, c.producer, c.accepter)) continue;
-            // One route per producer: if this mine already feeds a line, don't
+            // One route per producer (ANY industry - mine, forest, oil well,
+            // farm, factory...): if this producer already feeds a line, don't
             // start a second (less profitable) one from it - scale the existing
             // route instead. Bringing OTHER producers to the same accepter is
             // still allowed (different producer => not skipped here).

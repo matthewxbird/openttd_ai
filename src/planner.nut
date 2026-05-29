@@ -16,7 +16,7 @@ class Planner {
         foreach (c in ranked) {
             if (state.HasRoute(c.cargo, c.producer, c.accepter)) continue;
             if (state.blacklist.Has(c.cargo, c.producer, c.accepter)) continue;
-            if (state.ProducerServed(c.producer)) continue;   // mine already feeds a line
+            if (state.ProducerServed(c.producer)) continue;   // producer already feeds a line
             if (c.score <= 0) break;   // nothing worthwhile left
 
             local label = AICargo.GetCargoLabel(c.cargo);
