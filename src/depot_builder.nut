@@ -81,7 +81,11 @@ class DepotBuilder {
     // through line must actually exist (test-mode ALREADY_BUILT), else the depot
     // is torn down, the line restored, and we try the other side / next spot.
     static function _TryBuildAt(path, i, want_right, allow_terraform = false) {
-        if (i < 1 || i + 1 >= path.len()) return null;
+        // Need straight rail for at least ONE tile beyond each side of the
+        // junction, i.e. a 5-tile straight window centred on b
+        // (i-2 .. i+2 all collinear). This gives the train a straight approach
+        // and a straight exit so it can't get stuck on a curve next to the depot.
+        if (i < 2 || i + 2 >= path.len()) return null;
         local a = path[i - 1];
         local b = path[i];
         local c = path[i + 1];
@@ -89,7 +93,9 @@ class DepotBuilder {
         local d  = b - a;
         local mx = AIMap.GetMapSizeX();
         if (!DepotBuilder._IsUnitStep(d, mx)) return null;
-        if (c - b != d) return null;          // MUST be a straight run, not a bend
+        if (a - path[i - 2] != d) return null;   // straight 1 tile before a
+        if (c - b != d) return null;             // b -> c straight
+        if (path[i + 2] - c != d) return null;   // straight 1 tile after c
 
         local right = RailPathFinder._RightOffset(d);
         // Try both sides; the requested side first.
