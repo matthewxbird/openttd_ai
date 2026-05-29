@@ -549,16 +549,20 @@ class RailPathFinder {
                 && (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT);
             if (!buildable && !joinable) continue;
 
-            // JUNCTIONS onto existing rail (build a new piece on a rail tile, or
-            // join one that's already there) are allowed for shared corridors -
-            // but NEVER near a station, where they tangle the throats. So if
-            // `next` is existing rail and not our goal, only allow it well clear
-            // of any station; otherwise skip (grade-separate / route around).
+            // Existing rail that is NOT our goal:
+            //   - Near a station: never touch it (tangles the throat).
+            //   - Laying a NEW piece onto it = a flat at-grade crossing/merge.
+            //     A* makes these cramped and ugly, so we DON'T: skip the flat
+            //     move and let the bridge/tunnel jump GRADE-SEPARATE the crossing
+            //     (clean, collision-free).
+            //   - Joining where the connecting rail ALREADY exists is fine -
+            //     that just runs the train along a shared corridor.
             if (AIRail.IsRailTile(next) && !(next in self._goals_map)) {
                 if (RailPathFinder._NearStationTile(next, RailPathFinder.JUNCTION_STATION_GUARD)) {
-                    continue;   // no junctions near stations
+                    continue;
                 }
-                // else: open-terrain junction, allowed (discouraged by cost).
+                if (buildable) continue;   // no flat crossing - bridge over instead
+                // joinable: run along the existing shared track.
             }
 
             tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
