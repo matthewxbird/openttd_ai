@@ -78,25 +78,36 @@ class JunctionBuilder {
     // Returns true if the junction was stamped. `d` and `p` are unit tile steps
     // (perpendicular to each other); a0/c0 are j0-d / j0+d.
     static function BuildFlatDoubleT(j0, d, p) {
+        // Main double-track: row 0 at j0, row 1 at j0+p.
         local j1 = j0 + p;
         local a0 = j0 - d;  local c0 = j0 + d;
         local a1 = j1 - d;  local c1 = j1 + d;
-        local t0 = j0 - p;        // branch tile feeding track 0
-        local tx = j1 + p;        // branch tile beyond track 1 (cross landing)
+        // Branch double-track comes in from the -p side on two columns:
+        //   column W under j0  (wA = j0-p, going further -p)
+        //   column E under c0  (eA = c0-p, going further -p)
+        local wA = j0 - p;   local wB = j0 - 2 * p;
+        local eA = c0 - p;   local eB = c0 - 2 * p;
 
-        return JunctionBuilder.Stamp(function(dry) : (j0, j1, a0, c0, a1, c1, t0, tx, d, p) {
-            // Branch -> track 0 merge (with flow toward c0): corner on j0.
-            local ok = JunctionBuilder._Rail(t0, j0, c0, dry);
-            // Branch crosses j0 to reach track 1, merging with its flow (a1):
-            // corner on j0 from t0 toward j1, then j1 toward a1.
-            ok = ok && JunctionBuilder._Rail(t0, j0, j1, dry);
-            ok = ok && JunctionBuilder._Rail(j0, j1, a1, dry);
-            // Keep the main lines through the junction (straights).
+        return JunctionBuilder.Stamp(function(dry) : (j0, j1, a0, c0, a1, c1, wA, wB, eA, eB, d, p) {
+            local ok = true;
+            // Main through-lines (both rows straight).
             ok = ok && JunctionBuilder._Rail(a0, j0, c0, dry);
             ok = ok && JunctionBuilder._Rail(a1, j1, c1, dry);
+            // Branch double-track straights (both columns run along p).
+            ok = ok && JunctionBuilder._Rail(j0, wA, wB, dry);
+            ok = ok && JunctionBuilder._Rail(c0, eA, eB, dry);
+            // West branch column <-> main row 0:  out merges east (wA->j0->c0),
+            // in diverges from the west (a0->j0->wA). j0 = a 3-way + the diamond.
+            ok = ok && JunctionBuilder._Rail(wA, j0, c0, dry);
+            ok = ok && JunctionBuilder._Rail(a0, j0, wA, dry);
+            // East branch column crosses row 0 (diamond at c0) down to row 1,
+            // merging with row 1's flow both ways (eA<->c1, eA<->the cross).
+            ok = ok && JunctionBuilder._Rail(eA, c0, c1, dry);   // straight p-axis on c0 = the diamond
+            ok = ok && JunctionBuilder._Rail(eA, c0, j0, dry);   // and toward j0 (west on row 0)
             if (ok && !dry) {
-                // Protect the diamond at j0 with two-way PBS on each approach.
-                foreach (s in [[a0, j0], [c0, j0], [t0, j0], [j1, j0]]) {
+                // Two-way PBS guarding the two diamonds (j0 and c0).
+                foreach (s in [[a0, j0], [c0, j0], [wA, j0], [j1, j0],
+                               [j0, c0], [eA, c0], [c1, c0]]) {
                     if (AIRail.IsRailTile(s[0])) AIRail.BuildSignal(s[0], s[1], AIRail.SIGNALTYPE_PBS);
                 }
             }

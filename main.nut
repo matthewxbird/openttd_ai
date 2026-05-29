@@ -399,10 +399,14 @@ function MvBAI::_DebugStampJunction() {
 
     // Junction at the 4th tile of track 0.
     local j0 = base + 4 * d;
+    local c0 = j0 + d;
 
-    // Branch leg approaching j0 from the -p side (two tiles).
-    AIRail.BuildRail(j0 - 3 * p, j0 - 2 * p, j0 - p);
-    AIRail.BuildRail(j0 - 2 * p, j0 - p, j0);
+    // DOUBLE-TRACK branch leg approaching from the -p side: two columns, one
+    // under j0, one under c0, each running a few tiles out.
+    for (local s = 2; s <= 3; s++) {
+        AIRail.BuildRail(j0 - (s - 1) * p, j0 - s * p, j0 - (s + 1) * p);
+        AIRail.BuildRail(c0 - (s - 1) * p, c0 - s * p, c0 - (s + 1) * p);
+    }
 
     local ok = JunctionBuilder.BuildFlatDoubleT(j0, d, p);
     Log.Info(Log.PHASE_BOOT,
