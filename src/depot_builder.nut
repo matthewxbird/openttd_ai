@@ -48,8 +48,18 @@ class DepotBuilder {
             }
         }
 
+        // Pragmatic fallback: if the spaced pass found nothing (rough terrain),
+        // scan EVERY tile and grab the first workable depot spot - one depot is
+        // far better than abandoning the whole route.
         if (depots.len() == 0) {
-            Log.Warn(Log.PHASE_DEPOT, "[" + label + "] no flat spot found for a depot.");
+            for (local i = DepotBuilder.SKIP_NEAR_STATION; i < path.len() - 1; i++) {
+                local depot_tile = DepotBuilder._TryBuildAt(path, i, false, true);  // allow terraform
+                if (depot_tile != null) { depots.push(depot_tile); break; }
+            }
+        }
+
+        if (depots.len() == 0) {
+            Log.Warn(Log.PHASE_DEPOT, "[" + label + "] no spot found for a depot.");
             return null;
         }
         Log.Info(Log.PHASE_DEPOT,
@@ -71,7 +81,7 @@ class DepotBuilder {
     //       |  \           b carries: straight a--c, plus the curve to depot
     //   a ==b== c          ENTER: a -> b -> depot   (one curve)
     //                      EXIT : depot -> b -> c   (one curve, with the flow)
-    static function _TryBuildAt(path, i, want_right) {
+    static function _TryBuildAt(path, i, want_right, allow_terraform = false) {
         // Need THREE collinear, single-step mainline tiles (a,b,c).
         if (i < 1 || i + 1 >= path.len()) return null;
         local a = path[i - 1];
@@ -85,10 +95,18 @@ class DepotBuilder {
         local p     = want_right ? RailPathFinder._RightOffset(d) : -RailPathFinder._RightOffset(d);
         local depot = b + p;
 
-        // Flat, level ground only (reject sloped sites before spending money).
-        local base_h = AITile.GetMaxHeight(b);
-        if (!DepotBuilder._SiteIsFlat([depot], base_h, true))  return null;
-        if (!DepotBuilder._SiteIsFlat([c],     base_h, false)) return null;
+        // A depot needs ONE flat, buildable tile. (Only the depot tile must be
+        // flat; the curve onto the mainline can run up a slope.) Keep this
+        // minimal so we find a spot on rolling terrain instead of giving up.
+        if (!AIMap.IsValidTile(depot)) return null;
+        if (!AITile.IsBuildable(depot)) return null;
+        if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) {
+            // Last resort: terraform the single depot tile flat rather than
+            // abandon the whole route for want of a depot.
+            if (!allow_terraform) return null;
+            AITile.LevelTiles(depot, depot);
+            if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) return null;
+        }
 
         // Clear signals on the mainline tile we join, so the junction can be
         // added (no-op when depots are built before signals, the usual case).
@@ -113,19 +131,6 @@ class DepotBuilder {
             "Depot at " + depot + " (" + (p == RailPathFinder._RightOffset(d) ? "right" : "left")
             + " of line, junction at " + b + ", enter=" + (enter ? "yes" : "no") + ")");
         return depot;
-    }
-
-    // True if every tile in `tiles` is flat at `height`. `must_be_buildable`
-    // also requires open land (for the new siding tiles); the mainline tiles
-    // already carry our rail so we only check their height/slope.
-    static function _SiteIsFlat(tiles, height, must_be_buildable) {
-        foreach (t in tiles) {
-            if (!AIMap.IsValidTile(t)) return false;
-            if (must_be_buildable && !AITile.IsBuildable(t)) return false;
-            if (AITile.GetSlope(t) != AITile.SLOPE_FLAT) return false;
-            if (AITile.GetMaxHeight(t) != height) return false;
-        }
-        return true;
     }
 
     // Remove any signal on `tile` facing along the line (either direction), so
