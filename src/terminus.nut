@@ -75,13 +75,30 @@ class Terminus {
             }
         }
 
+        // PROTECT THE CROSSOVER with PBS path signals. The crossover is a flat
+        // diamond where the two lines meet; without signals two trains can enter
+        // at once and collide. A one-way PBS signal on every approach tile,
+        // facing INTO the crossover, makes OpenTTD reserve the whole crossover
+        // for a single train at a time (PBS won't deadlock). Nothing is signed
+        // INSIDE the crossover, so the reservation spans it.
+        local pbs = AIRail.SIGNALTYPE_PBS_ONEWAY;
+        local sigs = [
+            [n0, m0], [f0, m0],   // approaches into m0 (mainline side, station side)
+            [n1, m1], [f1, m1],   // approaches into m1
+        ];
+        foreach (s in sigs) {
+            if (AIMap.IsValidTile(s[0]) && AIRail.IsRailTile(s[0])) {
+                AIRail.BuildSignal(s[0], s[1], pbs);   // best-effort
+            }
+        }
+
         if (built == 0) {
             Log.Warn(Log.PHASE_TRACK,
                 "Terminus crossover failed at station " + st.station_id
                 + " (throat " + f0 + "/" + f1 + ").");
         } else {
             Log.Info(Log.PHASE_TRACK,
-                "Terminus crossover built at station " + st.station_id
+                "Terminus crossover built + signalled at station " + st.station_id
                 + " (" + built + "/4 pieces).");
         }
         return built > 0;
