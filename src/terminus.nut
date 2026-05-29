@@ -75,13 +75,15 @@ class Terminus {
             }
         }
 
-        // PROTECT THE CROSSOVER with PBS path signals. The crossover is a flat
-        // diamond where the two lines meet; without signals two trains can enter
-        // at once and collide. A one-way PBS signal on every approach tile,
-        // facing INTO the crossover, makes OpenTTD reserve the whole crossover
-        // for a single train at a time (PBS won't deadlock). Nothing is signed
-        // INSIDE the crossover, so the reservation spans it.
-        local pbs = AIRail.SIGNALTYPE_PBS_ONEWAY;
+        // PROTECT THE CROSSOVER with TWO-WAY PBS path signals. The crossover is
+        // a flat diamond; without signals two trains can enter and collide. We
+        // use two-way (not one-way) path signals: at a terminus a train reverses
+        // and passes the throat in BOTH directions, so a one-way signal would
+        // block it from behind (the wrong-direction signals seen before).
+        // Two-way PBS still reserves the whole crossover for one train at a time
+        // (PBS won't deadlock); travel direction is enforced by the one-way
+        // signals out on the main line, not here.
+        local pbs = AIRail.SIGNALTYPE_PBS;
         local sigs = [
             [n0, m0], [f0, m0],   // approaches into m0 (mainline side, station side)
             [n1, m1], [f1, m1],   // approaches into m1

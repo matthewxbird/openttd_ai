@@ -206,7 +206,7 @@ class StationBuilder {
         // (which is part of the existing throat crossover).
         local ok = AIRail.BuildRail(new_enter, new_front, m_new)
                 && AIRail.BuildRail(new_front, m_new, m_prev);
-        if (ok) AIRail.BuildSignal(m_new, m_prev, AIRail.SIGNALTYPE_PBS_ONEWAY);
+        if (ok) AIRail.BuildSignal(m_new, m_prev, AIRail.SIGNALTYPE_PBS);  // two-way: terminus reverses
 
         if (!ok || !DepotBuilder._RailExists(new_front, m_new, m_prev)) {
             // Couldn't connect it - tear the new platform back out.
