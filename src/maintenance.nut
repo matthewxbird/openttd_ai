@@ -220,6 +220,21 @@ class Maintenance {
             + " len(avg/short)=" + avg_len + "/" + shortest_len + " of " + plat
             + " engine='" + engine_name + "'");
 
+        // Periodic INTEGRITY check: the track should still be continuous end to
+        // end. Build glitches, or later damage, can leave a gap. Repair if we
+        // can; if the line is broken and unrepairable, condemn it.
+        if (!TrackBuilder.IsConnected(r.path_out) || !TrackBuilder.IsConnected(r.path_back)) {
+            local ro = TrackBuilder.ValidateAndRepair(r.path_out,  "out");
+            local rb = TrackBuilder.ValidateAndRepair(r.path_back, "back");
+            if (!ro || !rb) {
+                Log.Err(Log.PHASE_LOOP,
+                    "[review] " + name + ": track broken and unrepairable; condemning.");
+                Maintenance._Condemn(state, r);
+                return;
+            }
+            Log.Info(Log.PHASE_LOOP, "[review] " + name + ": track gap repaired.");
+        }
+
         if (stuck > 0) {
             Log.Err(Log.PHASE_LOOP,
                 "[review] " + name + ": " + stuck + " train(s) not moving - line may be broken.");

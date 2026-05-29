@@ -324,6 +324,62 @@ class TrackBuilder {
         return tiles;
     }
 
+    // Validate that a built path is actually CONTINUOUS rail end-to-end.
+    // Walks the tile array and checks each segment really exists: a normal step
+    // must be a rail / station / bridge / tunnel tile; a multi-tile step must be
+    // a bridge or tunnel spanning exactly from prev to cur. Returns the index of
+    // the FIRST broken segment, or -1 if the whole path is intact.
+    static function FindGap(tiles) {
+        if (tiles == null || tiles.len() < 2) return 0;
+        for (local i = 1; i < tiles.len(); i++) {
+            local prev = tiles[i - 1];
+            local cur  = tiles[i];
+            local step = AIMap.DistanceManhattan(prev, cur);
+            if (step > 1) {
+                // Expect a bridge or tunnel from prev to cur.
+                local ok =
+                    (AIBridge.IsBridgeTile(prev) && AIBridge.GetOtherBridgeEnd(prev) == cur)
+                 || (AITunnel.IsTunnelTile(prev) && AITunnel.GetOtherTunnelEnd(prev) == cur)
+                 || (AIBridge.IsBridgeTile(cur)  && AIBridge.GetOtherBridgeEnd(cur)  == prev)
+                 || (AITunnel.IsTunnelTile(cur)  && AITunnel.GetOtherTunnelEnd(cur)  == prev);
+                if (!ok) return i;
+            } else {
+                // Normal step: cur must carry rail of some kind.
+                local ok = AIRail.IsRailTile(cur)
+                        || AIRail.IsRailStationTile(cur)
+                        || AIBridge.IsBridgeTile(cur)
+                        || AITunnel.IsTunnelTile(cur);
+                if (!ok) return i;
+            }
+        }
+        return -1;
+    }
+
+    static function IsConnected(tiles) {
+        return TrackBuilder.FindGap(tiles) == -1;
+    }
+
+    // Validate a path and, if broken, try to repair it by re-running the
+    // builder (BuildRail/Bridge/Tunnel are idempotent - existing pieces report
+    // ERR_ALREADY_BUILT, missing ones get built). Returns true if the path is
+    // intact afterwards.
+    static function ValidateAndRepair(tiles, label) {
+        local gap = TrackBuilder.FindGap(tiles);
+        if (gap == -1) return true;
+        Log.Warn(Log.PHASE_TRACK,
+            "[" + label + "] track gap at segment " + gap
+            + " (tile " + tiles[gap] + ") - attempting repair.");
+        TrackBuilder._BuildPath(tiles, label + ":repair");
+        gap = TrackBuilder.FindGap(tiles);
+        if (gap == -1) {
+            Log.Info(Log.PHASE_TRACK, "[" + label + "] repair succeeded; track now continuous.");
+            return true;
+        }
+        Log.Err(Log.PHASE_TRACK,
+            "[" + label + "] still broken at segment " + gap + " after repair.");
+        return false;
+    }
+
     // Terraform a single tile FLAT at `target` height by raising/lowering each
     // corner one step at a time. Best-effort: every AI* call is allowed to fail
     // (e.g. blocked by a neighbour) and we just stop. Returns true if the tile

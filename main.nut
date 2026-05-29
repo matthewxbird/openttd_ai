@@ -173,6 +173,18 @@ function MvBAI::TryBuildRoute(c) {
         return false;
     }
 
+    // Validate the freshly built track is CONTINUOUS end-to-end and repair any
+    // gaps (e.g. a tunnel/bridge that failed to build) BEFORE we spend money on
+    // crossovers, depots, signals and a train. A broken line that can't be
+    // repaired is abandoned now rather than stranding a train later.
+    local out_ok  = TrackBuilder.ValidateAndRepair(route.path_out,  "out");
+    local back_ok = TrackBuilder.ValidateAndRepair(route.path_back, "back");
+    if (!out_ok || !back_ok) {
+        Log.Err(Log.PHASE_TRACK, "Track failed validation and could not be repaired; abandoning route.");
+        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
+        return false;
+    }
+
     // Throat crossover at each terminus so a train can arrive on the out
     // track and depart on the back track (it reverses in the platform).
     Terminus.BuildBothEnds(route.src_station, route.dst_station);
