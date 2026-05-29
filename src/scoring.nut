@@ -94,4 +94,16 @@ class Scoring {
     static function ChainBoost(score) {
         return score * Scoring.CHAIN_BONUS;
     }
+
+    static CLUSTER_WEIGHT = 0.4;   // +40% per extra industry in the catchment
+
+    // Favour routes whose stations sit in an industry cluster (one station can
+    // then serve several cargoes). `cluster` counts industries in both
+    // catchments (>=2: the producer + accepter themselves), so we credit the
+    // EXTRAS beyond those two. Sign preserved.
+    static function ClusterBoost(score, cluster) {
+        local extra = cluster - 2;
+        if (extra < 0) extra = 0;
+        return score * (1.0 + extra.tofloat() * Scoring.CLUSTER_WEIGHT);
+    }
 }

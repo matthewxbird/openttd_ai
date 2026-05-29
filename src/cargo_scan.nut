@@ -21,6 +21,19 @@ class CargoScan {
     // Towns this small aren't worth delivering end-chain goods/food to.
     static MIN_TOWN_POP = 300;
 
+    // How far around an industry counts as "the same station catchment" when
+    // measuring how many OTHER industries a station here could also serve.
+    static CLUSTER_RADIUS = 8;
+
+    // Count industries within CLUSTER_RADIUS of `tile` (a rough measure of how
+    // many cargoes one station placed here could pick up / drop off).
+    static function _ClusterCount(tile) {
+        local list = AIIndustryList();
+        list.Valuate(AIIndustry.GetDistanceManhattanToTile, tile);
+        list.KeepBelowValue(CargoScan.CLUSTER_RADIUS);
+        return list.Count();
+    }
+
     // Build full list of candidate routes across all cargoes.
     // Returns array of { cargo, producer, accepter, distance, score }.
     static function Scan() {
@@ -59,20 +72,28 @@ class CargoScan {
             local prod_amt = AIIndustry.GetLastMonthProduction(prod_id, cargo);
             if (prod_amt <= 0) continue;
 
+            // How many industries cluster around this producer: a station here
+            // could serve them all (multiple cargoes from one build). >1 because
+            // the producer itself is counted.
+            local prod_cluster = CargoScan._ClusterCount(prod_loc);
+
             // Industry accepters.
             foreach (acc_id, _ in accepters) {
                 if (acc_id == prod_id) continue;
+                local acc_loc = AIIndustry.GetLocation(acc_id);
                 CargoScan._Consider(out, cargo, prod_id, prod_amt, prod_loc,
-                    acc_id, AIIndustry.GetLocation(acc_id), false);
+                    acc_id, acc_loc, false,
+                    prod_cluster + CargoScan._ClusterCount(acc_loc));
             }
 
-            // Town accepters (end of chain).
+            // Town accepters (end of chain). A town is inherently multi-cargo,
+            // so it gets a flat cluster bonus on top of the producer's.
             if (town_cargo) {
                 local towns = AITownList();
                 foreach (town, _ in towns) {
                     if (AITown.GetPopulation(town) < CargoScan.MIN_TOWN_POP) continue;
                     CargoScan._Consider(out, cargo, prod_id, prod_amt, prod_loc,
-                        town, AITown.GetLocation(town), true);
+                        town, AITown.GetLocation(town), true, prod_cluster + 2);
                 }
             }
         }
@@ -85,7 +106,9 @@ class CargoScan {
     }
 
     // Score one producer->accepter pair and append it as a candidate.
-    static function _Consider(out, cargo, prod_id, prod_amt, prod_loc, acc_id, acc_loc, acc_is_town) {
+    // `cluster` = how many industries (+town) sit in the two stations' catchment;
+    // more means one build serves more cargo, so we favour it.
+    static function _Consider(out, cargo, prod_id, prod_amt, prod_loc, acc_id, acc_loc, acc_is_town, cluster) {
         local dist = AIMap.DistanceManhattan(prod_loc, acc_loc);
         if (dist < CargoScan.MIN_DISTANCE) return;
 
@@ -93,6 +116,7 @@ class CargoScan {
         local build_cost = Scoring.BuildCostEstimate(dist);
         local profit     = Scoring.AnnualProfit(prod_amt, 99999, payment, build_cost);
         local score      = Scoring.DistanceWeighted(profit, dist);
+        score            = Scoring.ClusterBoost(score, cluster);
 
         out.append({
             cargo       = cargo,
