@@ -13,6 +13,20 @@ class Scoring {
     static SIGNAL_COST          = 200;
     static SIGNAL_EVERY_N_TILES = 4;
     static AMORTIZE_YEARS       = 10;
+    // Rough vehicle prices for the affordability estimate (we buy a fleet of
+    // full-length trains, so this can be a big slice of the up-front cost).
+    static ENGINE_COST          = 12000;
+    static WAGON_COST           = 1500;
+    static WAGONS_PER_TRAIN_EST = 10;    // platforms are filled (~10 wagons)
+
+    // Estimated cost of the initial fleet: num_trains full trains, each an
+    // engine (allow for double-heading) plus a platform of wagons.
+    static function FleetCostEstimate(num_trains) {
+        if (num_trains < 1) num_trains = 1;
+        local per_train = 2 * Scoring.ENGINE_COST          // allow a 2nd engine
+                        + Scoring.WAGONS_PER_TRAIN_EST * Scoring.WAGON_COST;
+        return num_trains * per_train;
+    }
 
     // Estimate total build cost for a double-track route of given length.
     // Pessimistic: assumes 10% of tiles need bridging.

@@ -106,8 +106,12 @@ function MvBAI::Start() {
             // it and try a cheaper one further down the ranking - do NOT break
             // (the list is sorted by ROI, not cost, so the priciest route is
             // often on top and would otherwise block everything).
-            local est    = Scoring.BuildCostEstimate(c.distance);
-            local needed = est + est / 2;   // 1.5x estimate
+            // Full up-front cost = track + the initial fleet of trains/wagons,
+            // plus a margin for under-counted overruns. Including the fleet stops
+            // us laying track and then running dry before buying the trains.
+            local est    = Scoring.BuildCostEstimate(c.distance)
+                         + Scoring.FleetCostEstimate(Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS));
+            local needed = est + est / 3;   // ~1.3x for overruns + operating buffer
             if (!Money.HasFunds(needed)) {
                 Log.Info(Log.PHASE_MONEY,
                     "Skip " + AICargo.GetCargoLabel(c.cargo) + " dist=" + c.distance

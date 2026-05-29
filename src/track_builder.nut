@@ -32,8 +32,10 @@ class TrackBuilder {
     // Every tile we lay rail on during one BuildDoubleTracks call (lead-ins,
     // every path attempt, reroutes). Used to fully clean up a failed route -
     // partial track and lead-in stubs aren't in the returned path arrays.
-    static _touched = null;
-    static function _Touch(t) { if (TrackBuilder._touched != null) TrackBuilder._touched.push(t); }
+    // NOTE: a static class slot can't be REASSIGNED at runtime in Squirrel, so
+    // we mutate this array in place (clear/push), never `= []`.
+    static _touched = [];
+    static function _Touch(t) { TrackBuilder._touched.push(t); }
 
     // Build both tracks between two stations. Returns { out, back }.
     // `src`, `dst`: StationBuilder.BuildAt result tables. Each has front_tile/
@@ -45,7 +47,7 @@ class TrackBuilder {
     // pathfinding we lay a straight lead-in stub out of each platform so any
     // curve is pushed well clear of the station entrance.
     static function BuildDoubleTracks(src, dst) {
-        TrackBuilder._touched = [];   // start tracking every tile we lay rail on
+        TrackBuilder._touched.clear();   // start tracking every tile we lay rail on
         local src_h = AITile.GetMaxHeight(src.enter_tile);
         local dst_h = AITile.GetMaxHeight(dst.enter_tile);
 
@@ -98,7 +100,10 @@ class TrackBuilder {
             Log.Warn(Log.PHASE_TRACK, "Back track: pathfinding failed; single track only.");
         }
 
-        return { out = out_tiles, back = back_tiles, touched = TrackBuilder._touched };
+        // Return a COPY so the caller's list survives the next build's clear().
+        local touched = [];
+        foreach (t in TrackBuilder._touched) touched.push(t);
+        return { out = out_tiles, back = back_tiles, touched = touched };
     }
 
     // Decide which of a station's two platforms the OUT track uses so the out
