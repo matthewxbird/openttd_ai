@@ -279,6 +279,53 @@ class JunctionBuilder {
         ];
     }
 
+    // Bounding size {w,h} of a descriptor (max dx+1, max dy+1).
+    static function Bounds(entries) {
+        local w = 0; local h = 0;
+        foreach (e in entries) {
+            if (e[1] + 1 > w) w = e[1] + 1;
+            if (e[2] + 1 > h) h = e[2] + 1;
+        }
+        return { w = w, h = h };
+    }
+
+    // Track-bit remap for a 90-degree CLOCKWISE rotation (edges NE->SE->SW->NW).
+    static function _RotBit(bits) {
+        local map = {}; map[1] <- 2; map[2] <- 1; map[4] <- 32; map[8] <- 16; map[16] <- 4; map[32] <- 8;
+        local out = 0;
+        foreach (bit in [1, 2, 4, 8, 16, 32]) if (bits & bit) out = out | map[bit];
+        return out;
+    }
+
+    // Rotate a descriptor 90 degrees CW once. In a w x h grid a point (x,y)
+    // maps to (h-1-y, x) (result grid is h x w). Track bits + signal fronts
+    // rotate too.
+    static function _Rotate90(entries, w, h) {
+        local out = [];
+        foreach (e in entries) {
+            if (e[0] == "R") {
+                out.push(["R", h - 1 - e[2], e[1], JunctionBuilder._RotBit(e[3])]);
+            } else if (e[0] == "S") {
+                out.push(["S", h - 1 - e[2], e[1], h - 1 - e[4], e[3], e[5]]);
+            } else if (e[0] == "B" || e[0] == "U") {
+                out.push([e[0], h - 1 - e[2], e[1], h - 1 - e[4], e[3]]);
+            }
+        }
+        return out;
+    }
+
+    // Rotate a descriptor by k*90 degrees CW. Returns the new descriptor.
+    static function Rotate(entries, k) {
+        local res = entries;
+        local b = JunctionBuilder.Bounds(entries);
+        local w = b.w; local h = b.h;
+        for (local i = 0; i < (k % 4); i++) {
+            res = JunctionBuilder._Rotate90(res, w, h);
+            local t = w; w = h; h = t;
+        }
+        return res;
+    }
+
     // ---- CAPTURE A HAND-BUILT JUNCTION -------------------------------------
     // Scan the rectangle (x1,y1)..(x2,y2) and dump an exact descriptor of every
     // rail tile (its track bits), bridge, tunnel and signal, RELATIVE to the

@@ -403,11 +403,18 @@ function MvBAI::_DebugStampJunction() {
     AITile.LevelTiles(AIMap.GetTileIndex(bx - 2, by - 2),
                       AIMap.GetTileIndex(bx + 12, by + 8));
 
-    // Replay the captured hand-built junction (Template1) to verify round-trip.
-    JunctionBuilder.StampList(base, JunctionBuilder.Template1());
-    Log.Info(Log.PHASE_BOOT,
-        "[debug] replayed captured junction at tile (" + AIMap.GetTileX(base)
-        + "," + AIMap.GetTileY(base) + ") - screenshot to compare with the original.");
+    // Stamp the captured junction at all 4 rotations, spaced apart, to verify
+    // the rotation logic (track bits + offsets + signals).
+    for (local k = 0; k < 4; k++) {
+        local ox = bx + 2 + k * 16;     // 16 tiles apart along x
+        local oy = by + 2;
+        AITile.LevelTiles(AIMap.GetTileIndex(ox - 1, oy - 1),
+                          AIMap.GetTileIndex(ox + 13, oy + 13));
+        local origin = AIMap.GetTileIndex(ox, oy);
+        JunctionBuilder.StampList(origin, JunctionBuilder.Rotate(JunctionBuilder.Template1(), k));
+        Log.Info(Log.PHASE_BOOT,
+            "[debug] junction rot=" + k + " at (" + ox + "," + oy + ")");
+    }
 }
 
 // Save/Load are stubbed in v1.
