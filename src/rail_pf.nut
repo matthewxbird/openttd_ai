@@ -384,6 +384,12 @@ class RailPathFinder {
             // additionally blocked from out-track tiles via ignored_tiles.)
             if (AIRail.IsRailTile(t[0])) cost += self._cost_crossing_rail;
 
+            // ---- WATER: can't lay ground rail on it --------------------
+            // A normal rail tile on water fails to build. Water must be
+            // BRIDGED (a multi-tile step), so make a ground step onto water
+            // hugely expensive - A* will bridge across instead.
+            if (AITile.IsWaterTile(t[0])) cost += self._cost_crossing_rail;
+
             // ---- COAST SURCHARGE ----------------------------------------
             if (AITile.IsCoastTile(t[0])) cost += self._cost_coast;
 

@@ -105,6 +105,15 @@ class DepotBuilder {
             if (!DepotBuilder._SiteIsFlat([sb, sc, depot], base_h, true)) continue;
             if (!DepotBuilder._SiteIsFlat([c, e], base_h, false)) continue;
 
+            // Clear any signals sitting on the mainline tiles we are about to
+            // join (b, c, e). A signal on a tile blocks adding the junction
+            // track. Normally depots are built before signals so there are
+            // none, but a reused line or a second route may already be signed.
+            // Do this BEFORE the test so the dry-run sees joinable bare track.
+            DepotBuilder._ClearSignals(b, d);
+            DepotBuilder._ClearSignals(c, d);
+            DepotBuilder._ClearSignals(e, d);
+
             // Validate the ENTIRE build in test mode first - no money spent,
             // nothing placed. Only if it all passes do we build for real.
             {
@@ -142,6 +151,17 @@ class DepotBuilder {
             if (AITile.GetMaxHeight(t) != height) return false;
         }
         return true;
+    }
+
+    // Remove any signal on `tile` facing along the line (either direction), so
+    // a junction can be added to the tile. No-op if there is no signal.
+    static function _ClearSignals(tile, d) {
+        foreach (front in [tile + d, tile - d]) {
+            if (!AIMap.IsValidTile(front)) continue;
+            if (AIRail.GetSignalType(tile, front) != AIRail.SIGNALTYPE_NONE) {
+                AIRail.RemoveSignal(tile, front);
+            }
+        }
     }
 
     // Lay (or test-lay) the whole siding. Returns { ok, enter }.

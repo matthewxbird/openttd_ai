@@ -174,13 +174,9 @@ function MvBAI::TryBuildRoute(c) {
     // track and depart on the back track (it reverses in the platform).
     Terminus.BuildBothEnds(route.src_station, route.dst_station);
 
-    // Signals on both tracks (back track may be null on very awkward terrain).
-    Signals.PlaceAlong(route.path_out,  true,  "out");
-    if (route.path_back != null) {
-        Signals.PlaceAlong(route.path_back, true, "back");
-    }
-
-    // Spur depots off the out-track mainline (not at the station end).
+    // Spur depots off the out-track mainline. Build these BEFORE signals: a
+    // depot junction adds track to a mainline tile, and a signal sitting on
+    // that tile blocks the join. With bare track the junctions go in cleanly.
     route.depot_tiles = DepotBuilder.New(route.path_out);
     if (route.depot_tiles == null) {
         Log.Err(Log.PHASE_DEPOT, "No depot could be built; abandoning route.");
@@ -188,6 +184,12 @@ function MvBAI::TryBuildRoute(c) {
         return false;
     }
     route.depot_tile = route.depot_tiles[0];   // primary: where trains are built
+
+    // Signals on both tracks (back track may be null on very awkward terrain).
+    Signals.PlaceAlong(route.path_out,  true,  "out");
+    if (route.path_back != null) {
+        Signals.PlaceAlong(route.path_back, true, "back");
+    }
 
     // Trains.
     local engine = Trains.PickEngine(c.cargo, this.railtype);
