@@ -267,14 +267,17 @@ class Maintenance {
             return;  // don't pile more trains onto a broken line
         }
 
-        // Trains queuing at a station = not enough platform capacity. Enlarge
-        // the station (add a platform) rather than adding yet more trains to the
-        // queue. The source station is the one with the cargo backlog.
-        if (Maintenance._CountQueuing(r) >= 2) {
+        // STATION SIZING BY OUTPUT: the source station's platform count tracks
+        // the producer's monthly output (2 base, +1 per 100t over 200). As the
+        // industry grows we add platforms to match. (AddPlatform self-reverts if
+        // it can't connect, so this never leaves a broken station.)
+        local output = AIIndustry.GetLastMonthProduction(r.producer, r.cargo);
+        local added  = StationBuilder.GrowToMatch(r.src_station, output);
+        if (added > 0) {
             Log.Info(Log.PHASE_LOOP,
-                "[review] " + name + ": trains queuing -> enlarging station.");
-            StationBuilder.AddPlatform(r.src_station);
-            return;   // one structural action per pass
+                "[review] " + name + ": output " + output + "t -> grew station to "
+                + r.src_station.num_platforms + " platforms (+" + added + ").");
+            return;   // structural change this pass; reassess next time
         }
 
         // Finish any train we previously recalled to lengthen.

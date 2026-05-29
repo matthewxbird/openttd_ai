@@ -175,7 +175,29 @@ class StationBuilder {
         };
     }
 
-    static MAX_PLATFORMS = 4;   // grow a busy station up to this many platforms
+    static MAX_PLATFORMS = 6;   // grow a busy station up to this many platforms
+
+    // Platform count a station should have for a given monthly output:
+    //   <=200t -> 2, >200 -> 3, >300 -> 4, >400 -> 5 ...  (+1 per 100t over 200)
+    static function PlatformsForOutput(output) {
+        local n = (output <= 200) ? 2 : 2 + (output - 101) / 100;
+        if (n > StationBuilder.MAX_PLATFORMS) n = StationBuilder.MAX_PLATFORMS;
+        if (n < StationBuilder.NUM_PLATFORMS) n = StationBuilder.NUM_PLATFORMS;
+        return n;
+    }
+
+    // Grow a station to match the output target, adding platforms one at a time
+    // (each verified/reverted by AddPlatform). Returns how many were added.
+    static function GrowToMatch(st, output) {
+        if (!("num_platforms" in st)) st.num_platforms <- StationBuilder.NUM_PLATFORMS;
+        local target = StationBuilder.PlatformsForOutput(output);
+        local added = 0;
+        while (st.num_platforms < target) {
+            if (!StationBuilder.AddPlatform(st)) break;   // couldn't add more; stop
+            added++;
+        }
+        return added;
+    }
 
     // Add one more platform to a station that is queuing trains, joined to the
     // same station and connected into the throat crossover so trains can use it.
