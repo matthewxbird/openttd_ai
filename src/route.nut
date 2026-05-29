@@ -29,6 +29,7 @@ class Route {
             reached_src     = false,  // ...and then back at the source (full loop)
             probation_checks = 0,     // health passes spent waiting for proof
             condemn_checks   = 0,     // health passes spent tearing the line down
+            lengthening      = null,  // train currently recalled to grow longer
         };
     }
 

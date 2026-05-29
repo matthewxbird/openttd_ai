@@ -173,7 +173,12 @@ class Maintenance {
         }
     }
 
-    // Inspect and (if warranted) top up one route.
+    // Periodic CAPACITY REVIEW of one running route. Every pass we report the
+    // line's state to the console - cargo waiting, station ratings, how many
+    // trains, their length vs the platform, and the engine in use - then adjust
+    // capacity: add a train, or lengthen an existing (too-short) train, when
+    // cargo is backing up. (Engine upgrades are handled separately by the
+    // yearly autoreplace pass.)
     static function _CheckRoute(state, railtype, r) {
         local cargo_label = AICargo.GetCargoLabel(r.cargo);
         local name = AIIndustry.GetName(r.producer) + "->" + AIIndustry.GetName(r.accepter);
@@ -183,38 +188,90 @@ class Maintenance {
         local waiting    = AIStation.GetCargoWaiting(src_id, r.cargo);
         local src_rating = AIStation.GetCargoRating(src_id, r.cargo);
         local dst_rating = AIStation.GetCargoRating(dst_id, r.cargo);
+        local plat       = Trains.PlatformUnits();
 
-        // Prune dead vehicles, count live ones, detect stuck ones.
+        // Prune dead vehicles; gather train metrics (count, length, engine).
         if (r.trains == null) r.trains = (r.train_id != -1) ? [r.train_id] : [];
         local alive = [];
         local stuck = 0;
+        local sum_len = 0;
+        local shortest = null;
+        local shortest_len = 0x7FFFFFFF;
+        local engine_name = "?";
         foreach (v in r.trains) {
             if (!AIVehicle.IsValidVehicle(v)) continue;
             alive.push(v);
             if (Maintenance._IsStuck(r, v)) stuck++;
+            local len = AIVehicle.GetLength(v);
+            sum_len += len;
+            if (len < shortest_len) { shortest_len = len; shortest = v; }
+            engine_name = AIEngine.GetName(AIVehicle.GetEngineType(v));
         }
         r.trains = alive;
+        local n = alive.len();
+        local avg_len = (n > 0) ? sum_len / n : 0;
 
         Log.Info(Log.PHASE_LOOP,
-            "[health] " + cargo_label + " " + name
-            + " trains=" + alive.len() + (stuck > 0 ? (" STUCK=" + stuck) : "")
+            "[review] " + cargo_label + " " + name
+            + " trains=" + n + "/" + Maintenance.MAX_TRAINS
+            + (stuck > 0 ? (" STUCK=" + stuck) : "")
             + " waiting=" + waiting
-            + " rating(src/dst)=" + src_rating + "/" + dst_rating);
+            + " rating(src/dst)=" + src_rating + "/" + dst_rating
+            + " len(avg/short)=" + avg_len + "/" + shortest_len + " of " + plat
+            + " engine='" + engine_name + "'");
 
         if (stuck > 0) {
             Log.Err(Log.PHASE_LOOP,
-                "[health] " + name + ": " + stuck + " train(s) not moving - line may be broken.");
+                "[review] " + name + ": " + stuck + " train(s) not moving - line may be broken.");
             return;  // don't pile more trains onto a broken line
         }
 
-        // Demand-driven capacity: a backlog at the source with a healthy line
-        // means we need more trains.
-        if (waiting >= Maintenance.WAITING_FOR_EXTRA
-                && alive.len() < Maintenance.MAX_TRAINS
-                && r.depot_tile != null
-                && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN) {
-            Maintenance._AddTrain(r, railtype);
+        // Finish any train we previously recalled to lengthen.
+        if (r.lengthening != null) {
+            Maintenance._FinishLengthening(r, railtype, name);
+            return;  // one capacity action per pass
         }
+
+        // Backlog at the source on a healthy line => we lack capacity. Prefer
+        // adding a train; if we're already at the train cap, lengthen the
+        // shortest train (more cargo per trip) instead.
+        if (waiting >= Maintenance.WAITING_FOR_EXTRA && r.depot_tile != null) {
+            if (n < Maintenance.MAX_TRAINS
+                    && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN) {
+                Log.Info(Log.PHASE_LOOP,
+                    "[review] " + name + ": backlog " + waiting + " -> adding a train.");
+                Maintenance._AddTrain(r, railtype);
+            } else if (shortest != null && Trains.IsUnderLength(shortest)) {
+                Log.Info(Log.PHASE_LOOP,
+                    "[review] " + name + ": backlog " + waiting
+                    + ", trains under-length -> recalling train " + shortest + " to lengthen.");
+                AIVehicle.SendVehicleToDepot(shortest);
+                r.lengthening = shortest;
+            } else {
+                Log.Info(Log.PHASE_LOOP,
+                    "[review] " + name + ": backlog " + waiting
+                    + " but at full capacity (trains and length maxed).");
+            }
+        }
+    }
+
+    // A train was recalled to a depot to be lengthened. If it has arrived, add
+    // wagons up to the platform/power limit and send it back out.
+    static function _FinishLengthening(r, railtype, name) {
+        local v = r.lengthening;
+        if (!AIVehicle.IsValidVehicle(v)) { r.lengthening = null; return; }
+        if (AIVehicle.GetState(v) != AIVehicle.VS_IN_DEPOT) {
+            Log.Info(Log.PHASE_LOOP, "[review] " + name + ": train " + v + " heading to depot to lengthen.");
+            return;  // still travelling; check again next pass
+        }
+        local wagon = Trains.PickWagon(r.cargo, railtype);
+        local added = (wagon != -1) ? Trains.GrowInDepot(v, wagon, r.cargo) : 0;
+        AIVehicle.StartStopVehicle(v);
+        r.lengthening = null;
+        Log.Info(Log.PHASE_LOOP,
+            "[review] " + name + ": lengthened train " + v + " by " + added
+            + " wagon(s) (len now " + AIVehicle.GetLength(v) + "/" + Trains.PlatformUnits()
+            + "), back in service.");
     }
 
     // True if this train hasn't moved since the last check and isn't at a

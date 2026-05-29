@@ -170,11 +170,75 @@ class Trains {
             count++;
         }
 
+        Trains.SetServicing(v);
         Log.Info(Log.PHASE_TRAIN,
             "Train built id=" + v + " engines=" + engines + " wagons=" + count
             + " (len=" + AIVehicle.GetLength(v) + "/" + plat_units
             + ", powerCap=" + power_cap + ")");
         return v;
+    }
+
+    static SERVICE_RELIABILITY_DROP = 25;  // service when reliability falls 25%
+
+    // Set a train to be serviced once it loses 25% of its reliability.
+    // OpenTTD service intervals can be expressed as a PERCENT of reliability
+    // (service when reliability drops by N%) or as days. We switch the game to
+    // percent mode if needed, then set the interval to 25.
+    static function SetServicing(vehicle) {
+        local key = "vehicle.servint_ispercent";
+        local is_percent = AIGameSettings.IsValid(key)
+                        && AIGameSettings.GetValue(key) == 1;
+        if (!is_percent && AIGameSettings.IsValid(key)) {
+            is_percent = AIGameSettings.SetValue(key, 1);  // try to enable percent mode
+        }
+        if (is_percent) {
+            AIVehicle.SetServiceInterval(vehicle, Trains.SERVICE_RELIABILITY_DROP);
+            Log.Info(Log.PHASE_TRAIN,
+                "Train " + vehicle + " services at " + Trains.SERVICE_RELIABILITY_DROP
+                + "% reliability drop.");
+        } else {
+            // Days mode and we couldn't switch: use a short interval as a
+            // fallback so trains still get serviced often.
+            AIVehicle.SetServiceInterval(vehicle, 90);
+            Log.Warn(Log.PHASE_TRAIN,
+                "Train " + vehicle + ": percent service mode unavailable; using 90-day interval.");
+        }
+    }
+
+    // Platform capacity in 1/16-tile length units.
+    static function PlatformUnits() {
+        return StationBuilder.PLATFORM_LENGTH * 16;
+    }
+
+    // True if a train is notably shorter than the platform (room to grow).
+    static function IsUnderLength(vehicle) {
+        return AIVehicle.GetLength(vehicle) < (Trains.PlatformUnits() * 3) / 4;
+    }
+
+    // Add wagons to an existing train that is sitting IN A DEPOT, growing it
+    // toward the platform length but capped by the front engine's power.
+    // Returns the number of wagons added.
+    static function GrowInDepot(vehicle, wagon, cargo) {
+        local depot     = AIVehicle.GetLocation(vehicle);
+        local plat      = Trains.PlatformUnits();
+        local etype     = AIVehicle.GetEngineType(vehicle);
+        local power_cap = AIEngine.GetPower(etype) / Trains.POWER_PER_WAGON;
+        if (power_cap < 1) power_cap = 1;
+
+        local added = 0;
+        while (added < power_cap) {
+            if (AIVehicle.GetLength(vehicle) >= plat) break;
+            local w = AIVehicle.BuildVehicle(depot, wagon);
+            if (!AIVehicle.IsValidVehicle(w)) break;
+            if (AIEngine.CanRefitCargo(wagon, cargo)) AIVehicle.RefitVehicle(w, cargo);
+            AIVehicle.MoveWagon(w, 0, vehicle, 0);
+            if (AIVehicle.GetLength(vehicle) > plat) {  // overshot the platform
+                AIVehicle.SellVehicle(w);
+                break;
+            }
+            added++;
+        }
+        return added;
     }
 
     // Set load/unload orders + start vehicle.
