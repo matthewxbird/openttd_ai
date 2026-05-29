@@ -401,11 +401,40 @@ class TrackBuilder {
         return TrackBuilder.FindGap(tiles) == -1;
     }
 
+    // Global guard: scan a path for any 90-degree turn. A 90-degree turn is a
+    // window of four single-step tiles A,B,C,D where the last step (C->D) is the
+    // exact reverse of the first (A->B) - the train pivots 90 degrees and stalls.
+    // The pathfinder already forbids these; this verifies none slipped through
+    // (e.g. via a bridge/tunnel exit). Returns the index of the first offending
+    // tile, or -1 if the path is clean.
+    static function Find90Turn(tiles) {
+        if (tiles == null || tiles.len() < 4) return -1;
+        for (local i = 0; i + 3 < tiles.len(); i++) {
+            local s1 = tiles[i + 1] - tiles[i];
+            local s2 = tiles[i + 2] - tiles[i + 1];
+            local s3 = tiles[i + 3] - tiles[i + 2];
+            // Only consider single-step (non bridge/tunnel) moves.
+            if (AIMap.DistanceManhattan(tiles[i],     tiles[i + 1]) != 1) continue;
+            if (AIMap.DistanceManhattan(tiles[i + 1], tiles[i + 2]) != 1) continue;
+            if (AIMap.DistanceManhattan(tiles[i + 2], tiles[i + 3]) != 1) continue;
+            if (s3 == -s1 && s1 != s2) return i + 2;   // 90-degree pivot
+        }
+        return -1;
+    }
+
     // Validate a path and, if broken, try to repair it by re-running the
     // builder (BuildRail/Bridge/Tunnel are idempotent - existing pieces report
     // ERR_ALREADY_BUILT, missing ones get built). Returns true if the path is
     // intact afterwards.
     static function ValidateAndRepair(tiles, label) {
+        // Global 90-degree-turn guard: should never fire (the pathfinder bans
+        // them) - if it does, log loudly so the source can be found and fixed.
+        local bad = TrackBuilder.Find90Turn(tiles);
+        if (bad != -1) {
+            Log.Err(Log.PHASE_TRACK,
+                "[" + label + "] 90-DEGREE TURN at tile " + tiles[bad] + " - trains may stall here.");
+        }
+
         local gap = TrackBuilder.FindGap(tiles);
         if (gap == -1) return true;
         Log.Warn(Log.PHASE_TRACK,

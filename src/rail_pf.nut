@@ -507,6 +507,7 @@ class RailPathFinder {
                 AIMap.GetTileIndex(0,1), AIMap.GetTileIndex(0,-1)
             ];
             foreach (offset in offsets) {
+                if (offset == -dir) continue;   // never reverse straight off the span
                 if (AIRail.BuildRail(cur_node, next, next + offset)) {
                     tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
                 }
