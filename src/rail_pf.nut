@@ -544,16 +544,24 @@ class RailPathFinder {
                 continue;
             }
 
-            // NEVER route onto a tile that already carries rail (another line or
-            // our own), except the GOAL tile we are connecting into. This keeps
-            // new lines off existing track entirely - no weaving through, no
-            // tangled junctions near stations. A foreign line in the way is
-            // grade-separated by the bridge/tunnel jump instead.
-            if (AIRail.IsRailTile(next) && !(next in self._goals_map)) continue;
+            local buildable = AIRail.BuildRail(par_tile, cur_node, next);
+            local joinable  = !buildable
+                && (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT);
+            if (!buildable && !joinable) continue;
 
-            if (AIRail.BuildRail(par_tile, cur_node, next)) {
-                tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
+            // JUNCTIONS onto existing rail (build a new piece on a rail tile, or
+            // join one that's already there) are allowed for shared corridors -
+            // but NEVER near a station, where they tangle the throats. So if
+            // `next` is existing rail and not our goal, only allow it well clear
+            // of any station; otherwise skip (grade-separate / route around).
+            if (AIRail.IsRailTile(next) && !(next in self._goals_map)) {
+                if (RailPathFinder._NearStationTile(next, RailPathFinder.JUNCTION_STATION_GUARD)) {
+                    continue;   // no junctions near stations
+                }
+                // else: open-terrain junction, allowed (discouraged by cost).
             }
+
+            tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
         }
 
         // ---- BRIDGE / TUNNEL JUMPS ---------------------------------------
@@ -736,6 +744,21 @@ class RailPathFinder {
         if (d ==  mx) return -1;   // travelling +y -> right is -x
         if (d == -mx) return  1;   // travelling -y -> right is +x
         return 0;
+    }
+
+    static JUNCTION_STATION_GUARD = 6;  // no junctions within this many tiles of a station
+
+    // True if any rail-station tile lies within `r` tiles of `tile`. Used to
+    // forbid junctions near stations (where they tangle the throats).
+    static function _NearStationTile(tile, r) {
+        local mx = AIMap.GetMapSizeX();
+        for (local dy = -r; dy <= r; dy++) {
+            for (local dx = -r; dx <= r; dx++) {
+                local t = tile + dx + dy * mx;
+                if (AIMap.IsValidTile(t) && AIRail.IsRailStationTile(t)) return true;
+            }
+        }
+        return false;
     }
 
     static function _RevDir(cur, prev) {
