@@ -32,6 +32,7 @@ class MvBAI extends AIController {
     function Save();
     function Load(version, data);
     function TryBuildRoute(candidate);
+    function _FailRoute(candidate, route, new_src, new_dst);
 }
 
 function MvBAI::Start() {
@@ -148,28 +149,33 @@ function MvBAI::TryBuildRoute(c) {
     local producer_tile = AIIndustry.GetLocation(c.producer);
     local accepter_tile = AIIndustry.GetLocation(c.accepter);
 
+    // Track which stations WE build this attempt, so we can clean them up if
+    // the route is abandoned (reused stations are left alone).
+    local new_src = false;
+    local new_dst = false;
+
     // Source station: reuse if we have one at this producer.
     route.src_station = this.state.FindExistingStation(c.producer, true);
     if (route.src_station == null) {
         route.src_station = StationBuilder.BuildAt(c.producer, c.cargo, true, accepter_tile);
+        new_src = true;
     } else {
         Log.Info(Log.PHASE_STATION, "Reusing existing source station id=" + route.src_station.station_id);
     }
     if (route.src_station == null) {
-        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
-        return false;
+        return this._FailRoute(c, route, false, false);
     }
 
     // Dest station.
     route.dst_station = this.state.FindExistingStation(c.accepter, false);
     if (route.dst_station == null) {
         route.dst_station = StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile);
+        new_dst = true;
     } else {
         Log.Info(Log.PHASE_STATION, "Reusing existing dest station id=" + route.dst_station.station_id);
     }
     if (route.dst_station == null) {
-        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
-        return false;
+        return this._FailRoute(c, route, new_src, new_dst);
     }
 
     // Track: two passes for double track. BuildDoubleTracks reads each
@@ -185,8 +191,7 @@ function MvBAI::TryBuildRoute(c) {
     // and signals are one-way) - it strands. Fail the route instead.
     if (route.path_out == null || route.path_back == null) {
         Log.Err(Log.PHASE_TRACK, "Incomplete double track (out or back missing); abandoning route.");
-        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
-        return false;
+        return this._FailRoute(c, route, new_src, new_dst);
     }
 
     // Validate the freshly built track is CONTINUOUS end-to-end and repair any
@@ -197,8 +202,7 @@ function MvBAI::TryBuildRoute(c) {
     local back_ok = TrackBuilder.ValidateAndRepair(route.path_back, "back");
     if (!out_ok || !back_ok) {
         Log.Err(Log.PHASE_TRACK, "Track failed validation and could not be repaired; abandoning route.");
-        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
-        return false;
+        return this._FailRoute(c, route, new_src, new_dst);
     }
 
     // Throat crossover at each terminus so a train can arrive on the out
@@ -216,8 +220,7 @@ function MvBAI::TryBuildRoute(c) {
     if (d_back != null) foreach (t in d_back) depots.push(t);
     if (depots.len() == 0) {
         Log.Err(Log.PHASE_DEPOT, "No depot could be built; abandoning route.");
-        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
-        return false;
+        return this._FailRoute(c, route, new_src, new_dst);
     }
     route.depot_tiles = depots;
     route.depot_tile  = depots[0];   // primary: where trains are built
@@ -233,8 +236,7 @@ function MvBAI::TryBuildRoute(c) {
     local wagon  = Trains.PickWagon(c.cargo, this.railtype);
     if (engine == -1 || wagon == -1) {
         Log.Err(Log.PHASE_TRAIN, "Cannot dispatch: missing engine/wagon.");
-        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
-        return false;
+        return this._FailRoute(c, route, new_src, new_dst);
     }
     // Start with a FLEET sized to the producer's output (big producers get more
     // trains from day one), each train filled to the platform / engine power.
@@ -249,8 +251,7 @@ function MvBAI::TryBuildRoute(c) {
         route.trains.push(id);
     }
     if (route.trains.len() == 0) {
-        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
-        return false;
+        return this._FailRoute(c, route, new_src, new_dst);
     }
     route.train_id = route.trains[0];
     Log.Info(Log.PHASE_TRAIN,
@@ -263,6 +264,33 @@ function MvBAI::TryBuildRoute(c) {
     Log.Info(Log.PHASE_RANK,
         "Route built; on PROBATION until it earns. Total routes: " + this.state.CountRoutes());
     return true;
+}
+
+// Abandon a half-built route: blacklist the pair and CLEAN UP everything we
+// built for it this attempt (track, depots, and any stations WE created), so
+// failed attempts don't leave an orphaned mess that piles up on retries.
+// Reused (pre-existing) stations are left untouched. Returns false (for the
+// caller to return directly).
+function MvBAI::_FailRoute(c, route, new_src, new_dst) {
+    this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
+
+    if (route.depot_tiles != null) {
+        foreach (d in route.depot_tiles) {
+            if (AIMap.IsValidTile(d)) AITile.DemolishTile(d);
+        }
+    }
+    foreach (path in [route.path_out, route.path_back]) {
+        if (path == null) continue;
+        foreach (t in path) {
+            if (AIMap.IsValidTile(t)) AITile.DemolishTile(t);
+        }
+    }
+    if (new_src) StationBuilder.Remove(route.src_station);
+    if (new_dst) StationBuilder.Remove(route.dst_station);
+
+    Log.Warn(Log.PHASE_RANK, "Route abandoned and cleaned up: " + AICargo.GetCargoLabel(c.cargo)
+        + " " + AIIndustry.GetName(c.producer) + " -> " + AIIndustry.GetName(c.accepter));
+    return false;
 }
 
 // Save/Load are stubbed in v1.

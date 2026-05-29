@@ -65,6 +65,19 @@ class StationBuilder {
         return null;
     }
 
+    // Demolish a station we built (used when cleaning up an abandoned route).
+    // Removes the whole NUM_PLATFORMS x PLATFORM_LENGTH footprint.
+    static function Remove(st) {
+        if (st == null) return;
+        local axis = StationBuilder._AxisStep(st.direction);
+        local perp = StationBuilder._PerpStep(st.direction);
+        local far  = st.tile + axis * (StationBuilder.PLATFORM_LENGTH - 1)
+                            + perp * (StationBuilder.NUM_PLATFORMS - 1);
+        if (!AIRail.RemoveRailStationTileRectangle(st.tile, far, false)) {
+            AITile.DemolishTile(st.tile);   // fallback
+        }
+    }
+
     // Look-ahead feasibility: would a station FIT at this industry? Runs the
     // same nearest-first search in AITestMode (no money, nothing placed) and
     // returns true if any (tile, orientation) would build. Used by the planner
