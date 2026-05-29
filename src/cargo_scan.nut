@@ -59,10 +59,10 @@ class CargoScan {
                 local build_cost   = Scoring.BuildCostEstimate(dist);
                 // Accepter capacity is hard to read directly; assume large
                 // so producer is the binding side. v1 simplification.
-                local roi          = Scoring.EstimateROI(prod_amt, 99999, payment, build_cost);
-                // Bias the ranking toward high-output producers, so we favour
-                // bigger, busier stations over marginal ones with thin cargo.
-                local score        = Scoring.RankScore(roi, prod_amt);
+                // Rank by ABSOLUTE annual profit, not ROI ratio: this rewards
+                // long, high-throughput lines (cargo payment grows with
+                // distance) instead of cheap short ones.
+                local score        = Scoring.AnnualProfit(prod_amt, 99999, payment, build_cost);
 
                 out.append({
                     cargo      = cargo,
@@ -82,13 +82,13 @@ class CargoScan {
     // cargo is therefore its best route.
     static function LogPerCargoBest(ranked) {
         local seen = {};
-        Log.Info(Log.PHASE_RANK, "Best ROI per cargo:");
+        Log.Info(Log.PHASE_RANK, "Best annual profit per cargo:");
         foreach (c in ranked) {
             if (c.cargo in seen) continue;
             seen[c.cargo] <- true;
             Log.Info(Log.PHASE_RANK,
                 "  " + AICargo.GetCargoLabel(c.cargo)
-                + " best ROI=" + c.score
+                + " best profit/yr=" + c.score
                 + " (" + AIIndustry.GetName(c.producer)
                 + " -> " + AIIndustry.GetName(c.accepter)
                 + ", dist=" + c.distance + ")");
@@ -107,7 +107,7 @@ class CargoScan {
                 "#" + (i + 1) + " " + cargo_label
                 + " | " + prod_name + " -> " + acc_name
                 + " | dist=" + c.distance
-                + " | ROI=" + c.score);
+                + " | profit/yr=" + c.score);
         }
     }
 }

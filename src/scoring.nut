@@ -48,16 +48,17 @@ class Scoring {
         return (revenue_per_year - amortized) / build_cost.tofloat();
     }
 
-    // Production at which the throughput bonus reaches +100% (doubles the ROI
-    // weight). Higher producers are favoured but with diminishing returns.
-    static PROD_REFERENCE = 200.0;
-
-    // Ranking score = ROI weighted by absolute throughput, so among routes of
-    // similar ROI we prefer the one feeding a bigger, busier station. ROI alone
-    // can crown a tiny cheap line; this keeps the AI building the big earners.
-    // prod_per_month: producer's monthly output (binding throughput).
-    static function RankScore(roi, prod_per_month) {
-        local weight = 1.0 + prod_per_month.tofloat() / Scoring.PROD_REFERENCE;
-        return roi * weight;
+    // ABSOLUTE annual profit (pounds/year) = yearly revenue minus the amortized
+    // build cost. This is the ranking score - NOT the ROI ratio. ROI% rewards
+    // cheap short lines (small cost denominator); absolute profit rewards the
+    // big earners, and because cargo payment rises with distance, LONGER routes
+    // earn far more and rank higher. Distance is therefore the primary driver.
+    static function AnnualProfit(prod_per_month, accept_per_month, payment_per_unit, build_cost, years = null) {
+        if (years == null) years = Scoring.AMORTIZE_YEARS;
+        local serviced = prod_per_month;
+        if (accept_per_month > 0 && accept_per_month < serviced) serviced = accept_per_month;
+        local revenue_per_year = serviced.tofloat() * 12.0 * payment_per_unit.tofloat();
+        local amortized        = build_cost.tofloat() / years.tofloat();
+        return revenue_per_year - amortized;
     }
 }

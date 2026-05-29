@@ -146,7 +146,7 @@ function MvBAI::TryBuildRoute(c) {
         "Attempting " + cargo_label
         + " " + AIIndustry.GetName(c.producer)
         + " -> " + AIIndustry.GetName(c.accepter)
-        + " (dist=" + c.distance + ", ROI=" + c.score + ")");
+        + " (dist=" + c.distance + ", profit/yr=" + c.score + ")");
 
     local route = Route.New(c.cargo, c.producer, c.accepter, c.distance, c.production);
 

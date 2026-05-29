@@ -23,7 +23,7 @@ class Planner {
             Log.Info(Log.PHASE_RANK,
                 "[plan] next #" + (shown + 1) + ": " + label + " "
                 + AIIndustry.GetName(c.producer) + " -> " + AIIndustry.GetName(c.accepter)
-                + " (dist=" + c.distance + ", ROI=" + c.score + ")");
+                + " (dist=" + c.distance + ", profit/yr=" + c.score + ")");
 
             // Pre-vet ONLY the top candidate (bounded work): confirm both ends
             // can actually take a station. If not, blacklist it now so the build
