@@ -236,18 +236,25 @@ function MvBAI::TryBuildRoute(c) {
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
         return false;
     }
-    local n = Trains.PickNumWagons(c.distance, c.production);
-    route.train_id = Trains.BuildTrain(route.depot_tile, engine, wagon, c.cargo, n);
-    if (route.train_id == -1) {
+    // Start with a FLEET sized to the producer's output (big producers get more
+    // trains from day one), each train filled to the platform / engine power.
+    // The periodic capacity review tops this up or lengthens trains later.
+    local n          = Trains.PickNumWagons(c.distance, c.production);
+    local num_trains = Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS);
+    route.trains = [];
+    for (local k = 0; k < num_trains; k++) {
+        local id = Trains.BuildTrain(route.depot_tile, engine, wagon, c.cargo, n);
+        if (id == -1) break;   // out of cash / depot - stop here
+        if (!Trains.DispatchTrain(id, route.src_station.tile, route.dst_station.tile)) break;
+        route.trains.push(id);
+    }
+    if (route.trains.len() == 0) {
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
         return false;
     }
-    if (!Trains.DispatchTrain(route.train_id, route.src_station.tile, route.dst_station.tile)) {
-        this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
-        return false;
-    }
-
-    route.trains = [route.train_id];
+    route.train_id = route.trains[0];
+    Log.Info(Log.PHASE_TRAIN,
+        "Initial fleet: " + route.trains.len() + " train(s) for production " + c.production + "/mo.");
     // Not "built" yet - the line is on PROBATION until a train proves it works
     // by completing a round trip (or turning a profit). Maintenance promotes it
     // to "built", or condemns and tears it down if it never earns / gets stuck.

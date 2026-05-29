@@ -80,6 +80,17 @@ class Trains {
         return best;
     }
 
+    static PROD_PER_TRAIN = 120;   // monthly output one train can clear, roughly
+
+    // How many trains to start a route with, based on the producer's monthly
+    // output (bigger producers need more trains from day one). Clamped to `cap`.
+    static function PickNumTrains(production, cap) {
+        local n = production / Trains.PROD_PER_TRAIN;
+        if (n < 1)   n = 1;
+        if (n > cap) n = cap;
+        return n;
+    }
+
     // Pick a wagon count from route distance AND producer output.
     // Longer routes and bigger producers get fuller (longer) trains, capped by
     // the platform length. Favours filling big stations to capacity.
