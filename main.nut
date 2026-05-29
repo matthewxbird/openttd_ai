@@ -39,11 +39,11 @@ class MvBAI extends AIController {
     // read its bounding tile coords (land-info tool shows X,Y), put them here,
     // reload - the AI dumps the layout. Paste the [scan] lines back to bake a
     // template. (x1,y1) = top-left (min X, min Y), (x2,y2) = bottom-right.
-    static DEBUG_SCAN  = false;
-    static SCAN_X1 = 0;
-    static SCAN_Y1 = 0;
-    static SCAN_X2 = 0;
-    static SCAN_Y2 = 0;
+    static DEBUG_SCAN  = true;
+    static SCAN_X1 = 137;
+    static SCAN_Y1 = 62;
+    static SCAN_X2 = 127;
+    static SCAN_Y2 = 67;
 
     function Start();
     function Save();

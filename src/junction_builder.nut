@@ -262,6 +262,9 @@ class JunctionBuilder {
     // top-left corner (x1,y1). Paste the [scan] lines back and they bake into a
     // template that reproduces the layout tile-for-tile via StampList.
     static function ScanToLog(x1, y1, x2, y2) {
+        // Accept the corners in any order.
+        if (x1 > x2) { local t = x1; x1 = x2; x2 = t; }
+        if (y1 > y2) { local t = y1; y1 = y2; y2 = t; }
         Log.Info(Log.PHASE_BOOT, "[scan] BEGIN " + (x2 - x1 + 1) + "x" + (y2 - y1 + 1)
             + " origin=(" + x1 + "," + y1 + ")");
         for (local y = y1; y <= y2; y++) {
