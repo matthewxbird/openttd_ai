@@ -335,6 +335,8 @@ class TrackBuilder {
                 } else if (AITunnel.GetOtherTunnelEnd(prev) == cur) {
                     if (AITunnel.BuildTunnel(AIVehicle.VT_RAIL, prev)) {
                         tunnels++;
+                    } else if (TrackBuilder._GroundCross(prev, cur, label)) {
+                        built++;   // terraformed across instead of tunnelling
                     } else {
                         Log.Warn(Log.PHASE_TRACK,
                             "[" + label + "] tunnel build failed at " + prev
@@ -342,14 +344,15 @@ class TrackBuilder {
                     }
                 } else {
                     local bl = AIBridgeList_Length(step + 1);
-                    if (!bl.IsEmpty()) {
-                        if (AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), prev, cur)) {
-                            bridges++;
-                        } else {
-                            Log.Warn(Log.PHASE_TRACK,
-                                "[" + label + "] bridge build failed at " + prev
-                                + ": " + AIError.GetLastErrorString());
-                        }
+                    if (!bl.IsEmpty()
+                            && AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), prev, cur)) {
+                        bridges++;
+                    } else if (TrackBuilder._GroundCross(prev, cur, label)) {
+                        built++;   // bridge failed (area not clear) - terraform + lay ground rail
+                    } else {
+                        Log.Warn(Log.PHASE_TRACK,
+                            "[" + label + "] bridge build failed at " + prev
+                            + ": " + AIError.GetLastErrorString());
                     }
                 }
                 continue;
@@ -379,6 +382,41 @@ class TrackBuilder {
             + bridges + " bridges, " + tunnels + " tunnels, "
             + leveled + " tiles leveled.");
         return tiles;
+    }
+
+    // Fallback for a failed bridge/tunnel span: terraform the gap FLAT and lay
+    // plain ground rail across it. Often a "bridge" the pathfinder picked for a
+    // small bump fails (ERR_AREA_NOT_CLEAR) when a simple terraform + ground
+    // rail would have worked. Returns true if the whole span is now ground rail.
+    // a, b are the span endpoints (straight, collinear); water can't be ground-
+    // crossed so we bail in that case (leaving the gap for a reroute).
+    static function _GroundCross(a, b, label) {
+        local step = AIMap.DistanceManhattan(a, b);
+        if (step < 2) return false;
+        local dir = (b - a) / step;
+        local h   = AITile.GetMaxHeight(a);
+
+        // Flatten every tile of the span (and the endpoints) to one height.
+        for (local k = 0; k <= step; k++) {
+            local t = a + dir * k;
+            if (!AIMap.IsValidTile(t)) return false;
+            if (AITile.IsWaterTile(t)) return false;   // can't ground-cross water
+            TrackBuilder._FlattenToHeight(t, h);
+        }
+
+        // Lay ground rail across the interior tiles (a and b get their rail from
+        // the surrounding path steps).
+        for (local k = 1; k < step; k++) {
+            local pv = a + dir * (k - 1);
+            local cu = a + dir * k;
+            local nx = a + dir * (k + 1);
+            if (!AIRail.BuildRail(pv, cu, nx)) {
+                if (!(AITile.DemolishTile(cu) && AIRail.BuildRail(pv, cu, nx))) return false;
+            }
+            TrackBuilder._Touch(cu);
+        }
+        Log.Info(Log.PHASE_TRACK, "[" + label + "] terraformed a ground crossing instead of bridge/tunnel.");
+        return true;
     }
 
     // Validate that a built path is actually CONTINUOUS rail end-to-end.
