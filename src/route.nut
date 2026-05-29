@@ -4,12 +4,13 @@
 
 class Route {
     // Returns a new Route record with sensible defaults.
-    static function New(cargo, producer, accepter, distance) {
+    static function New(cargo, producer, accepter, distance, production = 0) {
         return {
             cargo       = cargo,
             producer    = producer,
             accepter    = accepter,
             distance    = distance,
+            production  = production,   // producer's monthly output (train sizing)
             // Filled in by the builder steps:
             src_station = null,   // table from StationBuilder.BuildAt
             dst_station = null,

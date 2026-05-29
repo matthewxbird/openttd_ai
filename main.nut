@@ -122,7 +122,7 @@ function MvBAI::TryBuildRoute(c) {
         + " -> " + AIIndustry.GetName(c.accepter)
         + " (dist=" + c.distance + ", ROI=" + c.score + ")");
 
-    local route = Route.New(c.cargo, c.producer, c.accepter, c.distance);
+    local route = Route.New(c.cargo, c.producer, c.accepter, c.distance, c.production);
 
     // Each station's throat is oriented to face the OTHER industry, so the
     // main line runs straight toward its partner (no wrap-around loop).
@@ -197,7 +197,7 @@ function MvBAI::TryBuildRoute(c) {
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
         return false;
     }
-    local n = Trains.PickNumWagons(c.distance);
+    local n = Trains.PickNumWagons(c.distance, c.production);
     route.train_id = Trains.BuildTrain(route.depot_tile, engine, wagon, c.cargo, n);
     if (route.train_id == -1) {
         this.state.blacklist.Add(c.cargo, c.producer, c.accepter);

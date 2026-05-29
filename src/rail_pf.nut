@@ -104,8 +104,9 @@ class RailPathFinder {
         this._cost_guide          = 900;   // per level of reverse-tile distance
         this._cost_curve_spacing  = 600;   // corners closer than a train length = 55km/h cap
         this._cost_uphill         = 80;    // each climbing tile drags train speed down
-        this._cost_height_change  = 200;   // prefer routes that stay at one height
-        this._cost_sawtooth       = 2500;  // never zig-zag up/down (kills train speed)
+        this._cost_height_change  = 300;   // prefer routes that stay at one height
+        this._cost_sawtooth       = 80000; // a single up-then-down hump is brutal for
+                                           // trains: avoid almost at any cost
         this._estimate_rate       = 1;     // admissible: heuristic = true flat cost,
                                            // so A* stays optimal (clean diagonals,
                                            // not greedy S-curves) yet still fast
@@ -282,15 +283,23 @@ class RailPathFinder {
         // up-then-down or down-then-up reversal within 3 tiles is a sawtooth
         // (the worst case for train speed) and is penalised hard so the
         // pathfinder routes around rolling terrain instead of riding over it.
-        if (t.len() >= 3) {
-            local h0 = AITile.GetMaxHeight(t[0]);  // newest
-            local h1 = AITile.GetMaxHeight(t[1]);
-            local h2 = AITile.GetMaxHeight(t[2]);  // older
-            local d01 = h0 - h1;   // latest step
-            local d12 = h1 - h2;   // previous step
-            if (d01 != 0) cost += self._cost_height_change;
-            if (d01 != 0 && d12 != 0 && ((d01 > 0) != (d12 > 0))) {
-                cost += self._cost_sawtooth;
+        if (t.len() >= 2) {
+            local d01 = AITile.GetMaxHeight(t[0]) - AITile.GetMaxHeight(t[1]);
+            if (d01 != 0) {
+                cost += self._cost_height_change;
+                // Look back to the most recent EARLIER slope within a train
+                // length. If it went the opposite way, the profile reverses
+                // (up-then-down or down-then-up) - a sawtooth - even if flat
+                // tiles sit between the two slopes. Penalise it brutally.
+                local window = self._curve_window;
+                if (window > t.len() - 1) window = t.len() - 1;
+                for (local k = 1; k < window; k++) {
+                    local dk = AITile.GetMaxHeight(t[k]) - AITile.GetMaxHeight(t[k + 1]);
+                    if (dk != 0) {
+                        if ((dk > 0) != (d01 > 0)) cost += self._cost_sawtooth;
+                        break;  // only the nearest prior slope defines the reversal
+                    }
+                }
             }
         }
 

@@ -8,8 +8,8 @@
 
 class Trains {
 
-    static MIN_WAGONS = 3;
-    static MAX_WAGONS = 4;   // platform length is 5; leave room for engine
+    static MIN_WAGONS = 4;
+    static MAX_WAGONS = 6;   // platform length is 7; leave room for the engine
 
     // Pick best engine for (cargo, railtype). Returns engine id or -1.
     static function PickEngine(cargo, railtype) {
@@ -76,10 +76,15 @@ class Trains {
         return best;
     }
 
-    // Pick a wagon count based on route distance.
-    // Longer route -> more wagons (capped by station length minus engine).
-    static function PickNumWagons(distance) {
-        local n = distance / 30;   // crude heuristic
+    // Pick a wagon count from route distance AND producer output.
+    // Longer routes and bigger producers get fuller (longer) trains, capped by
+    // the platform length. Favours filling big stations to capacity.
+    static function PickNumWagons(distance, production = null) {
+        local n = distance / 25;   // crude distance heuristic
+        if (production != null) {
+            local by_prod = production / 40;   // ~MAX at heavy output
+            if (by_prod > n) n = by_prod;
+        }
         if (n < Trains.MIN_WAGONS) n = Trains.MIN_WAGONS;
         if (n > Trains.MAX_WAGONS) n = Trains.MAX_WAGONS;
         return n;

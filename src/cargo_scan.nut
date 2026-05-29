@@ -55,13 +55,17 @@ class CargoScan {
                 // Accepter capacity is hard to read directly; assume large
                 // so producer is the binding side. v1 simplification.
                 local roi          = Scoring.EstimateROI(prod_amt, 99999, payment, build_cost);
+                // Bias the ranking toward high-output producers, so we favour
+                // bigger, busier stations over marginal ones with thin cargo.
+                local score        = Scoring.RankScore(roi, prod_amt);
 
                 out.append({
-                    cargo    = cargo,
-                    producer = prod_id,
-                    accepter = acc_id,
-                    distance = dist,
-                    score    = roi,
+                    cargo      = cargo,
+                    producer   = prod_id,
+                    accepter   = acc_id,
+                    distance   = dist,
+                    production = prod_amt,
+                    score      = score,
                 });
             }
         }

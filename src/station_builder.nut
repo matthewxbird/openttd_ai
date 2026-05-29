@@ -12,9 +12,9 @@
 
 class StationBuilder {
 
-    static PLATFORM_LENGTH = 5;
+    static PLATFORM_LENGTH = 7;       // long platforms => long trains => more cargo
     static NUM_PLATFORMS   = 2;       // double-track => 2 platforms
-    static SEARCH_RADIUS   = 5;       // tiles around industry to consider
+    static SEARCH_RADIUS   = 6;       // tiles around industry to consider
 
     // Build a station at a producer.  `is_source = true`.
     // Build a station at an accepter. `is_source = false`.

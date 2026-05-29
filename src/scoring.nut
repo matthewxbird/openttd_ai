@@ -47,4 +47,17 @@ class Scoring {
         local amortized        = build_cost.tofloat() / years.tofloat();
         return (revenue_per_year - amortized) / build_cost.tofloat();
     }
+
+    // Production at which the throughput bonus reaches +100% (doubles the ROI
+    // weight). Higher producers are favoured but with diminishing returns.
+    static PROD_REFERENCE = 200.0;
+
+    // Ranking score = ROI weighted by absolute throughput, so among routes of
+    // similar ROI we prefer the one feeding a bigger, busier station. ROI alone
+    // can crown a tiny cheap line; this keeps the AI building the big earners.
+    // prod_per_month: producer's monthly output (binding throughput).
+    static function RankScore(roi, prod_per_month) {
+        local weight = 1.0 + prod_per_month.tofloat() / Scoring.PROD_REFERENCE;
+        return roi * weight;
+    }
 }

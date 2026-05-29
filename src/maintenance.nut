@@ -257,7 +257,7 @@ class Maintenance {
         local wagon  = Trains.PickWagon(r.cargo, railtype);
         if (engine == -1 || wagon == -1) return;
 
-        local n  = Trains.PickNumWagons(r.distance);
+        local n  = Trains.PickNumWagons(r.distance, ("production" in r) ? r.production : null);
         local id = Trains.BuildTrain(r.depot_tile, engine, wagon, r.cargo, n);
         if (id == -1) return;
 
