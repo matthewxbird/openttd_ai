@@ -38,7 +38,10 @@ class DepotBuilder {
         for (local i = DepotBuilder.SKIP_NEAR_STATION; i < path.len() - 2; i++) {
             if (i - last_idx < DepotBuilder.SPACING) continue;  // keep them spread out
 
-            local depot_tile = DepotBuilder._TryBuildAt(path, i);
+            // Alternate sides: even depots on the left of travel, odd on the
+            // right, so depots are evenly spread on BOTH sides of the mainline.
+            local prefer_right = (depots.len() % 2) == 1;
+            local depot_tile = DepotBuilder._TryBuildAt(path, i, prefer_right);
             if (depot_tile != null) {
                 depots.push(depot_tile);
                 last_idx = i;
@@ -55,19 +58,23 @@ class DepotBuilder {
     }
 
     // Try to build one spur depot off the mainline at path index i.
+    // prefer_right: try the right side of travel first (for even spacing on
+    // both sides); otherwise the left side first.
     // Returns the depot tile, or null if this spot isn't usable.
     //
-    // Layout (flow a -> b -> c along the out track):
+    // Layout (flow a -> b -> c along the out track; depot 2 tiles off):
     //
-    //        depot
-    //          |          s1 is one tile off the line, depot one MORE tile off,
-    //         s1          so the depot sits clear of the running line (a real
-    //          \          spur, not a tap ON the main line).
-    //   a == b == c       the merge on b is a single corner s1 -> c, aligned
-    //                     WITH the one-way flow, so a train built in the depot
-    //                     leaves depot -> s1 -> b -> c WITH traffic (it could
-    //                     never exit against the one-way signals).
-    static function _TryBuildAt(path, i) {
+    //            depot
+    //              |        s1 sits one tile off the line, the depot one MORE
+    //             s1        tile off, so the depot is clear of the running line.
+    //            /  \
+    //   a ===== b ===== c   b is a 3-way junction: the straight mainline a-c
+    //                       PLUS a diverge corner (a -> s1) for ENTERING and a
+    //                       merge corner (s1 -> c) for EXITING. Both are aligned
+    //                       WITH the one-way flow, so a train can drive into the
+    //                       depot from upstream and back out downstream without
+    //                       ever fighting the signals.
+    static function _TryBuildAt(path, i, prefer_right) {
         local a = path[i - 1];
         local b = path[i];
         local c = path[i + 1];
@@ -75,14 +82,14 @@ class DepotBuilder {
         // Need three collinear, single-step tiles (a straight run).
         local d = b - a;
         if (c - b != d) return null;
-        local mx = AIMap.GetMapSizeX();
-        if (d != 1 && d != -1 && d != mx && d != -mx) return null;
+        if (d != 1 && d != -1 && d != AIMap.GetMapSizeX() && d != -AIMap.GetMapSizeX()) return null;
 
-        // Spur goes to the LEFT of travel; the back track runs on the RIGHT
-        // (left-hand running), so the left side is clear. Try left first, then
-        // right as a fallback.
+        // Side offsets. Right of travel is where the back track runs, so the
+        // left is usually clearer; but we alternate sides for even coverage.
         local right = RailPathFinder._RightOffset(d);
-        foreach (p in [-right, right]) {
+        local order = prefer_right ? [right, -right] : [-right, right];
+
+        foreach (p in order) {
             local s1    = b + p;     // one tile off the line
             local depot = s1 + p;    // two tiles off the line
             if (!AIMap.IsValidTile(s1) || !AIMap.IsValidTile(depot)) continue;
@@ -91,22 +98,31 @@ class DepotBuilder {
             // Depot faces s1 (adjacent); s1 then runs straight back to b.
             if (!AIRail.BuildRailDepot(depot, s1)) continue;
 
-            // s1: straight piece b -- s1 -- depot (collinear, perpendicular run).
-            local link_s1 = AIRail.BuildRail(b, s1, depot);
-            // b: corner merging the spur into the line WITH the flow (s1 -> c).
-            local link_b  = AIRail.BuildRail(s1, b, c);
+            // s1: straight piece b -- s1 -- depot (collinear perpendicular run).
+            local link_s1   = AIRail.BuildRail(b, s1, depot);
+            // b: merge corner s1 -> c (EXIT with flow). This is the must-have:
+            // without it a train built in the depot cannot leave with traffic.
+            local link_exit = AIRail.BuildRail(s1, b, c);
+            // b: diverge corner a -> s1 (ENTER with flow). Best-effort; lets a
+            // running train pull in for servicing/autoreplace. Failing it still
+            // leaves a usable exit-only depot.
+            local link_enter = AIRail.BuildRail(a, b, s1);
 
-            if (!link_s1 || !link_b) {
+            if (!link_s1 || !link_exit) {
                 Log.Warn(Log.PHASE_DEPOT,
                     "Depot spur link failed near " + b + ": "
                     + AIError.GetLastErrorString() + " — removing orphan depot.");
                 AITile.DemolishTile(depot);
                 AIRail.RemoveRail(b, s1, depot);
+                AIRail.RemoveRail(a, b, s1);
+                AIRail.RemoveRail(s1, b, c);
                 continue;
             }
 
             Log.Info(Log.PHASE_DEPOT,
-                "Spur depot built at " + depot + " (2 tiles off line, exit with flow at " + b + ")");
+                "Spur depot at " + depot + " (2 tiles "
+                + (p == right ? "right" : "left") + " of line, junction at " + b
+                + ", enter=" + (link_enter ? "yes" : "no") + ")");
             return depot;
         }
         return null;
