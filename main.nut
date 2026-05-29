@@ -32,7 +32,7 @@ class MvBAI extends AIController {
     // DEBUG: stamp one flat double-track T-junction at boot so its geometry can
     // be screenshotted/verified in isolation, before wiring junctions into live
     // routing. Set false for normal play.
-    static DEBUG_JUNCTION = true;
+    static DEBUG_JUNCTION = false;
 
     function Start();
     function Save();
