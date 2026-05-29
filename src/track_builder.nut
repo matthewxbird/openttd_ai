@@ -306,8 +306,6 @@ class TrackBuilder {
             local cur  = tiles[i];
             local next = tiles[i + 1];
             local step = AIMap.DistanceManhattan(prev, cur);
-            TrackBuilder._Touch(cur);   // record for failed-route cleanup
-            TrackBuilder._Touch(prev);  // (covers bridge/tunnel start tiles too)
 
             // ---- TERRAFORM: flatten ONLY a clean isolated bump/dip ---------
             // Both neighbours must be at the SAME height and this tile a little
@@ -339,6 +337,7 @@ class TrackBuilder {
                 } else if (AITunnel.GetOtherTunnelEnd(prev) == cur) {
                     if (AITunnel.BuildTunnel(AIVehicle.VT_RAIL, prev)) {
                         tunnels++;
+                        TrackBuilder._Touch(prev);   // we built this; track for cleanup
                     } else if (TrackBuilder._GroundCross(prev, cur, label)) {
                         built++;   // terraformed across instead of tunnelling
                     } else {
@@ -351,6 +350,7 @@ class TrackBuilder {
                     if (!bl.IsEmpty()
                             && AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), prev, cur)) {
                         bridges++;
+                        TrackBuilder._Touch(prev);   // we built this; track for cleanup
                     } else if (TrackBuilder._GroundCross(prev, cur, label)) {
                         built++;   // bridge failed (area not clear) - terraform + lay ground rail
                     } else {
@@ -362,18 +362,28 @@ class TrackBuilder {
                 continue;
             }
 
+            local pre_rail = AIRail.IsRailTile(cur);   // existing line we're joining?
             if (AIRail.BuildRail(prev, cur, next)) {
                 built++;
+                // Only record tiles whose rail WE created. A junction tile that
+                // already had rail must not be tracked, or a failed-route cleanup
+                // would demolish the whole tile and break the existing line.
+                if (!pre_rail) TrackBuilder._Touch(cur);
             } else if (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT) {
-                // already there; fine
-            } else if (!near_station && AITile.DemolishTile(cur)
+                // already there (existing line we're joining); do NOT touch it,
+                // so a failed-route cleanup never demolishes another route's rail
+            } else if (!near_station && !AIRail.IsRailTile(cur)
+                    && !AIRail.IsRailStationTile(cur)
+                    && AITile.DemolishTile(cur)
                     && AIRail.BuildRail(prev, cur, next)) {
                 // Something was in the way (e.g. a stray road tile). Clearing it
-                // and laying rail beats a long detour. Demolish can be refused
-                // by the local authority - then this falls through to the warn
-                // below and the reroute logic handles it.
+                // and laying rail beats a long detour. NEVER demolish existing
+                // rail/stations (we now route through junctions). Demolish can be
+                // refused by the local authority - then this falls through to the
+                // warn below and the reroute logic handles it.
                 Log.Info(Log.PHASE_TRACK, "[" + label + "] cleared obstacle at " + cur + " to lay rail.");
                 built++;
+                TrackBuilder._Touch(cur);
             } else {
                 Log.Warn(Log.PHASE_TRACK,
                     "[" + label + "] rail fail at tile " + cur
@@ -400,12 +410,17 @@ class TrackBuilder {
         local dir = (b - a) / step;
         local h   = AITile.GetMaxHeight(a);
 
-        // Flatten every tile of the span (and the endpoints) to one height.
+        // Bail if the span touches water or existing rail/stations - we must not
+        // terraform or build over a line; leave it for a bridge/reroute.
         for (local k = 0; k <= step; k++) {
             local t = a + dir * k;
             if (!AIMap.IsValidTile(t)) return false;
-            if (AITile.IsWaterTile(t)) return false;   // can't ground-cross water
-            TrackBuilder._FlattenToHeight(t, h);
+            if (AITile.IsWaterTile(t)) return false;
+            if (AIRail.IsRailTile(t) || AIRail.IsRailStationTile(t)) return false;
+        }
+        // Flatten every tile of the span to one height.
+        for (local k = 0; k <= step; k++) {
+            TrackBuilder._FlattenToHeight(a + dir * k, h);
         }
 
         // Lay ground rail across the interior tiles (a and b get their rail from

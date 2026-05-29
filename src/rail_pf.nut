@@ -102,7 +102,9 @@ class RailPathFinder {
         this._cost_bridge_fixed   = 500;   // trivial dip-bridges lose to terraformed ground
         this._cost_tunnel_per_tile = 0;    // tunnels preferred over climbing
         this._cost_coast          = 20;
-        this._cost_crossing_rail  = 200000;  // crossing FOREIGN rail: avoid unless no other way
+        this._cost_crossing_rail  = 3000;  // building onto existing rail: discouraged
+                                           // (prefer a bridge for a pure crossing) but
+                                           // allowed so real JUNCTIONS can be laid
         this._cost_level_crossing = 200;  // crossing/clearing a road is cheap vs
                                           // a long detour around it
         this._cost_guide          = 900;   // per level of reverse-tile distance
@@ -394,7 +396,7 @@ class RailPathFinder {
             // A normal rail tile on water fails to build. Water must be
             // BRIDGED (a multi-tile step), so make a ground step onto water
             // hugely expensive - A* will bridge across instead.
-            if (AITile.IsWaterTile(t[0])) cost += self._cost_crossing_rail;
+            if (AITile.IsWaterTile(t[0])) cost += 200000;
 
             // ---- COAST SURCHARGE ----------------------------------------
             if (AITile.IsCoastTile(t[0])) cost += self._cost_coast;
@@ -531,18 +533,35 @@ class RailPathFinder {
             if (par_tile != null && par.GetParent() != null) {
                 if (next - cur_node == par.GetParent().GetTile() - par_tile) continue;
             }
-            // NEVER cross another line at grade. If `next` already carries rail
-            // (and it isn't a goal we're connecting into), don't lay a flat
-            // crossing over it - skip the on-ground move so the only way past is
-            // the bridge/tunnel jump offered below (grade separation).
-            if (AIRail.IsRailTile(next) && !(next in self._goals_map)) continue;
             // BACK TRACK: hard-stay on the correct side of the out track. The
             // wrong-side tiles are a HARD no-go (not just a cost) so the back
             // track can never weave across and cross the out track.
             if (self._avoidSide != null && (next in self._avoidSide)) continue;
-            if (par_tile == null || AIRail.BuildRail(par_tile, cur_node, next)) {
+
+            // Seed tile (no parent): always allow.
+            if (par_tile == null) {
                 tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
+                continue;
             }
+
+            // Can we move cur -> next?  Three cases:
+            //   buildable          -> empty/compatible tile, we can lay the rail.
+            //   ERR_ALREADY_BUILT  -> the connecting rail ALREADY exists, so we
+            //                         can JOIN it - this is how we build a
+            //                         junction into / route along an existing
+            //                         line (split-before-merge networks).
+            //   otherwise          -> blocked; skip.
+            local buildable = AIRail.BuildRail(par_tile, cur_node, next);
+            local joinable  = !buildable
+                && (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT);
+            if (!buildable && !joinable) continue;
+
+            // Building ONTO an existing rail tile is allowed - that is how a
+            // junction is laid (a new line merges into / splits from an existing
+            // one). It is heavily DISCOURAGED by _cost_crossing_rail (so the
+            // pathfinder prefers a bridge for a pure foreign crossing, but will
+            // make a real junction where it genuinely needs to tie into a line).
+            tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
         }
 
         // ---- BRIDGE / TUNNEL JUMPS ---------------------------------------
