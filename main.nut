@@ -299,31 +299,70 @@ function MvBAI::TryBuildRoute(c) {
 function MvBAI::_FailRoute(c, route, new_src, new_dst) {
     this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
 
-    if (route.depot_tiles != null) {
-        foreach (d in route.depot_tiles) {
-            if (AIMap.IsValidTile(d)) AITile.DemolishTile(d);
+    // PROTECT anything belonging to ANOTHER route. The failing route isn't in
+    // state yet, so every station already in state belongs to a different line.
+    // Build a set of their station ids and a zone of tiles around each (the
+    // platform, throat, approach) - we must NEVER demolish a shared station or
+    // its connecting track while backtracking.
+    local prot_ids   = {};   // station_id -> true
+    local prot_tiles = {};   // tile -> true
+    foreach (_, r in this.state.routes) {
+        foreach (st in [r.src_station, r.dst_station]) {
+            if (st == null) continue;
+            prot_ids[st.station_id] <- true;
+            _MarkTileZone(prot_tiles, st.tile, StationBuilder.PLATFORM_LENGTH + 6);
         }
     }
-    // Demolish EVERY tile rail was laid on this attempt - this covers the
-    // lead-in stubs and any partial track from failed pathfind attempts, not
-    // just the final path arrays (which are null when the track build failed).
+
+    // Helper: demolish a tile only if it's safe (not a station tile, not in a
+    // protected zone belonging to another route).
+    local safe_demolish = function(t) : (prot_tiles) {
+        if (!AIMap.IsValidTile(t)) return;
+        if (AIRail.IsRailStationTile(t)) return;          // never a station
+        if (t in prot_tiles) return;                      // shared/other-route area
+        AITile.DemolishTile(t);
+    };
+
+    if (route.depot_tiles != null) {
+        foreach (d in route.depot_tiles) safe_demolish(d);
+    }
+    // Demolish tiles rail was laid on this attempt (lead-in stubs, partial track
+    // from failed pathfinds) - but skip anything protected above.
     if (("touched" in route) && route.touched != null) {
-        foreach (t in route.touched) {
-            if (AIMap.IsValidTile(t)) AITile.DemolishTile(t);
-        }
+        foreach (t in route.touched) safe_demolish(t);
     }
     foreach (path in [route.path_out, route.path_back]) {
         if (path == null) continue;
-        foreach (t in path) {
-            if (AIMap.IsValidTile(t)) AITile.DemolishTile(t);
-        }
+        foreach (t in path) safe_demolish(t);
     }
-    if (new_src) StationBuilder.Remove(route.src_station);
-    if (new_dst) StationBuilder.Remove(route.dst_station);
+    // Only remove a station WE built this attempt AND that no other route uses.
+    if (new_src && route.src_station != null && !(route.src_station.station_id in prot_ids)) {
+        StationBuilder.Remove(route.src_station);
+    }
+    if (new_dst && route.dst_station != null && !(route.dst_station.station_id in prot_ids)) {
+        StationBuilder.Remove(route.dst_station);
+    }
 
     Log.Warn(Log.PHASE_RANK, "Route abandoned and cleaned up: " + AICargo.GetCargoLabel(c.cargo)
         + " " + AIIndustry.GetName(c.producer) + " -> " + Route.AccepterName(c));
     return false;
+}
+
+// Mark every tile within `r` of `center` in `set` (a protected zone).
+function _MarkTileZone(set, center, r) {
+    local cx = AIMap.GetTileX(center);
+    local cy = AIMap.GetTileY(center);
+    local mx = AIMap.GetMapSizeX();
+    local my = AIMap.GetMapSizeY();
+    for (local dy = -r; dy <= r; dy++) {
+        local y = cy + dy;
+        if (y < 0 || y >= my) continue;
+        for (local dx = -r; dx <= r; dx++) {
+            local x = cx + dx;
+            if (x < 0 || x >= mx) continue;
+            set[AIMap.GetTileIndex(x, y)] <- true;
+        }
+    }
 }
 
 // Save/Load are stubbed in v1.
