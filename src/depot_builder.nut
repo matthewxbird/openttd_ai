@@ -67,30 +67,36 @@ class DepotBuilder {
         return depots;
     }
 
-    // Try to build one depot at a BEND of the line at index i, and ENFORCE that
-    // it is actually accessible: after building we verify (in test mode) that
-    // the depot->mainline rail really exists AND the mainline still runs
-    // through. If not, the depot is torn down and the line restored - we NEVER
-    // keep an inaccessible depot. Returns the depot tile, or null.
+    // Try to build one depot on a STRAIGHT run of the line at index i.
+    // RULE: depots are NEVER placed on a diagonal/bend - only where three tiles
+    // are collinear (a, b, c in one straight line). On a straight run the depot
+    // taps off with a single clean curve; tapping a diagonal produces the
+    // S-bend / hard corner that traps trains.
     //
-    //   a --d1--> b      d1 = a->b, d2 = b->c (perpendicular: a bend).
-    //             |       Try depot = b - d2 first: depot->b->c is a STRAIGHT
-    //   D? c  D?          run (best, guaranteed smooth). Else depot = b + d1:
-    //                     depot->b->c curves with the line's own bend.
+    //   a == b == c     straight run (a, b, c collinear)
+    //        |          depot perpendicular at b +/- p
+    //      depot        EXIT: depot -> b -> c   ENTER: a -> b -> depot
+    //
+    // After building we ENFORCE accessibility: the depot->line link AND the
+    // through line must actually exist (test-mode ALREADY_BUILT), else the depot
+    // is torn down, the line restored, and we try the other side / next spot.
     static function _TryBuildAt(path, i, want_right, allow_terraform = false) {
         if (i < 1 || i + 1 >= path.len()) return null;
         local a = path[i - 1];
         local b = path[i];
         local c = path[i + 1];
 
-        local d1 = b - a;
-        local d2 = c - b;
+        local d  = b - a;
         local mx = AIMap.GetMapSizeX();
-        if (!DepotBuilder._IsUnitStep(d1, mx) || !DepotBuilder._IsUnitStep(d2, mx)) return null;
-        if (d1 == d2 || d1 == -d2) return null;   // need a bend, not a straight
+        if (!DepotBuilder._IsUnitStep(d, mx)) return null;
+        if (c - b != d) return null;          // MUST be a straight run, not a bend
 
-        // Candidate depot tiles: straight-exit (b-d2) preferred, then curve (b+d1).
-        foreach (depot in [b - d2, b + d1]) {
+        local right = RailPathFinder._RightOffset(d);
+        // Try both sides; the requested side first.
+        local order = want_right ? [right, -right] : [-right, right];
+
+        foreach (p in order) {
+            local depot = b + p;
             if (!AIMap.IsValidTile(depot) || !AITile.IsBuildable(depot)) continue;
             if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) {
                 if (!allow_terraform) continue;
@@ -98,9 +104,8 @@ class DepotBuilder {
                 if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) continue;
             }
 
-            DepotBuilder._ClearSignals(b, d2);
+            DepotBuilder._ClearSignals(b, d);
 
-            // Dry-run.
             local test_ok;
             {
                 local tm = AITestMode();
@@ -108,29 +113,25 @@ class DepotBuilder {
             }
             if (!test_ok) continue;
 
-            // Build for real.
             if (!AIRail.BuildRailDepot(depot, b)) continue;
             if (!AIRail.BuildRail(depot, b, c)) { AITile.DemolishTile(depot); continue; }
             local enter = AIRail.BuildRail(a, b, depot);   // best-effort entry
 
-            // ENFORCE accessibility: the depot->mainline link AND the through
-            // line must both actually exist now. _RailExists confirms a piece is
-            // already built (not just buildable).
             local exit_ok = DepotBuilder._RailExists(depot, b, c);
             local main_ok = DepotBuilder._RailExists(a, b, c);
             if (!exit_ok || !main_ok) {
                 Log.Warn(Log.PHASE_DEPOT,
                     "Depot at " + depot + " not accessible (exit=" + exit_ok
-                    + " main=" + main_ok + "); removing and trying elsewhere.");
+                    + " main=" + main_ok + "); removing.");
                 AIRail.RemoveRail(depot, b, c);
                 AIRail.RemoveRail(a, b, depot);
                 AITile.DemolishTile(depot);
-                AIRail.BuildRail(a, b, c);   // make sure the line is intact
+                AIRail.BuildRail(a, b, c);
                 continue;
             }
 
             Log.Info(Log.PHASE_DEPOT,
-                "Depot at " + depot + " (bend at " + b + ", verified accessible, enter="
+                "Depot at " + depot + " (straight run at " + b + ", verified, enter="
                 + (enter ? "yes" : "no") + ")");
             return depot;
         }
