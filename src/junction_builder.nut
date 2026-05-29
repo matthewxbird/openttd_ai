@@ -256,6 +256,22 @@ class JunctionBuilder {
         });
     }
 
+    // Captured hand-built junction (scan of (127,62)..(137,67)). Replays
+    // tile-for-tile via StampList. Track bits: 1=NE_SW, 2=NW_SE, 3=both(diamond).
+    static function Template1() {
+        return [
+            ["R",0,0,1],["R",1,0,1],["R",2,0,1],["R",3,0,1],["R",4,0,1],
+            ["R",5,0,3],["R",6,0,1],["R",7,0,1],["R",8,0,1],["R",9,0,1],["R",10,0,1],
+            ["R",0,1,1],["R",1,1,1],["R",2,1,1],["R",3,1,1],["R",4,1,3],
+            ["R",5,1,1],["R",6,1,1],["R",7,1,1],["R",8,1,1],["R",9,1,1],["R",10,1,1],
+            ["R",4,2,2],["R",5,2,2],["R",4,3,2],["R",5,3,2],
+            ["R",4,4,2],["R",5,4,2],["R",4,5,2],["R",5,5,2],
+            ["S",4,0,3,0,5],["S",6,0,5,0,5],
+            ["S",3,1,4,1,5],["S",6,1,7,1,5],
+            ["S",4,2,4,3,5],["S",5,2,5,1,5],
+        ];
+    }
+
     // ---- CAPTURE A HAND-BUILT JUNCTION -------------------------------------
     // Scan the rectangle (x1,y1)..(x2,y2) and dump an exact descriptor of every
     // rail tile (its track bits), bridge, tunnel and signal, RELATIVE to the

@@ -32,14 +32,14 @@ class MvBAI extends AIController {
     // DEBUG: stamp one flat double-track T-junction at boot so its geometry can
     // be screenshotted/verified in isolation, before wiring junctions into live
     // routing. Set false for normal play.
-    static DEBUG_JUNCTION = false;
+    static DEBUG_JUNCTION = true;
 
     // DEBUG: set true and fill the region to SCAN a hand-built junction into a
     // [scan] descriptor in the AI Debug log. Build your ideal junction in-game,
     // read its bounding tile coords (land-info tool shows X,Y), put them here,
     // reload - the AI dumps the layout. Paste the [scan] lines back to bake a
     // template. (x1,y1) = top-left (min X, min Y), (x2,y2) = bottom-right.
-    static DEBUG_SCAN  = true;
+    static DEBUG_SCAN  = false;
     static SCAN_X1 = 137;
     static SCAN_Y1 = 62;
     static SCAN_X2 = 127;
@@ -403,11 +403,11 @@ function MvBAI::_DebugStampJunction() {
     AITile.LevelTiles(AIMap.GetTileIndex(bx - 8, by - 8),
                       AIMap.GetTileIndex(bx + 9, by + 9));
 
-    // Stamp a GRADE-SEPARATED T (branch flies over the near main track).
-    local ok = JunctionBuilder.BuildGradeSeparatedT(base, d, p, 6);
+    // Replay the captured hand-built junction (Template1) to verify round-trip.
+    JunctionBuilder.StampList(base, JunctionBuilder.Template1());
     Log.Info(Log.PHASE_BOOT,
-        "[debug] grade-separated T at tile (" + AIMap.GetTileX(base) + "," + AIMap.GetTileY(base)
-        + ") built=" + ok + " - screenshot to verify geometry.");
+        "[debug] replayed captured junction at tile (" + AIMap.GetTileX(base)
+        + "," + AIMap.GetTileY(base) + ") - screenshot to compare with the original.");
 }
 
 // Save/Load are stubbed in v1.
