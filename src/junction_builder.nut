@@ -256,6 +256,86 @@ class JunctionBuilder {
         });
     }
 
+    // ---- CAPTURE A HAND-BUILT JUNCTION -------------------------------------
+    // Scan the rectangle (x1,y1)..(x2,y2) and dump an exact descriptor of every
+    // rail tile (its track bits), bridge, tunnel and signal, RELATIVE to the
+    // top-left corner (x1,y1). Paste the [scan] lines back and they bake into a
+    // template that reproduces the layout tile-for-tile via StampList.
+    static function ScanToLog(x1, y1, x2, y2) {
+        Log.Info(Log.PHASE_BOOT, "[scan] BEGIN " + (x2 - x1 + 1) + "x" + (y2 - y1 + 1)
+            + " origin=(" + x1 + "," + y1 + ")");
+        for (local y = y1; y <= y2; y++) {
+            for (local x = x1; x <= x2; x++) {
+                local t  = AIMap.GetTileIndex(x, y);
+                local dx = x - x1;
+                local dy = y - y1;
+
+                if (AIRail.IsRailTile(t)) {
+                    local tracks = AIRail.GetRailTracks(t);   // bitmask of RAILTRACK_*
+                    Log.Info(Log.PHASE_BOOT, "[scan] R " + dx + " " + dy + " " + tracks);
+                    // Signals on each of the 4 edges.
+                    foreach (off in [1, -1, AIMap.GetMapSizeX(), -AIMap.GetMapSizeX()]) {
+                        local f = t + off;
+                        if (!AIMap.IsValidTile(f)) continue;
+                        local st = AIRail.GetSignalType(t, f);
+                        if (st != AIRail.SIGNALTYPE_NONE) {
+                            Log.Info(Log.PHASE_BOOT, "[scan] S " + dx + " " + dy + " "
+                                + (AIMap.GetTileX(f) - x1) + " " + (AIMap.GetTileY(f) - y1) + " " + st);
+                        }
+                    }
+                }
+                if (AIBridge.IsBridgeTile(t)) {
+                    local o = AIBridge.GetOtherBridgeEnd(t);
+                    if (t < o) {   // log each bridge once
+                        Log.Info(Log.PHASE_BOOT, "[scan] B " + dx + " " + dy + " "
+                            + (AIMap.GetTileX(o) - x1) + " " + (AIMap.GetTileY(o) - y1));
+                    }
+                }
+                if (AITunnel.IsTunnelTile(t)) {
+                    local o = AITunnel.GetOtherTunnelEnd(t);
+                    if (t < o) {
+                        Log.Info(Log.PHASE_BOOT, "[scan] U " + dx + " " + dy + " "
+                            + (AIMap.GetTileX(o) - x1) + " " + (AIMap.GetTileY(o) - y1));
+                    }
+                }
+            }
+        }
+        Log.Info(Log.PHASE_BOOT, "[scan] END");
+    }
+
+    // Replay a captured descriptor at `origin` (tile). `entries` is an array of
+    // arrays matching the [scan] lines:
+    //   ["R", dx, dy, trackbits]
+    //   ["S", dx, dy, fdx, fdy, sigtype]
+    //   ["B", dx, dy, ox, oy]   (bridge)   ["U", ...] (tunnel)
+    static function StampList(origin, entries) {
+        local mx = AIMap.GetMapSizeX();
+        local ox = AIMap.GetTileX(origin);
+        local oy = AIMap.GetTileY(origin);
+        local tile = function(dx, dy) : (ox, oy) { return AIMap.GetTileIndex(ox + dx, oy + dy); };
+        // Bridges/tunnels first (need clear ground), then rail bits, then signals.
+        foreach (e in entries) {
+            if (e[0] == "B") {
+                local a = tile(e[1], e[2]); local b = tile(e[3], e[4]);
+                local bl = AIBridgeList_Length(AIMap.DistanceManhattan(a, b) + 1);
+                if (!bl.IsEmpty()) AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), a, b);
+            } else if (e[0] == "U") {
+                AITunnel.BuildTunnel(AIVehicle.VT_RAIL, tile(e[1], e[2]));
+            }
+        }
+        foreach (e in entries) {
+            if (e[0] != "R") continue;
+            local t = tile(e[1], e[2]);
+            foreach (bit in [1, 2, 4, 8, 16, 32]) {
+                if (e[3] & bit) AIRail.BuildRailTrack(t, bit);
+            }
+        }
+        foreach (e in entries) {
+            if (e[0] != "S") continue;
+            AIRail.BuildSignal(tile(e[1], e[2]), tile(e[3], e[4]), e[5]);
+        }
+    }
+
     // Build (or test) a rail piece from->tile->to, treating ALREADY_BUILT as ok.
     static function _Rail(from, tile, to, dry) {
         if (dry) {

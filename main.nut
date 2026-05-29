@@ -34,6 +34,17 @@ class MvBAI extends AIController {
     // routing. Set false for normal play.
     static DEBUG_JUNCTION = false;
 
+    // DEBUG: set true and fill the region to SCAN a hand-built junction into a
+    // [scan] descriptor in the AI Debug log. Build your ideal junction in-game,
+    // read its bounding tile coords (land-info tool shows X,Y), put them here,
+    // reload - the AI dumps the layout. Paste the [scan] lines back to bake a
+    // template. (x1,y1) = top-left (min X, min Y), (x2,y2) = bottom-right.
+    static DEBUG_SCAN  = false;
+    static SCAN_X1 = 0;
+    static SCAN_Y1 = 0;
+    static SCAN_X2 = 0;
+    static SCAN_Y2 = 0;
+
     function Start();
     function Save();
     function Load(version, data);
@@ -60,6 +71,9 @@ function MvBAI::Start() {
     Trains.ConfigureServicing();
 
     if (MvBAI.DEBUG_JUNCTION) this._DebugStampJunction();
+    if (MvBAI.DEBUG_SCAN) {
+        JunctionBuilder.ScanToLog(MvBAI.SCAN_X1, MvBAI.SCAN_Y1, MvBAI.SCAN_X2, MvBAI.SCAN_Y2);
+    }
 
     Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan/build loop.");
 
