@@ -22,6 +22,7 @@ require("src/state.nut");
 require("src/autoreplace.nut");
 require("src/maintenance.nut");
 require("src/planner.nut");
+require("src/junction_builder.nut");
 
 class MvBAI extends AIController {
     state        = null;
