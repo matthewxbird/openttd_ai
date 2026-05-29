@@ -47,6 +47,9 @@ function MvBAI::Start() {
     this.state        = State();
     this.auto_replace = AutoReplace();
 
+    // Trains built from here on service when reliability drops 25%.
+    Trains.ConfigureServicing();
+
     Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan/build loop.");
 
     while (true) {

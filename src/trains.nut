@@ -170,7 +170,6 @@ class Trains {
             count++;
         }
 
-        Trains.SetServicing(v);
         Log.Info(Log.PHASE_TRAIN,
             "Train built id=" + v + " engines=" + engines + " wagons=" + count
             + " (len=" + AIVehicle.GetLength(v) + "/" + plat_units
@@ -180,28 +179,25 @@ class Trains {
 
     static SERVICE_RELIABILITY_DROP = 25;  // service when reliability falls 25%
 
-    // Set a train to be serviced once it loses 25% of its reliability.
-    // OpenTTD service intervals can be expressed as a PERCENT of reliability
-    // (service when reliability drops by N%) or as days. We switch the game to
-    // percent mode if needed, then set the interval to 25.
-    static function SetServicing(vehicle) {
-        local key = "vehicle.servint_ispercent";
-        local is_percent = AIGameSettings.IsValid(key)
-                        && AIGameSettings.GetValue(key) == 1;
-        if (!is_percent && AIGameSettings.IsValid(key)) {
-            is_percent = AIGameSettings.SetValue(key, 1);  // try to enable percent mode
+    // Configure the DEFAULT train service interval once, at boot. Per-vehicle
+    // service-interval setting isn't in this API, so instead we set the game's
+    // default to PERCENT mode at 25 - every train built afterwards inherits a
+    // "service when reliability drops 25%" interval.
+    static function ConfigureServicing() {
+        local pkey = "vehicle.servint_ispercent";
+        local tkey = "vehicle.servint_trains";
+
+        local is_percent = false;
+        if (AIGameSettings.IsValid(pkey)) {
+            is_percent = AIGameSettings.SetValue(pkey, 1);  // percent-of-reliability mode
         }
-        if (is_percent) {
-            AIVehicle.SetServiceInterval(vehicle, Trains.SERVICE_RELIABILITY_DROP);
-            Log.Info(Log.PHASE_TRAIN,
-                "Train " + vehicle + " services at " + Trains.SERVICE_RELIABILITY_DROP
-                + "% reliability drop.");
+        if (AIGameSettings.IsValid(tkey)
+                && AIGameSettings.SetValue(tkey, Trains.SERVICE_RELIABILITY_DROP)) {
+            Log.Info(Log.PHASE_BOOT,
+                "Default train servicing set to " + Trains.SERVICE_RELIABILITY_DROP
+                + (is_percent ? "% reliability drop." : " day interval (percent mode unavailable)."));
         } else {
-            // Days mode and we couldn't switch: use a short interval as a
-            // fallback so trains still get serviced often.
-            AIVehicle.SetServiceInterval(vehicle, 90);
-            Log.Warn(Log.PHASE_TRAIN,
-                "Train " + vehicle + ": percent service mode unavailable; using 90-day interval.");
+            Log.Warn(Log.PHASE_BOOT, "Could not set default train service interval.");
         }
     }
 
