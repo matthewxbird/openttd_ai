@@ -28,11 +28,17 @@ class MvBAI extends AIController {
     railtype     = null;
     auto_replace = null;
 
+    // DEBUG: stamp one flat double-track T-junction at boot so its geometry can
+    // be screenshotted/verified in isolation, before wiring junctions into live
+    // routing. Set false for normal play.
+    static DEBUG_JUNCTION = true;
+
     function Start();
     function Save();
     function Load(version, data);
     function TryBuildRoute(candidate);
     function _FailRoute(candidate, route, new_src, new_dst);
+    function _DebugStampJunction();
 }
 
 function MvBAI::Start() {
@@ -51,6 +57,8 @@ function MvBAI::Start() {
 
     // Trains built from here on service when reliability drops 25%.
     Trains.ConfigureServicing();
+
+    if (MvBAI.DEBUG_JUNCTION) this._DebugStampJunction();
 
     Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan/build loop.");
 
@@ -363,6 +371,42 @@ function _MarkTileZone(set, center, r) {
             set[AIMap.GetTileIndex(x, y)] <- true;
         }
     }
+}
+
+// DEBUG: build one flat double-track T-junction on a terraformed patch near the
+// map centre, so its geometry can be inspected. Builds a short double-track
+// main + a branch leg, then stamps JunctionBuilder.BuildFlatDoubleT to tie them.
+function MvBAI::_DebugStampJunction() {
+    local mx = AIMap.GetMapSizeX();
+    local d  = 1;    // main runs along +x
+    local p  = mx;   // tracks/branch separated along +y
+    local base = AIMap.GetTileIndex(AIMap.GetMapSizeX() / 2, AIMap.GetMapSizeY() / 2);
+
+    // Flatten a generous rectangle so all pieces sit at one height.
+    local bx = AIMap.GetTileX(base);
+    local by = AIMap.GetTileY(base);
+    local c1 = AIMap.GetTileIndex(bx - 1, by - 4);
+    local c2 = AIMap.GetTileIndex(bx + 10, by + 3);
+    AITile.LevelTiles(c1, c2);
+
+    // Main double-track: track 0 on row `base`, track 1 on row base+p.
+    // Lay straight rail for 9 tiles on each.
+    for (local k = 1; k <= 7; k++) {
+        AIRail.BuildRail(base + (k - 1) * d, base + k * d, base + (k + 1) * d);
+        AIRail.BuildRail(base + p + (k - 1) * d, base + p + k * d, base + p + (k + 1) * d);
+    }
+
+    // Junction at the 4th tile of track 0.
+    local j0 = base + 4 * d;
+
+    // Branch leg approaching j0 from the -p side (two tiles).
+    AIRail.BuildRail(j0 - 3 * p, j0 - 2 * p, j0 - p);
+    AIRail.BuildRail(j0 - 2 * p, j0 - p, j0);
+
+    local ok = JunctionBuilder.BuildFlatDoubleT(j0, d, p);
+    Log.Info(Log.PHASE_BOOT,
+        "[debug] flat double-track T at tile (" + AIMap.GetTileX(j0) + "," + AIMap.GetTileY(j0)
+        + ") built=" + ok + " - screenshot to verify geometry.");
 }
 
 // Save/Load are stubbed in v1.
