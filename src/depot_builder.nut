@@ -67,70 +67,63 @@ class DepotBuilder {
         return depots;
     }
 
-    // Try to build one depot off the mainline at path index i.
-    // want_right: build on the RIGHT of travel if true, else the LEFT.
+    // Try to build one depot at an ELBOW (diagonal bend) of the line at index i.
     // Returns the depot tile, or null if this spot isn't usable.
     //
-    // Single-corner turnout: the depot sits ONE tile off the line and joins it
-    // through a 3-way junction on tile b - the straight mainline a-c plus a
-    // single curve to the depot. A train enters and leaves with ONE gentle
-    // curve; there is no parallel siding and so NO staircase of perpendicular
-    // corners (which jams long trains).
+    // We attach ONLY at a bend, never on a straight run. On a straight run the
+    // only spur is perpendicular - a hard 90-degree join that traps trains. At a
+    // bend the line already turns, so a depot placed "straight ahead" of the
+    // incoming leg exits through a curve of the SAME gentleness as the line's
+    // own bend - no sharp 90-degree join.
     //
-    //      depot           depot = b + p (one tile to the side)
-    //       |  \           b carries: straight a--c, plus the curve to depot
-    //   a ==b== c          ENTER: a -> b -> depot   (one curve)
-    //                      EXIT : depot -> b -> c   (one curve, with the flow)
+    //   a --d1--> b           d1 = a->b, d2 = b->c (perpendicular: a bend)
+    //             |  \         depot D = b + d1 (straight on past the bend)
+    //             c   D        EXIT : D -> b -> c  (curve, same bend as a->b->c)
     static function _TryBuildAt(path, i, want_right, allow_terraform = false) {
-        // Need THREE collinear, single-step mainline tiles (a,b,c).
         if (i < 1 || i + 1 >= path.len()) return null;
         local a = path[i - 1];
         local b = path[i];
         local c = path[i + 1];
 
-        local d = b - a;
-        if (c - b != d) return null;
-        if (d != 1 && d != -1 && d != AIMap.GetMapSizeX() && d != -AIMap.GetMapSizeX()) return null;
+        local d1 = b - a;   // incoming leg direction
+        local d2 = c - b;   // outgoing leg direction
+        local mx = AIMap.GetMapSizeX();
+        // Both legs must be single orthogonal steps, and PERPENDICULAR (a bend).
+        if (!DepotBuilder._IsUnitStep(d1, mx) || !DepotBuilder._IsUnitStep(d2, mx)) return null;
+        if (d1 == d2 || d1 == -d2) return null;   // straight or reversal, not a bend
 
-        local p     = want_right ? RailPathFinder._RightOffset(d) : -RailPathFinder._RightOffset(d);
-        local depot = b + p;
-
-        // A depot needs ONE flat, buildable tile. (Only the depot tile must be
-        // flat; the curve onto the mainline can run up a slope.) Keep this
-        // minimal so we find a spot on rolling terrain instead of giving up.
-        if (!AIMap.IsValidTile(depot)) return null;
-        if (!AITile.IsBuildable(depot)) return null;
+        local depot = b + d1;   // straight on past the bend
+        if (!AIMap.IsValidTile(depot) || !AITile.IsBuildable(depot)) return null;
         if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) {
-            // Last resort: terraform the single depot tile flat rather than
-            // abandon the whole route for want of a depot.
             if (!allow_terraform) return null;
             AITile.LevelTiles(depot, depot);
             if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) return null;
         }
 
-        // Clear signals on the mainline tile we join, so the junction can be
-        // added (no-op when depots are built before signals, the usual case).
-        DepotBuilder._ClearSignals(b, d);
+        // Clear signals on the bend tile so the junction can be added.
+        DepotBuilder._ClearSignals(b, d2);
 
-        // Dry-run the whole build in test mode (no money, nothing placed).
+        // Dry-run in test mode (no money) before building.
         {
             local tm = AITestMode();
             if (!AIRail.BuildRailDepot(depot, b))  return null;
             if (!AIRail.BuildRail(depot, b, c))    return null;  // exit curve (mandatory)
         }
 
-        // Build for real.
         if (!AIRail.BuildRailDepot(depot, b)) return null;
-        if (!AIRail.BuildRail(depot, b, c)) {                    // exit curve, with flow
+        if (!AIRail.BuildRail(depot, b, c)) {                    // exit curve -> c, with flow
             AITile.DemolishTile(depot);
             return null;
         }
-        local enter = AIRail.BuildRail(a, b, depot);             // entry curve (best-effort)
+        local enter = AIRail.BuildRail(a, b, depot);             // entry straight (best-effort)
 
         Log.Info(Log.PHASE_DEPOT,
-            "Depot at " + depot + " (" + (p == RailPathFinder._RightOffset(d) ? "right" : "left")
-            + " of line, junction at " + b + ", enter=" + (enter ? "yes" : "no") + ")");
+            "Depot at " + depot + " (bend at " + b + ", enter=" + (enter ? "yes" : "no") + ")");
         return depot;
+    }
+
+    static function _IsUnitStep(d, mx) {
+        return d == 1 || d == -1 || d == mx || d == -mx;
     }
 
     // Remove any signal on `tile` facing along the line (either direction), so
