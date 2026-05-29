@@ -139,8 +139,11 @@ class Trains {
         local power_cap = AIEngine.GetPower(engine) / Trains.POWER_PER_WAGON;
         if (power_cap < 1) power_cap = 1;
         local fit  = (plat_units - engine_len) / wagon_len;
-        local want = max_wagons;
-        if (fit < want) want = fit;
+        // MAXIMISE platform use: always aim to FILL the platform, regardless of
+        // the demand estimate (extra capacity is handled by the train COUNT, not
+        // by running short trains). The demand figure is only a floor.
+        local want = fit;
+        if (max_wagons > want) want = max_wagons;   // never shorter than asked
 
         // If the engine can't pull what fits, double-head (second engine at the
         // front) provided that still leaves room for a worthwhile train.
