@@ -67,63 +67,87 @@ class DepotBuilder {
         return depots;
     }
 
-    // Try to build one depot at an ELBOW (diagonal bend) of the line at index i.
-    // Returns the depot tile, or null if this spot isn't usable.
+    // Try to build one depot at a BEND of the line at index i, and ENFORCE that
+    // it is actually accessible: after building we verify (in test mode) that
+    // the depot->mainline rail really exists AND the mainline still runs
+    // through. If not, the depot is torn down and the line restored - we NEVER
+    // keep an inaccessible depot. Returns the depot tile, or null.
     //
-    // We attach ONLY at a bend, never on a straight run. On a straight run the
-    // only spur is perpendicular - a hard 90-degree join that traps trains. At a
-    // bend the line already turns, so a depot placed "straight ahead" of the
-    // incoming leg exits through a curve of the SAME gentleness as the line's
-    // own bend - no sharp 90-degree join.
-    //
-    //   a --d1--> b           d1 = a->b, d2 = b->c (perpendicular: a bend)
-    //             |  \         depot D = b + d1 (straight on past the bend)
-    //             c   D        EXIT : D -> b -> c  (curve, same bend as a->b->c)
+    //   a --d1--> b      d1 = a->b, d2 = b->c (perpendicular: a bend).
+    //             |       Try depot = b - d2 first: depot->b->c is a STRAIGHT
+    //   D? c  D?          run (best, guaranteed smooth). Else depot = b + d1:
+    //                     depot->b->c curves with the line's own bend.
     static function _TryBuildAt(path, i, want_right, allow_terraform = false) {
         if (i < 1 || i + 1 >= path.len()) return null;
         local a = path[i - 1];
         local b = path[i];
         local c = path[i + 1];
 
-        local d1 = b - a;   // incoming leg direction
-        local d2 = c - b;   // outgoing leg direction
+        local d1 = b - a;
+        local d2 = c - b;
         local mx = AIMap.GetMapSizeX();
-        // Both legs must be single orthogonal steps, and PERPENDICULAR (a bend).
         if (!DepotBuilder._IsUnitStep(d1, mx) || !DepotBuilder._IsUnitStep(d2, mx)) return null;
-        if (d1 == d2 || d1 == -d2) return null;   // straight or reversal, not a bend
+        if (d1 == d2 || d1 == -d2) return null;   // need a bend, not a straight
 
-        local depot = b + d1;   // straight on past the bend
-        if (!AIMap.IsValidTile(depot) || !AITile.IsBuildable(depot)) return null;
-        if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) {
-            if (!allow_terraform) return null;
-            AITile.LevelTiles(depot, depot);
-            if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) return null;
+        // Candidate depot tiles: straight-exit (b-d2) preferred, then curve (b+d1).
+        foreach (depot in [b - d2, b + d1]) {
+            if (!AIMap.IsValidTile(depot) || !AITile.IsBuildable(depot)) continue;
+            if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) {
+                if (!allow_terraform) continue;
+                AITile.LevelTiles(depot, depot);
+                if (AITile.GetSlope(depot) != AITile.SLOPE_FLAT) continue;
+            }
+
+            DepotBuilder._ClearSignals(b, d2);
+
+            // Dry-run.
+            local test_ok;
+            {
+                local tm = AITestMode();
+                test_ok = AIRail.BuildRailDepot(depot, b) && AIRail.BuildRail(depot, b, c);
+            }
+            if (!test_ok) continue;
+
+            // Build for real.
+            if (!AIRail.BuildRailDepot(depot, b)) continue;
+            if (!AIRail.BuildRail(depot, b, c)) { AITile.DemolishTile(depot); continue; }
+            local enter = AIRail.BuildRail(a, b, depot);   // best-effort entry
+
+            // ENFORCE accessibility: the depot->mainline link AND the through
+            // line must both actually exist now. _RailExists confirms a piece is
+            // already built (not just buildable).
+            local exit_ok = DepotBuilder._RailExists(depot, b, c);
+            local main_ok = DepotBuilder._RailExists(a, b, c);
+            if (!exit_ok || !main_ok) {
+                Log.Warn(Log.PHASE_DEPOT,
+                    "Depot at " + depot + " not accessible (exit=" + exit_ok
+                    + " main=" + main_ok + "); removing and trying elsewhere.");
+                AIRail.RemoveRail(depot, b, c);
+                AIRail.RemoveRail(a, b, depot);
+                AITile.DemolishTile(depot);
+                AIRail.BuildRail(a, b, c);   // make sure the line is intact
+                continue;
+            }
+
+            Log.Info(Log.PHASE_DEPOT,
+                "Depot at " + depot + " (bend at " + b + ", verified accessible, enter="
+                + (enter ? "yes" : "no") + ")");
+            return depot;
         }
-
-        // Clear signals on the bend tile so the junction can be added.
-        DepotBuilder._ClearSignals(b, d2);
-
-        // Dry-run in test mode (no money) before building.
-        {
-            local tm = AITestMode();
-            if (!AIRail.BuildRailDepot(depot, b))  return null;
-            if (!AIRail.BuildRail(depot, b, c))    return null;  // exit curve (mandatory)
-        }
-
-        if (!AIRail.BuildRailDepot(depot, b)) return null;
-        if (!AIRail.BuildRail(depot, b, c)) {                    // exit curve -> c, with flow
-            AITile.DemolishTile(depot);
-            return null;
-        }
-        local enter = AIRail.BuildRail(a, b, depot);             // entry straight (best-effort)
-
-        Log.Info(Log.PHASE_DEPOT,
-            "Depot at " + depot + " (bend at " + b + ", enter=" + (enter ? "yes" : "no") + ")");
-        return depot;
+        return null;
     }
 
     static function _IsUnitStep(d, mx) {
         return d == 1 || d == -1 || d == mx || d == -mx;
+    }
+
+    // True if a rail piece connecting from->tile->to ALREADY exists. Uses a
+    // test-mode BuildRail: if it would build (returns true) the piece is
+    // missing; if it fails with ERR_ALREADY_BUILT the connection is present.
+    static function _RailExists(from, tile, to) {
+        local tm = AITestMode();
+        if (AIRail.BuildRail(from, tile, to)) return false;     // would build = missing
+        return AIError.GetLastError() == AIError.ERR_ALREADY_BUILT;
     }
 
     // Remove any signal on `tile` facing along the line (either direction), so
