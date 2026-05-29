@@ -22,8 +22,8 @@
 
 class TrackBuilder {
 
-    static MAX_CHUNKS = 500;   // pathfinder chunks per attempt
-    static RETRY_CHUNKS = 800; // chunks for the relaxed-cost retry
+    static MAX_CHUNKS = 2000;   // pathfinder chunks per attempt
+    static RETRY_CHUNKS = 6000; // chunks for the relaxed-cost retry
     static MAX_SMOOTH  = 2;    // only flatten isolated bumps/dips up to this height diff
     static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
     static LEAD_IN     = 3;    // straight tiles out of each platform before any curve
@@ -222,7 +222,7 @@ class TrackBuilder {
     static function _FindPathRelaxed(src_f, src_p, dst_f, dst_p,
                                       is_outward, guide_tiles, label) {
         local pf = RailPathFinder();
-        pf._max_cost        = 10000000;
+        pf._max_cost        = 500000000;
         pf._max_bridge_length = 30;
         pf._max_tunnel_length = 20;
         pf.isOutward = is_outward;

@@ -89,7 +89,10 @@ class RailPathFinder {
     _avoidSide   = null;  // table: tile -> true (wrong side; penalise hard)
 
     constructor() {
-        this._max_cost            = 5000000;
+        this._max_cost            = 200000000;  // high ceiling: the heavy sawtooth/
+                                                // crossing/water penalties must BIAS
+                                                // the search, not blow the budget and
+                                                // leave the open set empty (= no path)
         this._cost_tile           = 100;
         this._cost_diagonal_tile  = 67;
         this._cost_turn           = 300;
