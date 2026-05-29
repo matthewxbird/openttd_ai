@@ -24,6 +24,7 @@ class TrackBuilder {
 
     static MAX_CHUNKS = 2000;   // pathfinder chunks per attempt
     static RETRY_CHUNKS = 6000; // chunks for the relaxed-cost retry
+    static MAX_REBUILD = 5;     // reroute attempts around un-buildable segments
     static MAX_SMOOTH  = 2;    // only flatten isolated bumps/dips up to this height diff
     static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
     static LEAD_IN     = 3;    // straight tiles out of each platform before any curve
@@ -152,46 +153,76 @@ class TrackBuilder {
         return { tip = tip, prev = back };
     }
 
-    // Single pass: find a path then physically build it.
-    // Returns the tile array on success, null on failure.
+    // Find a path, build it, and VALIDATE it is continuous. If a segment can't
+    // be built (water, blocked bridge, etc.) leaving a gap, add the offending
+    // tiles to an avoid set and pathfind a DETOUR around them - retrying several
+    // times before giving up. This backtracks and finds alternate routes instead
+    // of abandoning at the first bad tile.
+    // Returns the built (and verified) tile array, or null if no clean route.
     static function _RunPathfinder(src_f, src_p, dst_f, dst_p,
                                     is_outward, guide_tiles, label) {
-        local tiles = TrackBuilder._FindPath(
-            src_f, src_p, dst_f, dst_p, is_outward, guide_tiles,
-            TrackBuilder.MAX_CHUNKS, label);
+        local avoid = [];   // tiles a previous attempt couldn't build on
 
-        // A path that doesn't actually reach the destination is worse than no
-        // path: building it lays a dead-end track and any train dispatched on
-        // it strands at the station, unable to leave. Treat a non-arriving
-        // (partial / budget-exhausted) result as failure so the route is
-        // blacklisted instead of half-built.
-        if (tiles != null && !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
-            Log.Warn(Log.PHASE_TRACK, "[" + label + "] path did not reach destination; discarding");
-            tiles = null;
+        for (local attempt = 0; attempt < TrackBuilder.MAX_REBUILD; attempt++) {
+            local ignored = TrackBuilder._MergeIgnored(guide_tiles, avoid);
+
+            local tiles = TrackBuilder._FindPath(
+                src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, ignored,
+                TrackBuilder.MAX_CHUNKS, label);
+            if (tiles == null || !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
+                Log.Warn(Log.PHASE_TRACK, "[" + label + "] retry with relaxed budget");
+                tiles = TrackBuilder._FindPathRelaxed(
+                    src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, ignored, label);
+            }
+            if (tiles == null || !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
+                Log.Warn(Log.PHASE_TRACK,
+                    "[" + label + "] no path on attempt " + (attempt + 1)
+                    + " (avoiding " + avoid.len() + " tiles).");
+                if (avoid.len() == 0) return null;   // nothing to detour around
+                continue;                            // shouldn't happen, but try again
+            }
+
+            // Append the platform-entry tile so the final rail links into the
+            // station (pathfinder stops at dst_f, the tile outside the platform).
+            if (tiles[tiles.len() - 1] == dst_f
+                    && dst_p != null && tiles[tiles.len() - 1] != dst_p) {
+                tiles.push(dst_p);
+            }
+
+            TrackBuilder._BuildPath(tiles, label);
+
+            // Did it build clean end-to-end?
+            local gap = TrackBuilder.FindGap(tiles);
+            if (gap == -1) return tiles;             // success
+
+            // Couldn't build a segment: avoid those tiles and reroute.
+            Log.Warn(Log.PHASE_TRACK,
+                "[" + label + "] build gap at segment " + gap + " (tile " + tiles[gap]
+                + "); rerouting around it (attempt " + (attempt + 1) + "/"
+                + TrackBuilder.MAX_REBUILD + ").");
+            TrackBuilder._AddAvoid(avoid, tiles, gap);
         }
 
-        if (tiles == null) {
-            // Retry with larger budget and relaxed cost.
-            Log.Warn(Log.PHASE_TRACK, "[" + label + "] retry with relaxed budget");
-            tiles = TrackBuilder._FindPathRelaxed(
-                src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, label);
-            if (tiles != null && !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
-                Log.Warn(Log.PHASE_TRACK, "[" + label + "] relaxed path still short; giving up");
-                tiles = null;
+        Log.Err(Log.PHASE_TRACK,
+            "[" + label + "] could not build a continuous track after "
+            + TrackBuilder.MAX_REBUILD + " reroutes.");
+        return null;
+    }
+
+    // Add the tiles around a build gap to the avoid set so the next pathfind
+    // routes around them: the gap tile, its path neighbours, and its 4 map
+    // neighbours (to push the detour clear of the obstacle).
+    static function _AddAvoid(avoid, tiles, gap) {
+        local mx = AIMap.GetMapSizeX();
+        local seeds = [tiles[gap]];
+        if (gap - 1 >= 0)          seeds.push(tiles[gap - 1]);
+        if (gap + 1 < tiles.len()) seeds.push(tiles[gap + 1]);
+        foreach (s in seeds) {
+            foreach (off in [0, 1, -1, mx, -mx]) {
+                local t = s + off;
+                if (AIMap.IsValidTile(t)) avoid.push(t);
             }
         }
-        if (tiles == null) return null;
-
-        // The pathfinder stops at dst_f (the tile OUTSIDE the dest platform).
-        // Append dst_p (the platform-entry tile) so _BuildPath lays the final
-        // rail piece linking the approach through dst_f INTO the station.
-        // (The source side already connects: src_p is prepended as a seed.)
-        if (tiles[tiles.len() - 1] == dst_f
-                && dst_p != null && tiles[tiles.len() - 1] != dst_p) {
-            tiles.push(dst_p);
-        }
-
-        return TrackBuilder._BuildPath(tiles, label);
     }
 
     // Did the path actually arrive at the destination? True if its last tile
@@ -205,32 +236,36 @@ class TrackBuilder {
         return false;
     }
 
+    // Merge the guide (no-cross) set with an avoid set into one ignored list.
+    static function _MergeIgnored(guide_tiles, avoid) {
+        local out = [];
+        if (guide_tiles != null) foreach (t in guide_tiles) out.push(t);
+        if (avoid != null)       foreach (t in avoid)       out.push(t);
+        return out;
+    }
+
     // Invoke RailPathFinder with standard cost settings.
+    // guide_tiles: side-bias guide (back pass). ignored: hard no-go tiles
+    // (guide + any avoided tiles from a failed build).
     static function _FindPath(src_f, src_p, dst_f, dst_p,
-                               is_outward, guide_tiles, max_chunks, label) {
+                               is_outward, guide_tiles, ignored, max_chunks, label) {
         local pf = RailPathFinder();
         pf.isOutward = is_outward;
         pf.outTiles  = guide_tiles;   // null for out pass, out-track array for back
-        pf.InitializePath(
-            [[src_f, src_p]],
-            [[dst_f, dst_p]],
-            guide_tiles == null ? [] : guide_tiles);  // hard no-cross set
+        pf.InitializePath([[src_f, src_p]], [[dst_f, dst_p]], ignored);
         return pf.FindPath(max_chunks, null);
     }
 
-    // Retry with relaxed budget: double max_cost, allow more chunks.
+    // Retry with relaxed budget: bigger cost ceiling, longer spans, more chunks.
     static function _FindPathRelaxed(src_f, src_p, dst_f, dst_p,
-                                      is_outward, guide_tiles, label) {
+                                      is_outward, guide_tiles, ignored, label) {
         local pf = RailPathFinder();
         pf._max_cost        = 500000000;
         pf._max_bridge_length = 30;
         pf._max_tunnel_length = 20;
         pf.isOutward = is_outward;
         pf.outTiles  = guide_tiles;
-        pf.InitializePath(
-            [[src_f, src_p]],
-            [[dst_f, dst_p]],
-            guide_tiles == null ? [] : guide_tiles);
+        pf.InitializePath([[src_f, src_p]], [[dst_f, dst_p]], ignored);
         return pf.FindPath(TrackBuilder.RETRY_CHUNKS, null);
     }
 
