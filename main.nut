@@ -62,6 +62,15 @@ function MvBAI::Start() {
 
         // 1. Scan + rank.
         local cands  = CargoScan.Scan();
+        // INDUSTRY-CHAIN BIAS: if a candidate's producer is an industry we ALREADY
+        // supply (it's the accepter of one of our routes), boost it - hauling the
+        // product onward to the next chain stage (raw -> processed -> goods) is
+        // where the big money is. This makes the AI complete chains it started.
+        foreach (c in cands) {
+            if (this.state.SuppliesIndustry(c.producer)) {
+                c.score = Scoring.ChainBoost(c.score);
+            }
+        }
         local ranked = Candidates.Rank(cands, this.state.blacklist);
         CargoScan.LogPerCargoBest(ranked);
         CargoScan.LogTop(ranked, 5);

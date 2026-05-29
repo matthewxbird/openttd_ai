@@ -85,4 +85,13 @@ class Scoring {
     static function DistanceWeighted(profit, dist) {
         return profit * (1.0 + dist.tofloat() / Scoring.DISTANCE_REFERENCE);
     }
+
+    static CHAIN_BONUS = 4.0;   // multiplier for hauling the output of an industry we supply
+
+    // Boost a score for a route that continues an industry chain we started
+    // (its producer is something we already deliver to). Preserves sign so an
+    // unprofitable route stays excluded.
+    static function ChainBoost(score) {
+        return score * Scoring.CHAIN_BONUS;
+    }
 }

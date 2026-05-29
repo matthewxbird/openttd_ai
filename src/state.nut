@@ -27,6 +27,16 @@ class State {
         return n;
     }
 
+    // True if WE deliver cargo TO this industry (it's the accepter of one of
+    // our routes). Such an industry is being supplied, so it produces a product
+    // we should haul onward to the next stage of the industry chain.
+    function SuppliesIndustry(industry_id) {
+        foreach (_, r in this.routes) {
+            if (r.accepter == industry_id) return true;
+        }
+        return false;
+    }
+
     // True if this producer is ALREADY feeding a route. A producer's output is
     // finite and captured by its one station, so a second route from the same
     // producer just splits the same cargo onto a worse line. (Serving the same
