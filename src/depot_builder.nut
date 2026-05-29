@@ -18,49 +18,42 @@
 class DepotBuilder {
 
     static SKIP_NEAR_STATION = 3;  // don't put a depot in the station throat
-    static MAX_DEPOTS = 4;         // be generous: a couple of pairs per line
-    static PAIR_GAP   = 4;         // tiles between the left and right of a pair
-                                   // (>=4 so their junction tiles don't overlap)
-    static SPACING    = 10;        // gap between one pair and the next
+    static MAX_DEPOTS = 2;         // per track (called for out AND back tracks)
+    static SPACING    = 16;        // tiles between consecutive depots (spread out)
 
-    // path: out-track tile array (src -> dst), as returned by TrackBuilder.
-    // Builds depots in PAIRS - one on the left of the mainline and one on the
-    // right, staggered a few tiles apart (two sidings can't share the same
-    // mainline tiles without forming an illegal 3-way junction). This spreads
-    // depots evenly on BOTH sides instead of piling them up on one.
-    // Returns an array of depot tile indices (>= 1), or null if none built.
-    static function New(path) {
-        if (path == null || path.len() < DepotBuilder.SKIP_NEAR_STATION + 3) {
-            Log.Warn(Log.PHASE_DEPOT, "Path too short for a spur depot.");
+    // path: a track tile array (out track src->dst, OR back track dst->src).
+    // Builds depots on the OUTER (left-of-travel) side of THIS track. The right
+    // side can't be used - the other track of the double-track pair runs there.
+    // Call once for the out track and once for the back track so depots end up
+    // on both running lines, on their outer flanks. `label` tags the log.
+    // Returns an array of depot tile indices, or null if none built.
+    static function New(path, label = "track") {
+        if (path == null || path.len() < DepotBuilder.SKIP_NEAR_STATION + 4) {
+            Log.Warn(Log.PHASE_DEPOT, "[" + label + "] path too short for a depot.");
             return null;
         }
 
-        local depots = [];
-        local i = DepotBuilder.SKIP_NEAR_STATION;
+        local depots   = [];
+        local last_idx = -DepotBuilder.SPACING;
 
-        while (i < path.len() - 2 && depots.len() < DepotBuilder.MAX_DEPOTS) {
-            // One depot on the left at i, its partner on the right a few tiles
-            // along, so the pair sits opposite-ish on the two sides.
-            local left  = DepotBuilder._TryBuildAt(path, i, false);
-            local right = (depots.len() + (left != null ? 1 : 0) < DepotBuilder.MAX_DEPOTS)
-                ? DepotBuilder._TryBuildAt(path, i + DepotBuilder.PAIR_GAP, true)
-                : null;
+        for (local i = DepotBuilder.SKIP_NEAR_STATION;
+                i < path.len() - 2 && depots.len() < DepotBuilder.MAX_DEPOTS; i++) {
+            if (i - last_idx < DepotBuilder.SPACING) continue;  // keep them spread out
 
-            if (left  != null) depots.push(left);
-            if (right != null) depots.push(right);
-
-            // Advance: past this pair plus a gap if we placed anything, else
-            // shuffle along one tile looking for workable ground.
-            i += (left != null || right != null)
-                ? (DepotBuilder.PAIR_GAP + DepotBuilder.SPACING)
-                : 1;
+            // Always the LEFT (outer) side - right side is the partner track.
+            local depot_tile = DepotBuilder._TryBuildAt(path, i, false);
+            if (depot_tile != null) {
+                depots.push(depot_tile);
+                last_idx = i;
+            }
         }
 
         if (depots.len() == 0) {
-            Log.Warn(Log.PHASE_DEPOT, "No straight run found for a spur depot.");
+            Log.Warn(Log.PHASE_DEPOT, "[" + label + "] no flat spot found for a depot.");
             return null;
         }
-        Log.Info(Log.PHASE_DEPOT, "Built " + depots.len() + " spur depot(s) (paired both sides).");
+        Log.Info(Log.PHASE_DEPOT,
+            "[" + label + "] built " + depots.len() + " depot(s) on the outer side.");
         return depots;
     }
 
