@@ -155,18 +155,21 @@ function MvBAI::Start() {
 // Adds pair to blacklist on any failure.
 function MvBAI::TryBuildRoute(c) {
     local cargo_label = AICargo.GetCargoLabel(c.cargo);
+    local acc_is_town = ("acc_is_town" in c) ? c.acc_is_town : false;
     Log.Info(Log.PHASE_RANK,
         "Attempting " + cargo_label
         + " " + AIIndustry.GetName(c.producer)
-        + " -> " + AIIndustry.GetName(c.accepter)
+        + " -> " + Route.AccepterName(c)
         + " (dist=" + c.distance + ", profit/yr=" + c.score + ")");
 
-    local route = Route.New(c.cargo, c.producer, c.accepter, c.distance, c.production);
+    local route = Route.New(c.cargo, c.producer, c.accepter, c.distance, c.production, acc_is_town);
 
-    // Each station's throat is oriented to face the OTHER industry, so the
-    // main line runs straight toward its partner (no wrap-around loop).
+    // Each station's throat is oriented to face the OTHER end, so the main line
+    // runs straight toward its partner (no wrap-around loop).
     local producer_tile = AIIndustry.GetLocation(c.producer);
-    local accepter_tile = AIIndustry.GetLocation(c.accepter);
+    local accepter_tile = acc_is_town
+        ? AITown.GetLocation(c.accepter)
+        : AIIndustry.GetLocation(c.accepter);
 
     // Track which stations WE build this attempt, so we can clean them up if
     // the route is abandoned (reused stations are left alone).
@@ -185,10 +188,12 @@ function MvBAI::TryBuildRoute(c) {
         return this._FailRoute(c, route, false, false);
     }
 
-    // Dest station.
-    route.dst_station = this.state.FindExistingStation(c.accepter, false);
+    // Dest station (a town for end-chain cargo, else an industry).
+    route.dst_station = this.state.FindExistingStation(c.accepter, false, acc_is_town);
     if (route.dst_station == null) {
-        route.dst_station = StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile);
+        route.dst_station = acc_is_town
+            ? StationBuilder.BuildAtTown(c.accepter, c.cargo, producer_tile)
+            : StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile);
         new_dst = true;
     } else {
         Log.Info(Log.PHASE_STATION, "Reusing existing dest station id=" + route.dst_station.station_id);
@@ -317,7 +322,7 @@ function MvBAI::_FailRoute(c, route, new_src, new_dst) {
     if (new_dst) StationBuilder.Remove(route.dst_station);
 
     Log.Warn(Log.PHASE_RANK, "Route abandoned and cleaned up: " + AICargo.GetCargoLabel(c.cargo)
-        + " " + AIIndustry.GetName(c.producer) + " -> " + AIIndustry.GetName(c.accepter));
+        + " " + AIIndustry.GetName(c.producer) + " -> " + Route.AccepterName(c));
     return false;
 }
 

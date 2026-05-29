@@ -18,6 +18,9 @@ class CargoScan {
     // line + station overhead - skip them.
     static MIN_DISTANCE = 40;
 
+    // Towns this small aren't worth delivering end-chain goods/food to.
+    static MIN_TOWN_POP = 300;
+
     // Build full list of candidate routes across all cargoes.
     // Returns array of { cargo, producer, accepter, distance, score }.
     static function Scan() {
@@ -36,45 +39,70 @@ class CargoScan {
     static function _ScanCargo(cargo, out) {
         local cargo_label = AICargo.GetCargoLabel(cargo);
 
-        local producers = AIIndustryList_CargoProducing(cargo);
-        local accepters = AIIndustryList_CargoAccepting(cargo);
-        if (producers.IsEmpty() || accepters.IsEmpty()) return;
+        local producers  = AIIndustryList_CargoProducing(cargo);
+        local accepters  = AIIndustryList_CargoAccepting(cargo);
+        local town_cargo = CargoScan._TownAccepts(cargo);
+        // Need producers, and SOMEWHERE to deliver: an industry accepter or
+        // (for end-chain cargo) towns.
+        if (producers.IsEmpty()) return;
+        if (accepters.IsEmpty() && !town_cargo) return;
 
         Log.Info(Log.PHASE_SCAN,
             cargo_label + ": " + producers.Count() + " producers, "
-            + accepters.Count() + " accepters");
+            + accepters.Count() + " industry accepters"
+            + (town_cargo ? " (+towns)" : ""));
 
+        // End-chain cargoes (GOODS, FOOD, ...) are accepted by TOWNS, not
+        // industries - that's where the chain terminates and the money is.
         foreach (prod_id, _ in producers) {
             local prod_loc = AIIndustry.GetLocation(prod_id);
             local prod_amt = AIIndustry.GetLastMonthProduction(prod_id, cargo);
             if (prod_amt <= 0) continue;
 
+            // Industry accepters.
             foreach (acc_id, _ in accepters) {
                 if (acc_id == prod_id) continue;
-                local acc_loc  = AIIndustry.GetLocation(acc_id);
-                local dist     = AIMap.DistanceManhattan(prod_loc, acc_loc);
-                if (dist < CargoScan.MIN_DISTANCE) continue;   // too short to be worth it
+                CargoScan._Consider(out, cargo, prod_id, prod_amt, prod_loc,
+                    acc_id, AIIndustry.GetLocation(acc_id), false);
+            }
 
-                local payment      = AICargo.GetCargoIncome(cargo, dist, CargoScan.INCOME_DAYS);
-                local build_cost   = Scoring.BuildCostEstimate(dist);
-                // Accepter capacity is hard to read directly; assume large
-                // so producer is the binding side. v1 simplification.
-                // Rank by ABSOLUTE annual profit (rewards long, high-throughput
-                // lines), then weight it FURTHER by distance so longer routes
-                // are favoured in general - not just by their natural payment.
-                local profit       = Scoring.AnnualProfit(prod_amt, 99999, payment, build_cost);
-                local score        = Scoring.DistanceWeighted(profit, dist);
-
-                out.append({
-                    cargo      = cargo,
-                    producer   = prod_id,
-                    accepter   = acc_id,
-                    distance   = dist,
-                    production = prod_amt,
-                    score      = score,
-                });
+            // Town accepters (end of chain).
+            if (town_cargo) {
+                local towns = AITownList();
+                foreach (town, _ in towns) {
+                    if (AITown.GetPopulation(town) < CargoScan.MIN_TOWN_POP) continue;
+                    CargoScan._Consider(out, cargo, prod_id, prod_amt, prod_loc,
+                        town, AITown.GetLocation(town), true);
+                }
             }
         }
+    }
+
+    // True if towns accept this cargo (it has a delivery town effect).
+    static function _TownAccepts(cargo) {
+        local te = AICargo.GetTownEffect(cargo);
+        return te != AICargo.TE_NONE;
+    }
+
+    // Score one producer->accepter pair and append it as a candidate.
+    static function _Consider(out, cargo, prod_id, prod_amt, prod_loc, acc_id, acc_loc, acc_is_town) {
+        local dist = AIMap.DistanceManhattan(prod_loc, acc_loc);
+        if (dist < CargoScan.MIN_DISTANCE) return;
+
+        local payment    = AICargo.GetCargoIncome(cargo, dist, CargoScan.INCOME_DAYS);
+        local build_cost = Scoring.BuildCostEstimate(dist);
+        local profit     = Scoring.AnnualProfit(prod_amt, 99999, payment, build_cost);
+        local score      = Scoring.DistanceWeighted(profit, dist);
+
+        out.append({
+            cargo       = cargo,
+            producer    = prod_id,
+            accepter    = acc_id,
+            acc_is_town = acc_is_town,
+            distance    = dist,
+            production  = prod_amt,
+            score       = score,
+        });
     }
 
     // Log the single best candidate FOR EACH cargo, so you can confirm the
@@ -91,7 +119,7 @@ class CargoScan {
                 "  " + AICargo.GetCargoLabel(c.cargo)
                 + " best profit/yr=" + c.score
                 + " (" + AIIndustry.GetName(c.producer)
-                + " -> " + AIIndustry.GetName(c.accepter)
+                + " -> " + Route.AccepterName(c)
                 + ", dist=" + c.distance + ")");
         }
     }
@@ -103,7 +131,7 @@ class CargoScan {
             local c = ranked[i];
             local cargo_label = AICargo.GetCargoLabel(c.cargo);
             local prod_name   = AIIndustry.GetName(c.producer);
-            local acc_name    = AIIndustry.GetName(c.accepter);
+            local acc_name    = Route.AccepterName(c);
             Log.Info(Log.PHASE_RANK,
                 "#" + (i + 1) + " " + cargo_label
                 + " | " + prod_name + " -> " + acc_name

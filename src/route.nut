@@ -4,11 +4,12 @@
 
 class Route {
     // Returns a new Route record with sensible defaults.
-    static function New(cargo, producer, accepter, distance, production = 0) {
+    static function New(cargo, producer, accepter, distance, production = 0, acc_is_town = false) {
         return {
             cargo       = cargo,
             producer    = producer,
             accepter    = accepter,
+            acc_is_town = acc_is_town,   // accepter is a TOWN (not an industry)
             distance    = distance,
             production  = production,   // producer's monthly output (train sizing)
             // Filled in by the builder steps:
@@ -35,5 +36,18 @@ class Route {
 
     static function Key(cargo, producer, accepter) {
         return cargo + ":" + producer + ":" + accepter;
+    }
+
+    // Name of an accepter that may be a town OR an industry. `x` is any table
+    // with `.accepter` and `.acc_is_town` (a candidate or a route record).
+    static function AccepterName(x) {
+        local t = ("acc_is_town" in x) ? x.acc_is_town : false;
+        return t ? AITown.GetName(x.accepter) : AIIndustry.GetName(x.accepter);
+    }
+
+    // Map location of such an accepter.
+    static function AccepterLocation(x) {
+        local t = ("acc_is_town" in x) ? x.acc_is_town : false;
+        return t ? AITown.GetLocation(x.accepter) : AIIndustry.GetLocation(x.accepter);
     }
 }

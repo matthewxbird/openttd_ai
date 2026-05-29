@@ -78,6 +78,49 @@ class StationBuilder {
         }
     }
 
+    static TOWN_RADIUS = 12;   // search this far around a town centre for a goods station
+
+    // Build a station IN A TOWN to receive end-chain cargo (goods/food). Unlike
+    // an industry, a town has no tile list; we search a square around the town
+    // centre, keep tiles that actually accept the cargo (so it registers), and
+    // build the nearest-to-centre one facing the partner. Returns a station
+    // record (same shape as BuildAt) or null.
+    static function BuildAtTown(town_id, cargo, partner_tile) {
+        local centre = AITown.GetLocation(town_id);
+        local r      = StationBuilder.TOWN_RADIUS;
+        local tiles  = AITileList();
+        tiles.AddRectangle(centre - AIMap.GetTileIndex(r, r), centre + AIMap.GetTileIndex(r, r));
+
+        // Keep tiles whose station coverage would accept the cargo (>= 8).
+        local cov = AIStation.GetCoverageRadius(AIStation.STATION_TRAIN);
+        tiles.Valuate(AITile.GetCargoAcceptance, cargo, 1, 1, cov);
+        tiles.KeepAboveValue(7);
+        if (tiles.IsEmpty()) {
+            Log.Warn(Log.PHASE_STATION, "Town " + AITown.GetName(town_id) + " doesn't accept "
+                + AICargo.GetCargoLabel(cargo) + " anywhere buildable.");
+            return null;
+        }
+
+        // Nearest the town centre first (stations hug the town).
+        tiles.Valuate(AIMap.DistanceManhattan, centre);
+        tiles.Sort(AIList.SORT_BY_VALUE, true);
+
+        local dx = AIMap.GetTileX(partner_tile) - AIMap.GetTileX(centre);
+        local dy = AIMap.GetTileY(partner_tile) - AIMap.GetTileY(centre);
+        local dirs = (abs(dx) >= abs(dy))
+            ? [AIRail.RAILTRACK_NE_SW, AIRail.RAILTRACK_NW_SE]
+            : [AIRail.RAILTRACK_NW_SE, AIRail.RAILTRACK_NE_SW];
+
+        foreach (dir in dirs) {
+            foreach (tile, _ in tiles) {
+                local result = StationBuilder._TryBuild(tile, dir, town_id, cargo, false, partner_tile);
+                if (result != null) return result;
+            }
+        }
+        Log.Warn(Log.PHASE_STATION, "No buildable goods station spot in town " + AITown.GetName(town_id));
+        return null;
+    }
+
     // Look-ahead feasibility: would a station FIT at this industry? Runs the
     // same nearest-first search in AITestMode (no money, nothing placed) and
     // returns true if any (tile, orientation) would build. Used by the planner

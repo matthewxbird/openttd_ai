@@ -22,17 +22,20 @@ class Planner {
             local label = AICargo.GetCargoLabel(c.cargo);
             Log.Info(Log.PHASE_RANK,
                 "[plan] next #" + (shown + 1) + ": " + label + " "
-                + AIIndustry.GetName(c.producer) + " -> " + AIIndustry.GetName(c.accepter)
+                + AIIndustry.GetName(c.producer) + " -> " + Route.AccepterName(c)
                 + " (dist=" + c.distance + ", profit/yr=" + c.score + ")");
 
             // Pre-vet ONLY the top candidate (bounded work): confirm both ends
             // can actually take a station. If not, blacklist it now so the build
             // loop never wastes a real attempt on it.
             if (shown == 0) {
+                local acc_town = ("acc_is_town" in c) ? c.acc_is_town : false;
                 local p_tile = AIIndustry.GetLocation(c.producer);
-                local a_tile = AIIndustry.GetLocation(c.accepter);
-                local src_ok = StationBuilder.CanBuildAt(c.producer, true,  a_tile);
-                local dst_ok = StationBuilder.CanBuildAt(c.accepter, false, p_tile);
+                local a_tile = Route.AccepterLocation(c);
+                local src_ok = StationBuilder.CanBuildAt(c.producer, true, a_tile);
+                // Town accepters are pre-vetted at build time (BuildAtTown); only
+                // pre-vet industry accepters here.
+                local dst_ok = acc_town ? true : StationBuilder.CanBuildAt(c.accepter, false, p_tile);
                 if (!src_ok || !dst_ok) {
                     Log.Warn(Log.PHASE_RANK,
                         "[plan] top candidate has no station spot ("

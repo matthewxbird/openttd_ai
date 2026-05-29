@@ -73,7 +73,7 @@ class Maintenance {
     // If a train gets stuck, or the line never earns within PROBATION_LIMIT
     // checks, we condemn it: recall the trains and tear the whole line down.
     static function _CheckProbation(state, r) {
-        local name = AIIndustry.GetName(r.producer) + "->" + AIIndustry.GetName(r.accepter);
+        local name = AIIndustry.GetName(r.producer) + "->" + Route.AccepterName(r);
         local src_id = r.src_station.station_id;
         local dst_id = r.dst_station.station_id;
 
@@ -137,7 +137,7 @@ class Maintenance {
             }
         }
         Log.Err(Log.PHASE_LOOP,
-            "[condemn] " + AIIndustry.GetName(r.producer) + "->" + AIIndustry.GetName(r.accepter)
+            "[condemn] " + AIIndustry.GetName(r.producer) + "->" + Route.AccepterName(r)
             + ": blacklisted, recalling trains to depot for teardown.");
     }
 
@@ -147,7 +147,7 @@ class Maintenance {
     // CONDEMN_LIMIT checks, demolish what we can and abandon the rest.
     // Returns true when this route is finished and should be removed.
     static function _CheckCondemning(state, r) {
-        local name = AIIndustry.GetName(r.producer) + "->" + AIIndustry.GetName(r.accepter);
+        local name = AIIndustry.GetName(r.producer) + "->" + Route.AccepterName(r);
         local remaining = [];
         if (r.trains != null) {
             foreach (v in r.trains) {
@@ -207,7 +207,7 @@ class Maintenance {
     // yearly autoreplace pass.)
     static function _CheckRoute(state, railtype, r) {
         local cargo_label = AICargo.GetCargoLabel(r.cargo);
-        local name = AIIndustry.GetName(r.producer) + "->" + AIIndustry.GetName(r.accepter);
+        local name = AIIndustry.GetName(r.producer) + "->" + Route.AccepterName(r);
 
         local src_id = r.src_station.station_id;
         local dst_id = r.dst_station.station_id;
@@ -404,7 +404,7 @@ class Maintenance {
         r.trains.push(id);
         Log.Info(Log.PHASE_LOOP,
             "[health] added train " + id + " to "
-            + AIIndustry.GetName(r.producer) + "->" + AIIndustry.GetName(r.accepter)
+            + AIIndustry.GetName(r.producer) + "->" + Route.AccepterName(r)
             + " (now " + r.trains.len() + ")");
     }
 }
