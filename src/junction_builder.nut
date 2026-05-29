@@ -289,9 +289,11 @@ class JunctionBuilder {
         return { w = w, h = h };
     }
 
-    // Track-bit remap for a 90-degree CLOCKWISE rotation (edges NE->SE->SW->NW).
+    // Track-bit remap for a 90-degree rotation that MATCHES the offset
+    // transform's chirality (straights swap; corners cycle the other way than a
+    // naive NE->SE map, which came out mirrored for 90/270). 180 is unaffected.
     static function _RotBit(bits) {
-        local map = {}; map[1] <- 2; map[2] <- 1; map[4] <- 32; map[8] <- 16; map[16] <- 4; map[32] <- 8;
+        local map = {}; map[1] <- 2; map[2] <- 1; map[4] <- 16; map[8] <- 32; map[16] <- 8; map[32] <- 4;
         local out = 0;
         foreach (bit in [1, 2, 4, 8, 16, 32]) if (bits & bit) out = out | map[bit];
         return out;
