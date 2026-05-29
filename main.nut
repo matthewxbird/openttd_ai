@@ -400,8 +400,8 @@ function MvBAI::_DebugStampJunction() {
     // Flatten a generous square covering both arms of the cross.
     local bx = AIMap.GetTileX(base);
     local by = AIMap.GetTileY(base);
-    AITile.LevelTiles(AIMap.GetTileIndex(bx - 8, by - 8),
-                      AIMap.GetTileIndex(bx + 9, by + 9));
+    AITile.LevelTiles(AIMap.GetTileIndex(bx - 2, by - 2),
+                      AIMap.GetTileIndex(bx + 12, by + 8));
 
     // Replay the captured hand-built junction (Template1) to verify round-trip.
     JunctionBuilder.StampList(base, JunctionBuilder.Template1());

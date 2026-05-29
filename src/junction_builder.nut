@@ -342,17 +342,33 @@ class JunctionBuilder {
                 AITunnel.BuildTunnel(AIVehicle.VT_RAIL, tile(e[1], e[2]));
             }
         }
+        local okc = 0; local fail = 0; local first_err = "";
         foreach (e in entries) {
             if (e[0] != "R") continue;
             local t = tile(e[1], e[2]);
+            // Clear whatever's on the tile (trees/objects) so rail can go down.
+            if (!AITile.IsBuildable(t) && !AIRail.IsRailTile(t)) AITile.DemolishTile(t);
             foreach (bit in [1, 2, 4, 8, 16, 32]) {
-                if (e[3] & bit) AIRail.BuildRailTrack(t, bit);
+                if (e[3] & bit) {
+                    if (AIRail.BuildRailTrack(t, bit)
+                            || AIError.GetLastError() == AIError.ERR_ALREADY_BUILT) {
+                        okc++;
+                    } else {
+                        fail++;
+                        if (first_err == "") {
+                            first_err = "tile(" + e[1] + "," + e[2] + ") bit " + bit
+                                + ": " + AIError.GetLastErrorString();
+                        }
+                    }
+                }
             }
         }
         foreach (e in entries) {
             if (e[0] != "S") continue;
             AIRail.BuildSignal(tile(e[1], e[2]), tile(e[3], e[4]), e[5]);
         }
+        Log.Info(Log.PHASE_BOOT, "[stamp] rail pieces ok=" + okc + " fail=" + fail
+            + (first_err == "" ? "" : (" firstErr=" + first_err)));
     }
 
     // Build (or test) a rail piece from->tile->to, treating ALREADY_BUILT as ok.
