@@ -556,11 +556,14 @@ class RailPathFinder {
                 && (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT);
             if (!buildable && !joinable) continue;
 
-            // Building ONTO an existing rail tile is allowed - that is how a
-            // junction is laid (a new line merges into / splits from an existing
-            // one). It is heavily DISCOURAGED by _cost_crossing_rail (so the
-            // pathfinder prefers a bridge for a pure foreign crossing, but will
-            // make a real junction where it genuinely needs to tie into a line).
+            // Don't lay a NEW piece onto an existing-rail tile mid-route - that
+            // is what made the tangled junctions at station throats. We only:
+            //   - route ALONG existing track where the rail already exists
+            //     (joinable / ERR_ALREADY_BUILT), and
+            //   - connect AT a goal (the station/line we're tying into).
+            // A pure foreign crossing still grade-separates via a bridge.
+            if (buildable && AIRail.IsRailTile(next) && !(next in self._goals_map)) continue;
+
             tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
         }
 
