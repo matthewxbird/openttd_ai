@@ -259,15 +259,23 @@ class JunctionBuilder {
     // Captured hand-built junction (scan of (127,62)..(137,67)). Replays
     // tile-for-tile via StampList. Track bits: 1=NE_SW, 2=NW_SE, 3=both(diamond).
     static function Template1() {
-        // Compact double-track T/wye with turn-curves (re-based to 0-origin).
-        // Track bits: 1=NE_SW, 2=NW_SE, 8=SW_SE, 32=NE_SE corners; sums = combos.
+        // Captured double-track T/wye WITH turn-curves and PBS signals
+        // (re-based to 0-origin; 11 wide x 7 tall). Track bits: 1=NE_SW,
+        // 2=NW_SE, 8/32 corners; sums = combos. Signal type 5 = two-way PBS.
         return [
-            ["R",0,0,1],["R",1,0,1],["R",2,0,1],["R",3,0,9],["R",4,0,33],
-            ["R",5,0,1],["R",6,0,1],["R",7,0,1],["R",8,0,1],
-            ["R",0,1,1],["R",1,1,1],["R",2,1,1],["R",3,1,35],["R",4,1,11],
-            ["R",5,1,1],["R",6,1,1],["R",7,1,1],["R",8,1,1],
-            ["R",3,2,2],["R",4,2,2],["R",3,3,2],["R",4,3,2],
-            ["R",3,4,2],["R",4,4,2],["R",3,5,2],["R",4,5,2],
+            // Main row 0
+            ["R",0,0,1],["R",1,0,1],["R",2,0,1],["R",3,0,1],["R",4,0,9],["R",5,0,33],
+            ["R",6,0,1],["R",7,0,1],["R",8,0,1],["R",9,0,1],["R",10,0,1],
+            // Main row 1
+            ["R",0,1,1],["R",1,1,1],["R",2,1,1],["R",3,1,1],["R",4,1,35],["R",5,1,11],
+            ["R",6,1,1],["R",7,1,1],["R",8,1,1],["R",9,1,1],["R",10,1,1],
+            // Branch (two columns, heading +y)
+            ["R",4,2,2],["R",5,2,2],["R",4,3,2],["R",5,3,2],["R",4,4,2],["R",5,4,2],
+            ["R",4,5,2],["R",5,5,2],["R",4,6,2],["R",5,6,2],
+            // PBS signals
+            ["S",0,0,1,0,5],["S",6,0,7,0,5],
+            ["S",3,1,2,1,5],["S",10,1,9,1,5],
+            ["S",5,2,5,3,5],["S",4,6,4,5,5],
         ];
     }
 
