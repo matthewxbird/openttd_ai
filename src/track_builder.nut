@@ -204,16 +204,20 @@ class TrackBuilder {
 
             TrackBuilder._BuildPath(tiles, label);
 
-            // Did it build clean end-to-end?
-            local gap = TrackBuilder.FindGap(tiles);
-            if (gap == -1) return tiles;             // success
+            // Accept ONLY a path that is continuous AND has no 90-degree pivot.
+            // A 90-degree turn is categorically rejected: we reroute around it
+            // (or, failing that, abandon) so a train-stalling kink is never kept.
+            local gap   = TrackBuilder.FindGap(tiles);
+            local pivot = TrackBuilder.Find90Turn(tiles);
+            if (gap == -1 && pivot == -1) return tiles;   // clean
 
-            // Couldn't build a segment: avoid those tiles and reroute.
+            local bad    = (gap != -1) ? gap : pivot;
+            local reason = (gap != -1) ? "build gap" : "90-degree turn";
             Log.Warn(Log.PHASE_TRACK,
-                "[" + label + "] build gap at segment " + gap + " (tile " + tiles[gap]
+                "[" + label + "] " + reason + " at segment " + bad + " (tile " + tiles[bad]
                 + "); rerouting around it (attempt " + (attempt + 1) + "/"
                 + TrackBuilder.MAX_REBUILD + ").");
-            TrackBuilder._AddAvoid(avoid, tiles, gap);
+            TrackBuilder._AddAvoid(avoid, tiles, bad);
         }
 
         Log.Err(Log.PHASE_TRACK,
