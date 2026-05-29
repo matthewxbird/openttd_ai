@@ -25,7 +25,7 @@ class TrackBuilder {
     static MAX_CHUNKS = 2000;   // pathfinder chunks per attempt
     static RETRY_CHUNKS = 6000; // chunks for the relaxed-cost retry
     static MAX_REBUILD = 5;     // reroute attempts around un-buildable segments
-    static MAX_SMOOTH  = 2;    // only flatten isolated bumps/dips up to this height diff
+    static MAX_SMOOTH  = 3;    // flatten isolated bumps/dips up to this height diff
     static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
     static LEAD_IN     = 3;    // straight tiles out of each platform before any curve
 

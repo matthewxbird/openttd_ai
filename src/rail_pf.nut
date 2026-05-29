@@ -109,8 +109,10 @@ class RailPathFinder {
         this._cost_curve_spacing  = 600;   // corners closer than a train length = 55km/h cap
         this._cost_uphill         = 80;    // each climbing tile drags train speed down
         this._cost_height_change  = 300;   // prefer routes that stay at one height
-        this._cost_sawtooth       = 80000; // a single up-then-down hump is brutal for
-                                           // trains: avoid almost at any cost
+        this._cost_sawtooth       = 6000;  // discourage humps, but not so hard that
+                                           // the line weaves/detours instead of just
+                                           // terraforming a small bump flat (the
+                                           // builder levels isolated bumps anyway)
         this._estimate_rate       = 1;     // admissible: heuristic = true flat cost,
                                            // so A* stays optimal (clean diagonals,
                                            // not greedy S-curves) yet still fast
@@ -534,6 +536,10 @@ class RailPathFinder {
             // crossing over it - skip the on-ground move so the only way past is
             // the bridge/tunnel jump offered below (grade separation).
             if (AIRail.IsRailTile(next) && !(next in self._goals_map)) continue;
+            // BACK TRACK: hard-stay on the correct side of the out track. The
+            // wrong-side tiles are a HARD no-go (not just a cost) so the back
+            // track can never weave across and cross the out track.
+            if (self._avoidSide != null && (next in self._avoidSide)) continue;
             if (par_tile == null || AIRail.BuildRail(par_tile, cur_node, next)) {
                 tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
             }
