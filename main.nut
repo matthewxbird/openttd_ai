@@ -389,10 +389,10 @@ function MvBAI::_DebugStampJunction() {
     AITile.LevelTiles(AIMap.GetTileIndex(bx - 8, by - 8),
                       AIMap.GetTileIndex(bx + 9, by + 9));
 
-    // Stamp a double-track CROSS: two double-track lines crossing at `base`.
-    local ok = JunctionBuilder.BuildDoubleCross(base, d, p, 7);
+    // Stamp a GRADE-SEPARATED double-track cross (line B bridges over line A).
+    local ok = JunctionBuilder.BuildGradeSeparatedCross(base, d, p, 7);
     Log.Info(Log.PHASE_BOOT,
-        "[debug] double-track cross at tile (" + AIMap.GetTileX(base) + "," + AIMap.GetTileY(base)
+        "[debug] grade-separated cross at tile (" + AIMap.GetTileX(base) + "," + AIMap.GetTileY(base)
         + ") built=" + ok + " - screenshot to verify geometry.");
 }
 

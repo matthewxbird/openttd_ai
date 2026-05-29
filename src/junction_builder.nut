@@ -165,6 +165,46 @@ class JunctionBuilder {
         });
     }
 
+    // GRADE-SEPARATED double-track cross: line A runs straight on the ground
+    // along `d`; line B runs along `p` and BRIDGES over A's two tracks - so the
+    // lines cross with NO diamond and NO collision. `center` is the NW tile of
+    // the 2x2 where the lines meet; A's rows are `center` and `center+p`,
+    // B's cols are `center` and `center+d`. `half` = arm length each way.
+    static function BuildGradeSeparatedCross(center, d, p, half) {
+        return JunctionBuilder.Stamp(function(dry) : (center, d, p, half) {
+            local ok = true;
+
+            // Line A (ground), two tracks straight along d.
+            foreach (row in [center, center + p]) {
+                for (local k = -half; k <= half; k++) {
+                    local cur = row + d * k;
+                    ok = ok && JunctionBuilder._Rail(cur - d, cur, cur + d, dry);
+                }
+            }
+
+            // Line B, two tracks along p, each bridging OVER A's two rows.
+            // Bridge heads sit one tile clear of A on each side: hi = center - p
+            // (before A) and hj = center + 2*p (after A), spanning center & +p.
+            foreach (col in [center, center + d]) {
+                local hi = col - p;          // south head (ground)
+                local hj = col + 2 * p;      // north head (ground)
+                // South arm straights (beyond hi), heading toward the bridge.
+                for (local k = 1; k < half; k++) {
+                    local cur = hi - p * (k - 1);     // hi, hi-p, ...
+                    ok = ok && JunctionBuilder._Rail(cur + p, cur, cur - p, dry);
+                }
+                // North arm straights (beyond hj).
+                for (local k = 1; k < half; k++) {
+                    local cur = hj + p * (k - 1);
+                    ok = ok && JunctionBuilder._Rail(cur - p, cur, cur + p, dry);
+                }
+                // The bridge over A (hi -> hj). GradeSeparate builds it.
+                ok = ok && JunctionBuilder.GradeSeparate(hi, col, hj, dry);
+            }
+            return ok;
+        });
+    }
+
     // Build (or test) a rail piece from->tile->to, treating ALREADY_BUILT as ok.
     static function _Rail(from, tile, to, dry) {
         if (dry) {
