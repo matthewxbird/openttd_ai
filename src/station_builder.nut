@@ -38,6 +38,14 @@ class StationBuilder {
         // orientation whose axis matches the dominant component of the vector
         // from this industry to the partner; try the other only as a fallback.
         local self_tile = AIIndustry.GetLocation(industry_id);
+
+        // Try the tiles CLOSEST to the industry first, so the station hugs it
+        // and the catchment area covers as much of the industry as possible
+        // (instead of landing on the first buildable tile, which can be far off
+        // and miss the production).
+        tiles.Valuate(AIMap.DistanceManhattan, self_tile);
+        tiles.Sort(AIList.SORT_BY_VALUE, true);   // ascending: nearest first
+
         local dx = AIMap.GetTileX(partner_tile) - AIMap.GetTileX(self_tile);
         local dy = AIMap.GetTileY(partner_tile) - AIMap.GetTileY(self_tile);
         local dirs = (abs(dx) >= abs(dy))
