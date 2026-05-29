@@ -164,14 +164,65 @@ class StationBuilder {
             + " throat=" + (use_minus ? "minus" : "plus") + " toward partner");
 
         return {
-            station_id   = station_id,
-            tile         = tile,
-            front_tile   = front_tile,         // platform 0 throat
-            enter_tile   = enter_tile,
-            front_tile_b = front_tile + perp,  // platform 1 throat
-            enter_tile_b = enter_tile + perp,
-            direction    = direction,
+            station_id    = station_id,
+            tile          = tile,
+            front_tile    = front_tile,         // platform 0 throat
+            enter_tile    = enter_tile,
+            front_tile_b  = front_tile + perp,  // platform 1 throat
+            enter_tile_b  = enter_tile + perp,
+            direction     = direction,
+            num_platforms = StationBuilder.NUM_PLATFORMS,
         };
+    }
+
+    static MAX_PLATFORMS = 4;   // grow a busy station up to this many platforms
+
+    // Add one more platform to a station that is queuing trains, joined to the
+    // same station and connected into the throat crossover so trains can use it.
+    // Strongly guarded: if the new platform can't be connected it is removed
+    // again (no broken mess). Returns true if a platform was added.
+    static function AddPlatform(st) {
+        if (!("num_platforms" in st)) st.num_platforms <- StationBuilder.NUM_PLATFORMS;
+        if (st.num_platforms >= StationBuilder.MAX_PLATFORMS) return false;
+
+        local p       = st.num_platforms;            // index of the new platform
+        local axis    = StationBuilder._AxisStep(st.direction);
+        local perp    = StationBuilder._PerpStep(st.direction);
+        local out_dir = st.front_tile - st.enter_tile;
+
+        local new_origin = st.tile + perp * p;
+        // Join a 1-wide platform to the existing station.
+        if (!AIRail.BuildRailStation(new_origin, st.direction, 1,
+                StationBuilder.PLATFORM_LENGTH, st.station_id)) {
+            return false;
+        }
+
+        local new_front = st.front_tile + perp * p;
+        local new_enter = st.enter_tile + perp * p;
+        local m_new     = new_front + out_dir;
+        local m_prev    = st.front_tile + perp * (p - 1) + out_dir;  // adjacent platform's mainline tile
+
+        // Straight out of the new platform, then cross into the adjacent line
+        // (which is part of the existing throat crossover).
+        local ok = AIRail.BuildRail(new_enter, new_front, m_new)
+                && AIRail.BuildRail(new_front, m_new, m_prev);
+        if (ok) AIRail.BuildSignal(m_new, m_prev, AIRail.SIGNALTYPE_PBS_ONEWAY);
+
+        if (!ok || !DepotBuilder._RailExists(new_front, m_new, m_prev)) {
+            // Couldn't connect it - tear the new platform back out.
+            AIRail.RemoveRail(new_enter, new_front, m_new);
+            AIRail.RemoveRail(new_front, m_new, m_prev);
+            AIRail.RemoveRailStationTileRectangle(
+                new_origin, new_origin + axis * (StationBuilder.PLATFORM_LENGTH - 1), false);
+            Log.Warn(Log.PHASE_STATION,
+                "Could not connect a new platform at station " + st.station_id + "; reverted.");
+            return false;
+        }
+
+        st.num_platforms = p + 1;
+        Log.Info(Log.PHASE_STATION,
+            "Enlarged station " + st.station_id + " to " + st.num_platforms + " platforms.");
+        return true;
     }
 
     // True if both platform throats have FRONTAGE clear buildable tiles running

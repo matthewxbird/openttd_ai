@@ -19,6 +19,7 @@
 class Maintenance {
 
     static STUCK_LIMIT       = 2;    // unmoved checks before a train is "stuck"
+    static QUEUE_NEAR        = 5;    // tiles from a station counted as "queuing"
     static WAITING_FOR_EXTRA = 150;  // source cargo waiting that warrants a train
     static MAX_TRAINS        = 4;    // cap trains per route
     static MIN_CASH_FOR_TRAIN = 40000;  // don't add a train if cash is tight
@@ -266,6 +267,16 @@ class Maintenance {
             return;  // don't pile more trains onto a broken line
         }
 
+        // Trains queuing at a station = not enough platform capacity. Enlarge
+        // the station (add a platform) rather than adding yet more trains to the
+        // queue. The source station is the one with the cargo backlog.
+        if (Maintenance._CountQueuing(r) >= 2) {
+            Log.Info(Log.PHASE_LOOP,
+                "[review] " + name + ": trains queuing -> enlarging station.");
+            StationBuilder.AddPlatform(r.src_station);
+            return;   // one structural action per pass
+        }
+
         // Finish any train we previously recalled to lengthen.
         if (r.lengthening != null) {
             Maintenance._FinishLengthening(r, railtype, name);
@@ -329,6 +340,12 @@ class Maintenance {
             if (("stuck_meta" in r) && (v in r.stuck_meta)) r.stuck_meta[v].count = 0;
             return false;
         }
+        // A train waiting NEAR a station is QUEUING for a platform, not stuck on
+        // a broken line - don't condemn the route for it (we enlarge instead).
+        if (Maintenance._NearStation(r, v)) {
+            if (("stuck_meta" in r) && (v in r.stuck_meta)) r.stuck_meta[v].count = 0;
+            return false;
+        }
 
         if (!("stuck_meta" in r)) r.stuck_meta <- {};
         local loc = AIVehicle.GetLocation(v);
@@ -346,6 +363,27 @@ class Maintenance {
             m.count = 0;
         }
         return m.count >= Maintenance.STUCK_LIMIT;
+    }
+
+    // True if a train is within QUEUE_NEAR tiles of either station.
+    static function _NearStation(r, v) {
+        local loc = AIVehicle.GetLocation(v);
+        if (AIMap.DistanceManhattan(loc, r.src_station.tile) <= Maintenance.QUEUE_NEAR) return true;
+        if (AIMap.DistanceManhattan(loc, r.dst_station.tile) <= Maintenance.QUEUE_NEAR) return true;
+        return false;
+    }
+
+    // Count trains stopped on the line NEAR a station (waiting for a platform).
+    static function _CountQueuing(r) {
+        local q = 0;
+        if (r.trains == null) return 0;
+        foreach (v in r.trains) {
+            if (!AIVehicle.IsValidVehicle(v)) continue;
+            if (AIVehicle.GetState(v) != AIVehicle.VS_RUNNING) continue;  // not loading/in depot
+            if (AIVehicle.GetCurrentSpeed(v) != 0) continue;
+            if (Maintenance._NearStation(r, v)) q++;
+        }
+        return q;
     }
 
     // Buy and dispatch one more train on this route, built at its depot.
