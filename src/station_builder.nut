@@ -65,6 +65,33 @@ class StationBuilder {
         return null;
     }
 
+    // Look-ahead feasibility: would a station FIT at this industry? Runs the
+    // same nearest-first search in AITestMode (no money, nothing placed) and
+    // returns true if any (tile, orientation) would build. Used by the planner
+    // to pre-vet a candidate before we commit to it.
+    static function CanBuildAt(industry_id, is_source, partner_tile) {
+        local tiles = is_source
+            ? AITileList_IndustryProducing(industry_id, StationBuilder.SEARCH_RADIUS)
+            : AITileList_IndustryAccepting(industry_id, StationBuilder.SEARCH_RADIUS);
+        if (tiles.IsEmpty()) return false;
+
+        local self_tile = AIIndustry.GetLocation(industry_id);
+        tiles.Valuate(AIMap.DistanceManhattan, self_tile);
+        tiles.Sort(AIList.SORT_BY_VALUE, true);
+
+        local tm = AITestMode();   // nothing below is actually built
+        foreach (dir in [AIRail.RAILTRACK_NE_SW, AIRail.RAILTRACK_NW_SE]) {
+            foreach (tile, _ in tiles) {
+                if (!AITile.IsBuildable(tile)) continue;
+                if (AIRail.BuildRailStation(tile, dir, StationBuilder.NUM_PLATFORMS,
+                        StationBuilder.PLATFORM_LENGTH, AIStation.STATION_NEW)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     // Internal: attempt one (tile, direction) pair. Returns result or null.
     static function _TryBuild(tile, direction, industry_id, cargo, is_source, partner_tile) {
         // Quick reject: target tile must be buildable land.

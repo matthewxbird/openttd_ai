@@ -21,6 +21,7 @@ require("src/route.nut");
 require("src/state.nut");
 require("src/autoreplace.nut");
 require("src/maintenance.nut");
+require("src/planner.nut");
 
 class MvBAI extends AIController {
     state        = null;
@@ -69,15 +70,21 @@ function MvBAI::Start() {
         //    we verify each line actually earns before pouring money into the
         //    next one (no more building broken lines and moving on).
         local built_one = false;
+        local holding   = false;
         if (this.state.HasProbation()) {
+            // Don't idle: plan ahead while the new line proves itself.
+            holding = true;
             Log.Info(Log.PHASE_RANK,
-                "A route is still on probation; holding off on new lines this tick.");
+                "A route is on probation; planning ahead instead of building this tick.");
+            Planner.LookAhead(this.state, ranked, this.railtype);
         } else if (Maintenance.NeedsMoreCapacity(this.state)) {
             // Scale up existing lines (more trains / longer trains, done by the
             // health pass) until they carry all their cargo, BEFORE spending on
-            // a brand new route.
+            // a brand new route - and plan the next route meanwhile.
+            holding = true;
             Log.Info(Log.PHASE_RANK,
-                "Existing route has a backlog with room to grow; scaling it before new lines.");
+                "Existing route has a backlog with room to grow; scaling it, planning ahead.");
+            Planner.LookAhead(this.state, ranked, this.railtype);
         } else
         foreach (c in ranked) {
             if (this.state.HasRoute(c.cargo, c.producer, c.accepter)) continue;
@@ -116,7 +123,10 @@ function MvBAI::Start() {
             "Tick done. Routes=" + this.state.CountRoutes()
             + " Blacklist=" + this.state.blacklist.Size()
             + " Cash=" + Money.Cash());
-        this.Sleep(built_one ? 500 : 2220);
+        // Sleep: short after a build (keep momentum); short while HOLDING so
+        // scaling + probation checks + planning iterate quickly (no long idle
+        // pause); longer only when genuinely idle with nothing to do.
+        this.Sleep(built_one ? 500 : (holding ? 300 : 2220));
     }
 }
 
