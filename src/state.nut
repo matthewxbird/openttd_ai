@@ -27,6 +27,17 @@ class State {
         return n;
     }
 
+    // True if this producer is ALREADY feeding a route. A producer's output is
+    // finite and captured by its one station, so a second route from the same
+    // producer just splits the same cargo onto a worse line. (Serving the same
+    // ACCEPTER from several different producers is fine - that's not blocked.)
+    function ProducerServed(producer) {
+        foreach (_, r in this.routes) {
+            if (r.producer == producer) return true;
+        }
+        return false;
+    }
+
     // True if any route is still on probation (built but not yet proven to
     // earn). Used to hold off starting new lines until the current one works.
     function HasProbation() {
