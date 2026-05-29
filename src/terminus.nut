@@ -37,6 +37,11 @@ class Terminus {
 
     // Build the crossover at one station throat.
     // Returns true if at least one diagonal piece was added.
+    //
+    // The crossover is placed ONE TILE OUT from the platform fronts, not on the
+    // fronts themselves: f0/f1 stay as clean straight platform exits, and the
+    // two lines only cross over each other at m0/m1, a tile clear of the
+    // station. (Connecting right at the platform makes the unacceptable mess.)
     static function _BuildThroat(st) {
         local e0 = st.enter_tile;
         local f0 = st.front_tile;
@@ -45,19 +50,20 @@ class Terminus {
 
         // Axis pointing OUT of the station (platform -> throat -> mainline).
         local out_dir = f0 - e0;
-        local m0 = f0 + out_dir;
-        local m1 = f1 + out_dir;
+        local m0 = f0 + out_dir;        // one tile out from platform 0 throat
+        local m1 = f1 + out_dir;        // one tile out from platform 1 throat
+        local n0 = m0 + out_dir;        // the next tile out again
+        local n1 = m1 + out_dir;
 
-        // Diagonal links on each throat tile, connecting it to the OTHER
-        // platform's tiles. These cross the two parallel lines together.
-        // Best-effort: some pieces may already exist or be blocked; we only
-        // need the crossover to be passable, so we try all and count wins.
+        // Diagonal links at m0/m1 (one tile clear of the platforms), connecting
+        // the two parallel lines so a train can swap tracks there - never on the
+        // platform front. Best-effort: try all, count wins.
         local built = 0;
         local tries = [
-            [e0, f0, f1],   // platform 0 -> cross to f1 side
-            [m0, f0, f1],   // out mainline -> cross to f1 side
-            [e1, f1, f0],   // platform 1 -> cross to f0 side
-            [m1, f1, f0],   // back mainline -> cross to f0 side
+            [f0, m0, m1],   // from platform 0 line -> cross to m1 side
+            [n0, m0, m1],   // from outer mainline   -> cross to m1 side
+            [f1, m1, m0],   // from platform 1 line -> cross to m0 side
+            [n1, m1, m0],   // from outer mainline   -> cross to m0 side
         ];
         foreach (t in tries) {
             if (AIRail.BuildRail(t[0], t[1], t[2])) {

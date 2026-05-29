@@ -529,6 +529,11 @@ class RailPathFinder {
             if (par_tile != null && par.GetParent() != null) {
                 if (next - cur_node == par.GetParent().GetTile() - par_tile) continue;
             }
+            // NEVER cross another line at grade. If `next` already carries rail
+            // (and it isn't a goal we're connecting into), don't lay a flat
+            // crossing over it - skip the on-ground move so the only way past is
+            // the bridge/tunnel jump offered below (grade separation).
+            if (AIRail.IsRailTile(next) && !(next in self._goals_map)) continue;
             if (par_tile == null || AIRail.BuildRail(par_tile, cur_node, next)) {
                 tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
             }
