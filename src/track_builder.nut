@@ -29,6 +29,12 @@ class TrackBuilder {
     static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
     static LEAD_IN     = 3;    // straight tiles out of each platform before any curve
 
+    // Every tile we lay rail on during one BuildDoubleTracks call (lead-ins,
+    // every path attempt, reroutes). Used to fully clean up a failed route -
+    // partial track and lead-in stubs aren't in the returned path arrays.
+    static _touched = null;
+    static function _Touch(t) { if (TrackBuilder._touched != null) TrackBuilder._touched.push(t); }
+
     // Build both tracks between two stations. Returns { out, back }.
     // `src`, `dst`: StationBuilder.BuildAt result tables. Each has front_tile/
     //   enter_tile (platform 0) and front_tile_b/enter_tile_b (platform 1).
@@ -39,6 +45,7 @@ class TrackBuilder {
     // pathfinding we lay a straight lead-in stub out of each platform so any
     // curve is pushed well clear of the station entrance.
     static function BuildDoubleTracks(src, dst) {
+        TrackBuilder._touched = [];   // start tracking every tile we lay rail on
         local src_h = AITile.GetMaxHeight(src.enter_tile);
         local dst_h = AITile.GetMaxHeight(dst.enter_tile);
 
@@ -91,7 +98,7 @@ class TrackBuilder {
             Log.Warn(Log.PHASE_TRACK, "Back track: pathfinding failed; single track only.");
         }
 
-        return { out = out_tiles, back = back_tiles };
+        return { out = out_tiles, back = back_tiles, touched = TrackBuilder._touched };
     }
 
     // Decide which of a station's two platforms the OUT track uses so the out
@@ -147,6 +154,7 @@ class TrackBuilder {
             TrackBuilder._FlattenToHeight(cur,  target_h);
             TrackBuilder._FlattenToHeight(next, target_h);
             if (!AIRail.BuildRail(prev, cur, next)) break;  // rail on `cur`
+            TrackBuilder._Touch(cur);
             back = cur;
             prev = cur; cur = next; tip = next;
         }
@@ -289,6 +297,8 @@ class TrackBuilder {
             local cur  = tiles[i];
             local next = tiles[i + 1];
             local step = AIMap.DistanceManhattan(prev, cur);
+            TrackBuilder._Touch(cur);   // record for failed-route cleanup
+            TrackBuilder._Touch(prev);  // (covers bridge/tunnel start tiles too)
 
             // ---- TERRAFORM: flatten ONLY a clean isolated bump/dip ---------
             // Both neighbours must be at the SAME height and this tile a little

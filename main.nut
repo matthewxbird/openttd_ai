@@ -192,6 +192,7 @@ function MvBAI::TryBuildRoute(c) {
         route.src_station, route.dst_station);
     route.path_out  = tracks.out;
     route.path_back = tracks.back;
+    route.touched   <- tracks.touched;   // every tile rail was laid on (for cleanup)
     // BOTH tracks are required. With only the out track, a train reaches the
     // destination and then has no way home (the back platform is unconnected
     // and signals are one-way) - it strands. Fail the route instead.
@@ -283,6 +284,14 @@ function MvBAI::_FailRoute(c, route, new_src, new_dst) {
     if (route.depot_tiles != null) {
         foreach (d in route.depot_tiles) {
             if (AIMap.IsValidTile(d)) AITile.DemolishTile(d);
+        }
+    }
+    // Demolish EVERY tile rail was laid on this attempt - this covers the
+    // lead-in stubs and any partial track from failed pathfind attempts, not
+    // just the final path arrays (which are null when the track build failed).
+    if (("touched" in route) && route.touched != null) {
+        foreach (t in route.touched) {
+            if (AIMap.IsValidTile(t)) AITile.DemolishTile(t);
         }
     }
     foreach (path in [route.path_out, route.path_back]) {
