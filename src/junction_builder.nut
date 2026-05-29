@@ -205,6 +205,57 @@ class JunctionBuilder {
         });
     }
 
+    // GRADE-SEPARATED double-track T (flying junction, crossover-free).
+    // Main runs along `d`: near track at row `m` (flow +d), far track at row
+    // `m - p` (flow -d). The branch comes in from the `+p` side (two columns).
+    // The two movements that would cross the near track instead FLY OVER it on
+    // a bridge, so there are no diamonds. `half` = arm length.
+    //
+    //   far  == .. == f0 == .. ==        (flow <-, row m-p)
+    //                 ||  (bridges over near track)
+    //   near == .. == n0 == ne == ..     (flow ->, row m)   ne = n0+d
+    //                 \\        //
+    //   branch:      bOut      bIn         (from +p side)
+    static function BuildGradeSeparatedT(m, d, p, half) {
+        local far = m - p;                 // far main track row
+        return JunctionBuilder.Stamp(function(dry) : (m, far, d, p, half) {
+            local ok = true;
+            // Main through-lines: near (row m) and far (row m-p=far).
+            for (local k = -half; k <= half; k++) {
+                ok = ok && JunctionBuilder._Rail(m   + d*(k-1), m   + d*k, m   + d*(k+1), dry);
+                ok = ok && JunctionBuilder._Rail(far + d*(k-1), far + d*k, far + d*(k+1), dry);
+            }
+
+            local n0 = m;            // near-track junction tile (branch OUT merges here)
+            local ne = m + d;        // near-track tile for the IN diverge
+            local bOut = n0 + p;     // branch outbound column tile (south of n0)
+            local bIn  = ne + p;     // branch inbound column tile (south of ne)
+
+            // Branch double-track straights heading south (+p).
+            for (local k = 1; k < half; k++) {
+                ok = ok && JunctionBuilder._Rail(bOut + p*(k-1), bOut + p*k, bOut + p*(k+1), dry);
+                ok = ok && JunctionBuilder._Rail(bIn  + p*(k-1), bIn  + p*k, bIn  + p*(k+1), dry);
+            }
+
+            // AT-GRADE on the near track (no crossing): branch OUT merges onto
+            // the near track heading +d; the near track diverges into branch IN.
+            ok = ok && JunctionBuilder._Rail(bOut, n0, n0 + d, dry);   // bOut -> near east
+            ok = ok && JunctionBuilder._Rail(n0,   ne, bIn,    dry);   // near -> branch IN
+
+            // FLY-OVER to the far track (crosses the near track on a bridge, so
+            // no diamond): a ramp from the branch up over the near track onto
+            // the far track, and back. Bridge spans the single near-track row.
+            //   bridge from (n0 + p) area over n0 to far: heads at bOut and far0.
+            local upHead   = bOut;          // ground head on the branch side
+            local downHead = far;           // ground head on the far track
+            ok = ok && JunctionBuilder.GradeSeparate(upHead, n0, downHead, dry);
+            // and the return ramp one tile east.
+            ok = ok && JunctionBuilder.GradeSeparate(bIn, ne, far + d, dry);
+
+            return ok;
+        });
+    }
+
     // Build (or test) a rail piece from->tile->to, treating ALREADY_BUILT as ok.
     static function _Rail(from, tile, to, dry) {
         if (dry) {
