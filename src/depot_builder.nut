@@ -28,7 +28,7 @@ class DepotBuilder {
     // on both running lines, on their outer flanks. `label` tags the log.
     // Returns an array of depot tile indices, or null if none built.
     static function New(path, label = "track") {
-        if (path == null || path.len() < DepotBuilder.SKIP_NEAR_STATION + 4) {
+        if (path == null || path.len() < DepotBuilder.SKIP_NEAR_STATION + 3) {
             Log.Warn(Log.PHASE_DEPOT, "[" + label + "] path too short for a depot.");
             return null;
         }
@@ -37,7 +37,7 @@ class DepotBuilder {
         local last_idx = -DepotBuilder.SPACING;
 
         for (local i = DepotBuilder.SKIP_NEAR_STATION;
-                i < path.len() - 2 && depots.len() < DepotBuilder.MAX_DEPOTS; i++) {
+                i < path.len() - 1 && depots.len() < DepotBuilder.MAX_DEPOTS; i++) {
             if (i - last_idx < DepotBuilder.SPACING) continue;  // keep them spread out
 
             // Always the LEFT (outer) side - right side is the partner track.
@@ -57,87 +57,62 @@ class DepotBuilder {
         return depots;
     }
 
-    // Try to build one depot SIDING off the mainline at path index i.
-    // want_right: build on the RIGHT of travel if true, else the LEFT. Only the
-    // requested side is tried (no fallback), so pairs stay one-per-side.
+    // Try to build one depot off the mainline at path index i.
+    // want_right: build on the RIGHT of travel if true, else the LEFT.
     // Returns the depot tile, or null if this spot isn't usable.
     //
-    // The depot sits on a short siding that runs PARALLEL to the mainline, so
-    // every turn is a single 45-degree curve - never a 90-degree dead corner
-    // (which strands trains). Flow a -> b -> c -> e along the out track;
-    // the siding hangs off the side `p`:
+    // Single-corner turnout: the depot sits ONE tile off the line and joins it
+    // through a 3-way junction on tile b - the straight mainline a-c plus a
+    // single curve to the depot. A train enters and leaves with ONE gentle
+    // curve; there is no parallel siding and so NO staircase of perpendicular
+    // corners (which jams long trains).
     //
-    //   a ===== b ===== c ===== e      mainline (one-way, flow ->)
-    //            \             /
-    //   depot == sb ===== sc          siding parallel to the line
-    //
-    //   - ENTER: a -> b -> sb -> depot   (diverge at b, gentle curve)
-    //   - EXIT : depot -> sb -> sc -> c -> e   (merge at c, gentle curves)
-    //
-    // Both moves run WITH the one-way flow, so a built train can leave and a
-    // running train can pull in for servicing, with no sharp turn anywhere.
+    //      depot           depot = b + p (one tile to the side)
+    //       |  \           b carries: straight a--c, plus the curve to depot
+    //   a ==b== c          ENTER: a -> b -> depot   (one curve)
+    //                      EXIT : depot -> b -> c   (one curve, with the flow)
     static function _TryBuildAt(path, i, want_right) {
-        // Need FOUR collinear, single-step mainline tiles (a,b,c,e).
-        if (i < 1 || i + 2 >= path.len()) return null;
+        // Need THREE collinear, single-step mainline tiles (a,b,c).
+        if (i < 1 || i + 1 >= path.len()) return null;
         local a = path[i - 1];
         local b = path[i];
         local c = path[i + 1];
-        local e = path[i + 2];
 
         local d = b - a;
-        if (c - b != d || e - c != d) return null;
+        if (c - b != d) return null;
         if (d != 1 && d != -1 && d != AIMap.GetMapSizeX() && d != -AIMap.GetMapSizeX()) return null;
 
-        local right = RailPathFinder._RightOffset(d);
+        local p     = want_right ? RailPathFinder._RightOffset(d) : -RailPathFinder._RightOffset(d);
+        local depot = b + p;
 
-        // The siding wants flat, level ground. Require the whole footprint
-        // (mainline b,c,e plus siding sb,sc,depot) to be FLAT and at the same
-        // height. This rejects sloped sites up front so we never pay for a
-        // depot+rails that then fail half-built on a slope.
+        // Flat, level ground only (reject sloped sites before spending money).
         local base_h = AITile.GetMaxHeight(b);
+        if (!DepotBuilder._SiteIsFlat([depot], base_h, true))  return null;
+        if (!DepotBuilder._SiteIsFlat([c],     base_h, false)) return null;
 
-        // Only the requested side (no fallback) so a pair is one-per-side.
-        foreach (p in [want_right ? right : -right]) {
-            local sb    = b + p;       // beside b
-            local sc    = c + p;       // beside c (sb + d)
-            local depot = sb + p;      // one more tile out, beside the siding
+        // Clear signals on the mainline tile we join, so the junction can be
+        // added (no-op when depots are built before signals, the usual case).
+        DepotBuilder._ClearSignals(b, d);
 
-            if (!DepotBuilder._SiteIsFlat([sb, sc, depot], base_h, true)) continue;
-            if (!DepotBuilder._SiteIsFlat([c, e], base_h, false)) continue;
-
-            // Clear any signals sitting on the mainline tiles we are about to
-            // join (b, c, e). A signal on a tile blocks adding the junction
-            // track. Normally depots are built before signals so there are
-            // none, but a reused line or a second route may already be signed.
-            // Do this BEFORE the test so the dry-run sees joinable bare track.
-            DepotBuilder._ClearSignals(b, d);
-            DepotBuilder._ClearSignals(c, d);
-            DepotBuilder._ClearSignals(e, d);
-
-            // Validate the ENTIRE build in test mode first - no money spent,
-            // nothing placed. Only if it all passes do we build for real.
-            {
-                local tm = AITestMode();
-                if (!DepotBuilder._LaySiding(a, b, c, e, sb, sc, depot).ok) {
-                    continue;   // can't build here; try the other side
-                }
-            }   // test mode ends here
-
-            // Build for real (we already know it succeeds).
-            local r = DepotBuilder._LaySiding(a, b, c, e, sb, sc, depot);
-            if (!r.ok) {
-                // Should not happen after a passing test, but stay safe.
-                AITile.DemolishTile(depot);
-                continue;
-            }
-
-            Log.Info(Log.PHASE_DEPOT,
-                "Depot siding at " + depot + " ("
-                + (p == right ? "right" : "left") + " of line, merge at " + c
-                + ", enter=" + (r.enter ? "yes" : "no") + ")");
-            return depot;
+        // Dry-run the whole build in test mode (no money, nothing placed).
+        {
+            local tm = AITestMode();
+            if (!AIRail.BuildRailDepot(depot, b))  return null;
+            if (!AIRail.BuildRail(depot, b, c))    return null;  // exit curve (mandatory)
         }
-        return null;
+
+        // Build for real.
+        if (!AIRail.BuildRailDepot(depot, b)) return null;
+        if (!AIRail.BuildRail(depot, b, c)) {                    // exit curve, with flow
+            AITile.DemolishTile(depot);
+            return null;
+        }
+        local enter = AIRail.BuildRail(a, b, depot);             // entry curve (best-effort)
+
+        Log.Info(Log.PHASE_DEPOT,
+            "Depot at " + depot + " (" + (p == RailPathFinder._RightOffset(d) ? "right" : "left")
+            + " of line, junction at " + b + ", enter=" + (enter ? "yes" : "no") + ")");
+        return depot;
     }
 
     // True if every tile in `tiles` is flat at `height`. `must_be_buildable`
@@ -164,16 +139,4 @@ class DepotBuilder {
         }
     }
 
-    // Lay (or test-lay) the whole siding. Returns { ok, enter }.
-    //   ok    = the mandatory exit path built (depot + merge curves)
-    //   enter = the optional upstream diverge built too
-    static function _LaySiding(a, b, c, e, sb, sc, depot) {
-        if (!AIRail.BuildRailDepot(depot, sb)) return { ok = false, enter = false };
-        local ok = AIRail.BuildRail(depot, sb, sc)   // sb: depot -> sc (curve)
-                && AIRail.BuildRail(sb, sc, c)        // sc: sb -> c     (curve)
-                && AIRail.BuildRail(sc, c, e);        // c : merge with flow
-        local enter = AIRail.BuildRail(a, b, sb)      // b : diverge in
-                   && AIRail.BuildRail(b, sb, depot); // sb: straight to depot
-        return { ok = ok, enter = enter };
-    }
 }
