@@ -179,25 +179,25 @@ class Trains {
 
     static SERVICE_RELIABILITY_DROP = 25;  // service when reliability falls 25%
 
-    // Configure the DEFAULT train service interval once, at boot. Per-vehicle
-    // service-interval setting isn't in this API, so instead we set the game's
-    // default to PERCENT mode at 25 - every train built afterwards inherits a
-    // "service when reliability drops 25%" interval.
+    // Try to make trains service at a 25% reliability drop. Both routes for
+    // this (AIGameSettings.SetValue and AIVehicle.SetServiceInterval) are
+    // absent in some API versions, so the whole thing is wrapped: if the calls
+    // aren't available we just fall back to the game's default servicing.
     static function ConfigureServicing() {
-        local pkey = "vehicle.servint_ispercent";
-        local tkey = "vehicle.servint_trains";
-
-        local is_percent = false;
-        if (AIGameSettings.IsValid(pkey)) {
-            is_percent = AIGameSettings.SetValue(pkey, 1);  // percent-of-reliability mode
-        }
-        if (AIGameSettings.IsValid(tkey)
-                && AIGameSettings.SetValue(tkey, Trains.SERVICE_RELIABILITY_DROP)) {
-            Log.Info(Log.PHASE_BOOT,
-                "Default train servicing set to " + Trains.SERVICE_RELIABILITY_DROP
-                + (is_percent ? "% reliability drop." : " day interval (percent mode unavailable)."));
-        } else {
-            Log.Warn(Log.PHASE_BOOT, "Could not set default train service interval.");
+        try {
+            local pkey = "vehicle.servint_ispercent";
+            local tkey = "vehicle.servint_trains";
+            local pct = false;
+            if (AIGameSettings.IsValid(pkey)) pct = AIGameSettings.SetValue(pkey, 1);
+            if (AIGameSettings.IsValid(tkey)) {
+                AIGameSettings.SetValue(tkey, Trains.SERVICE_RELIABILITY_DROP);
+                Log.Info(Log.PHASE_BOOT,
+                    "Train servicing set to " + Trains.SERVICE_RELIABILITY_DROP
+                    + (pct ? "% reliability drop." : " (days)."));
+            }
+        } catch (e) {
+            Log.Warn(Log.PHASE_BOOT,
+                "Service interval not settable by AI; using game default servicing.");
         }
     }
 
