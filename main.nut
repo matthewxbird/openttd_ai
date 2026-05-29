@@ -32,7 +32,7 @@ class MvBAI extends AIController {
     // DEBUG: stamp one flat double-track T-junction at boot so its geometry can
     // be screenshotted/verified in isolation, before wiring junctions into live
     // routing. Set false for normal play.
-    static DEBUG_JUNCTION = true;
+    static DEBUG_JUNCTION = false;
 
     // DEBUG: set true and fill the region to SCAN a hand-built junction into a
     // [scan] descriptor in the AI Debug log. Build your ideal junction in-game,
