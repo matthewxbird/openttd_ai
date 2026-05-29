@@ -17,7 +17,7 @@
 
 class DepotBuilder {
 
-    static SKIP_NEAR_STATION = 3;  // don't put a depot in the station throat
+    static SKIP_NEAR_STATION = 6;  // keep depots well clear of BOTH station throats
     static MAX_DEPOTS = 2;         // per track (called for out AND back tracks)
     static SPACING    = 16;        // tiles between consecutive depots (spread out)
 
@@ -28,16 +28,19 @@ class DepotBuilder {
     // on both running lines, on their outer flanks. `label` tags the log.
     // Returns an array of depot tile indices, or null if none built.
     static function New(path, label = "track") {
-        if (path == null || path.len() < DepotBuilder.SKIP_NEAR_STATION + 3) {
+        // Depots live only in the MIDDLE of the line - skip SKIP_NEAR_STATION
+        // tiles at BOTH ends so no junction is built near a station throat.
+        if (path == null || path.len() < 2 * DepotBuilder.SKIP_NEAR_STATION + 3) {
             Log.Warn(Log.PHASE_DEPOT, "[" + label + "] path too short for a depot.");
             return null;
         }
+        local lo = DepotBuilder.SKIP_NEAR_STATION;
+        local hi = path.len() - 1 - DepotBuilder.SKIP_NEAR_STATION;
 
         local depots   = [];
         local last_idx = -DepotBuilder.SPACING;
 
-        for (local i = DepotBuilder.SKIP_NEAR_STATION;
-                i < path.len() - 1 && depots.len() < DepotBuilder.MAX_DEPOTS; i++) {
+        for (local i = lo; i < hi && depots.len() < DepotBuilder.MAX_DEPOTS; i++) {
             if (i - last_idx < DepotBuilder.SPACING) continue;  // keep them spread out
 
             // Always the LEFT (outer) side - right side is the partner track.
@@ -49,10 +52,11 @@ class DepotBuilder {
         }
 
         // Pragmatic fallback: if the spaced pass found nothing (rough terrain),
-        // scan EVERY tile and grab the first workable depot spot - one depot is
-        // far better than abandoning the whole route.
+        // scan EVERY middle tile and grab the first workable depot spot - one
+        // depot is far better than abandoning the whole route. Still kept clear
+        // of both station throats.
         if (depots.len() == 0) {
-            for (local i = DepotBuilder.SKIP_NEAR_STATION; i < path.len() - 1; i++) {
+            for (local i = lo; i < hi; i++) {
                 local depot_tile = DepotBuilder._TryBuildAt(path, i, false, true);  // allow terraform
                 if (depot_tile != null) { depots.push(depot_tile); break; }
             }
