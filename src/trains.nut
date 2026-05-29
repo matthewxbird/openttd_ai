@@ -9,7 +9,11 @@
 class Trains {
 
     static MIN_WAGONS = 4;
-    static MAX_WAGONS = 6;   // platform length is 7; leave room for the engine
+    static MAX_WAGONS = 20;  // demand cap only; real limit is platform length
+                             // and engine power (see BuildTrain)
+    static POWER_PER_WAGON = 220;  // hp budget needed per loaded wagon; below
+                                   // this the train crawls, so we cap wagons or
+                                   // double-head the engine
 
     // Pick best engine for (cargo, railtype). Returns engine id or -1.
     static function PickEngine(cargo, railtype) {
@@ -91,26 +95,85 @@ class Trains {
     }
 
     // Build the train in `depot`. Returns vehicle id or -1.
-    // Refits all wagons to the target cargo.
-    static function BuildTrain(depot_tile, engine, wagon, cargo, num_wagons) {
+    // Fills the train to the platform length (max hauling) but caps the wagon
+    // count at what the engine can pull; if a single engine is too weak for the
+    // wagons that fit, it double-heads (adds a second engine) when there is room.
+    // max_wagons = demand-based upper bound (from PickNumWagons).
+    static function BuildTrain(depot_tile, engine, wagon, cargo, max_wagons) {
+        local plat_units = StationBuilder.PLATFORM_LENGTH * 16;  // length in 1/16 tiles
+
+        // Engine.
         local v = AIVehicle.BuildVehicle(depot_tile, engine);
         if (!AIVehicle.IsValidVehicle(v)) {
             Log.Err(Log.PHASE_TRAIN, "Engine buy failed: " + AIError.GetLastErrorString());
             return -1;
         }
         if (AIEngine.CanRefitCargo(engine, cargo)) AIVehicle.RefitVehicle(v, cargo);
+        local engine_len = AIVehicle.GetLength(v);
 
-        for (local i = 0; i < num_wagons; i++) {
+        // Measure one wagon (built standalone, attached later as the first).
+        local w0 = AIVehicle.BuildVehicle(depot_tile, wagon);
+        if (!AIVehicle.IsValidVehicle(w0)) {
+            Log.Err(Log.PHASE_TRAIN, "Wagon buy failed: " + AIError.GetLastErrorString());
+            AIVehicle.SellVehicle(v);
+            return -1;
+        }
+        if (AIEngine.CanRefitCargo(wagon, cargo)) AIVehicle.RefitVehicle(w0, cargo);
+        local wagon_len = AIVehicle.GetLength(w0);
+        if (wagon_len <= 0) wagon_len = 8;   // guard against odd data
+
+        // How many wagons fit behind one engine, and how many the engine can
+        // pull. The smaller wins - that's the balance of length vs power.
+        local engines   = 1;
+        local power_cap = AIEngine.GetPower(engine) / Trains.POWER_PER_WAGON;
+        if (power_cap < 1) power_cap = 1;
+        local fit  = (plat_units - engine_len) / wagon_len;
+        local want = max_wagons;
+        if (fit < want) want = fit;
+
+        // If the engine can't pull what fits, double-head (second engine at the
+        // front) provided that still leaves room for a worthwhile train.
+        if (power_cap < want) {
+            local fit2 = (plat_units - 2 * engine_len) / wagon_len;
+            if (fit2 >= Trains.MIN_WAGONS) {
+                local v2 = AIVehicle.BuildVehicle(depot_tile, engine);
+                if (AIVehicle.IsValidVehicle(v2)) {
+                    if (AIEngine.CanRefitCargo(engine, cargo)) AIVehicle.RefitVehicle(v2, cargo);
+                    AIVehicle.MoveWagon(v2, 0, v, 0);   // attach to the front
+                    engines = 2;
+                    power_cap *= 2;
+                    if (fit2 < want) want = fit2;
+                }
+            }
+        }
+        if (power_cap < want) want = power_cap;
+        // Final length sanity for the engine(s) actually fitted.
+        local hard_fit = (plat_units - engines * engine_len) / wagon_len;
+        if (want > hard_fit) want = hard_fit;
+        if (want < 1) want = 1;
+
+        // Attach the measured wagon, then the rest up to `want`.
+        AIVehicle.MoveWagon(w0, 0, v, 0);
+        local count = 1;
+        while (count < want) {
             local w = AIVehicle.BuildVehicle(depot_tile, wagon);
             if (!AIVehicle.IsValidVehicle(w)) {
-                Log.Warn(Log.PHASE_TRAIN, "Wagon buy " + i + " failed: " + AIError.GetLastErrorString());
+                Log.Warn(Log.PHASE_TRAIN, "Wagon buy " + count + " failed: " + AIError.GetLastErrorString());
                 break;
             }
             if (AIEngine.CanRefitCargo(wagon, cargo)) AIVehicle.RefitVehicle(w, cargo);
             AIVehicle.MoveWagon(w, 0, v, 0);
+            if (AIVehicle.GetLength(v) > plat_units) {  // safety: don't overhang
+                AIVehicle.SellVehicle(w);
+                break;
+            }
+            count++;
         }
 
-        Log.Info(Log.PHASE_TRAIN, "Train built id=" + v + " wagons=" + num_wagons);
+        Log.Info(Log.PHASE_TRAIN,
+            "Train built id=" + v + " engines=" + engines + " wagons=" + count
+            + " (len=" + AIVehicle.GetLength(v) + "/" + plat_units
+            + ", powerCap=" + power_cap + ")");
         return v;
     }
 
