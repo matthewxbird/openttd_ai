@@ -41,10 +41,11 @@ class MvBAI extends AIController {
     // template. (x1,y1) = top-left (min X, min Y), (x2,y2) = bottom-right.
     static DEBUG_SCAN  = true;
     // FULL bounding box of the junction (outermost tiles incl. the curve ends).
-    static SCAN_X1 = 137;
-    static SCAN_Y1 = 62;
-    static SCAN_X2 = 127;
-    static SCAN_Y2 = 67;
+    // Generous box around the central crossing at X=168, Y~140.
+    static SCAN_X1 = 150;
+    static SCAN_Y1 = 122;
+    static SCAN_X2 = 186;
+    static SCAN_Y2 = 158;
 
     function Start();
     function Save();
