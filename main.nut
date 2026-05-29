@@ -383,34 +383,16 @@ function MvBAI::_DebugStampJunction() {
     local p  = mx;   // tracks/branch separated along +y
     local base = AIMap.GetTileIndex(AIMap.GetMapSizeX() / 2, AIMap.GetMapSizeY() / 2);
 
-    // Flatten a generous rectangle so all pieces sit at one height.
+    // Flatten a generous square covering both arms of the cross.
     local bx = AIMap.GetTileX(base);
     local by = AIMap.GetTileY(base);
-    local c1 = AIMap.GetTileIndex(bx - 1, by - 4);
-    local c2 = AIMap.GetTileIndex(bx + 10, by + 3);
-    AITile.LevelTiles(c1, c2);
+    AITile.LevelTiles(AIMap.GetTileIndex(bx - 8, by - 8),
+                      AIMap.GetTileIndex(bx + 9, by + 9));
 
-    // Main double-track: track 0 on row `base`, track 1 on row base+p.
-    // Lay straight rail for 9 tiles on each.
-    for (local k = 1; k <= 7; k++) {
-        AIRail.BuildRail(base + (k - 1) * d, base + k * d, base + (k + 1) * d);
-        AIRail.BuildRail(base + p + (k - 1) * d, base + p + k * d, base + p + (k + 1) * d);
-    }
-
-    // Junction at the 4th tile of track 0.
-    local j0 = base + 4 * d;
-    local c0 = j0 + d;
-
-    // DOUBLE-TRACK branch leg approaching from the -p side: two columns, one
-    // under j0, one under c0, each running a few tiles out.
-    for (local s = 2; s <= 3; s++) {
-        AIRail.BuildRail(j0 - (s - 1) * p, j0 - s * p, j0 - (s + 1) * p);
-        AIRail.BuildRail(c0 - (s - 1) * p, c0 - s * p, c0 - (s + 1) * p);
-    }
-
-    local ok = JunctionBuilder.BuildFlatDoubleT(j0, d, p);
+    // Stamp a double-track CROSS: two double-track lines crossing at `base`.
+    local ok = JunctionBuilder.BuildDoubleCross(base, d, p, 7);
     Log.Info(Log.PHASE_BOOT,
-        "[debug] flat double-track T at tile (" + AIMap.GetTileX(j0) + "," + AIMap.GetTileY(j0)
+        "[debug] double-track cross at tile (" + AIMap.GetTileX(base) + "," + AIMap.GetTileY(base)
         + ") built=" + ok + " - screenshot to verify geometry.");
 }
 

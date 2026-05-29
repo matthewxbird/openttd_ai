@@ -119,6 +119,52 @@ class JunctionBuilder {
         });
     }
 
+    // DOUBLE-TRACK CROSS: two double-track lines crossing at grade (matches the
+    // clean catalogue cross). One line runs along `d` (two tracks one tile apart
+    // on `p`), the other along `p` (two tracks one tile apart on `d`); where they
+    // overlap, OpenTTD forms the 2x2 of diamond crossings automatically. `center`
+    // is the NW tile of that 2x2; `half` = arm length each way.
+    static function BuildDoubleCross(center, d, p, half) {
+        return JunctionBuilder.Stamp(function(dry) : (center, d, p, half) {
+            local ok = true;
+            // Line along d: two tracks at rows `center` and `center+p`.
+            foreach (row in [center, center + p]) {
+                for (local k = -half; k <= half; k++) {
+                    local cur = row + d * k;
+                    ok = ok && JunctionBuilder._Rail(cur - d, cur, cur + d, dry);
+                }
+            }
+            // Line along p: two tracks at cols `center` and `center+d`.
+            foreach (col in [center, center + d]) {
+                for (local k = -half; k <= half; k++) {
+                    local cur = col + p * k;
+                    ok = ok && JunctionBuilder._Rail(cur - p, cur, cur + p, dry);
+                }
+            }
+            if (ok && !dry) {
+                // Two-way PBS on each of the 8 arm approaches, just outside the
+                // 2x2 core, so the crossings reserve one train at a time.
+                local core = half;   // tiles from center to first arm-tile beyond core
+                local sigs = [
+                    [center + d * 2,        center + d],          // line-d, east arm, row0
+                    [center + p + d * 2,    center + p + d],      // line-d, east arm, row1
+                    [center - d * 2,        center - d],          // line-d, west arm, row0
+                    [center + p - d * 2,    center + p - d],      // line-d, west arm, row1
+                    [center + p * 2,        center + p],          // line-p, south arm, col0
+                    [center + d + p * 2,    center + d + p],      // line-p, south arm, col1
+                    [center - p * 2,        center - p],          // line-p, north arm, col0
+                    [center + d - p * 2,    center + d - p],      // line-p, north arm, col1
+                ];
+                foreach (s in sigs) {
+                    if (AIMap.IsValidTile(s[0]) && AIRail.IsRailTile(s[0])) {
+                        AIRail.BuildSignal(s[0], s[1], AIRail.SIGNALTYPE_PBS);
+                    }
+                }
+            }
+            return ok;
+        });
+    }
+
     // Build (or test) a rail piece from->tile->to, treating ALREADY_BUILT as ok.
     static function _Rail(from, tile, to, dry) {
         if (dry) {
