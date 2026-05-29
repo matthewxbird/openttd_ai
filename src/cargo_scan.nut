@@ -13,6 +13,11 @@ class CargoScan {
     // reasonable expected delivery time for a medium route.
     static INCOME_DAYS = 30;
 
+    // Minimum route length (tiles). Cargo payment scales with distance, so very
+    // short hauls earn little per trip and aren't worth a whole double-track
+    // line + station overhead - skip them.
+    static MIN_DISTANCE = 40;
+
     // Build full list of candidate routes across all cargoes.
     // Returns array of { cargo, producer, accepter, distance, score }.
     static function Scan() {
@@ -48,7 +53,7 @@ class CargoScan {
                 if (acc_id == prod_id) continue;
                 local acc_loc  = AIIndustry.GetLocation(acc_id);
                 local dist     = AIMap.DistanceManhattan(prod_loc, acc_loc);
-                if (dist <= 0) continue;
+                if (dist < CargoScan.MIN_DISTANCE) continue;   // too short to be worth it
 
                 local payment      = AICargo.GetCargoIncome(cargo, dist, CargoScan.INCOME_DAYS);
                 local build_cost   = Scoring.BuildCostEstimate(dist);
