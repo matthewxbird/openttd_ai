@@ -105,30 +105,19 @@ class StationBuilder {
         return false;
     }
 
+    static FRONTAGE = 3;   // clear buildable tiles required in front of the throat
+
     // Internal: attempt one (tile, direction) pair. Returns result or null.
     static function _TryBuild(tile, direction, industry_id, cargo, is_source, partner_tile) {
         // Quick reject: target tile must be buildable land.
         if (!AITile.IsBuildable(tile)) return null;
 
-        // We rely on AIRail.BuildRailStation to validate the full footprint.
-        local ok = AIRail.BuildRailStation(
-            tile,
-            direction,
-            StationBuilder.NUM_PLATFORMS,
-            StationBuilder.PLATFORM_LENGTH,
-            AIStation.STATION_NEW
-        );
-        if (!ok) return null;
-
-        local station_id = AIStation.GetStationID(tile);
-
-        // A rail station is open at BOTH ends. For a terminus we pick ONE end
-        // as the "throat" (where the main line connects) and leave the other
-        // closed. Choose the end whose exit faces the partner industry, so the
-        // line runs straight toward it instead of looping around the back.
+        // Decide the throat geometry FIRST (no build needed) so we can check the
+        // frontage before committing. A rail station is open at BOTH ends; the
+        // "throat" is the end facing the partner industry.
         local axis = StationBuilder._AxisStep(direction);
+        local perp = StationBuilder._PerpStep(direction);
 
-        // Plus end: exit beyond tile + LEN*axis.  Minus end: exit before tile.
         local plus_front  = tile + axis * StationBuilder.PLATFORM_LENGTH;
         local plus_enter  = tile + axis * (StationBuilder.PLATFORM_LENGTH - 1);
         local minus_front = tile - axis;
@@ -140,10 +129,31 @@ class StationBuilder {
 
         local front_tile = use_minus ? minus_front : plus_front;
         local enter_tile = use_minus ? minus_enter : plus_enter;
+        local out_dir    = front_tile - enter_tile;   // points away from station
 
-        // The two platforms sit side-by-side (perpendicular to the axis), so
-        // platform 1's throat tiles are platform 0's offset sideways by one.
-        local perp = StationBuilder._PerpStep(direction);
+        // FRONTAGE CHECK: the tiles just outside BOTH platform throats, running
+        // toward the partner, must be clear buildable land. Without this the
+        // station can land boxed in against water/terrain (like a riverbank)
+        // with no room to lay the line - better to skip and pick a spot further
+        // back. (Reject early, before we build anything.)
+        if (!StationBuilder._FrontageClear(front_tile, front_tile + perp, out_dir)) {
+            return null;
+        }
+
+        // Footprint is validated by BuildRailStation.
+        local ok = AIRail.BuildRailStation(
+            tile,
+            direction,
+            StationBuilder.NUM_PLATFORMS,
+            StationBuilder.PLATFORM_LENGTH,
+            AIStation.STATION_NEW
+        );
+        if (!ok) return null;
+
+        local station_id = AIStation.GetStationID(tile);
+
+        // (perp computed above) platform 1's throat tiles are platform 0's
+        // offset sideways by one.
 
         // Depot is NOT built here; DepotBuilder places spur depots off the
         // mainline later. The throat crossover is built by Terminus.
@@ -162,6 +172,19 @@ class StationBuilder {
             enter_tile_b = enter_tile + perp,
             direction    = direction,
         };
+    }
+
+    // True if both platform throats have FRONTAGE clear buildable tiles running
+    // out toward the partner. f0 = platform 0 throat, f1 = platform 1 throat,
+    // out_dir = step away from the station.
+    static function _FrontageClear(f0, f1, out_dir) {
+        for (local k = 0; k < StationBuilder.FRONTAGE; k++) {
+            local t0 = f0 + out_dir * k;
+            local t1 = f1 + out_dir * k;
+            if (!AIMap.IsValidTile(t0) || !AITile.IsBuildable(t0)) return false;
+            if (!AIMap.IsValidTile(t1) || !AITile.IsBuildable(t1)) return false;
+        }
+        return true;
     }
 
     // One-tile step ALONG the track axis, pointing toward the plus end.
