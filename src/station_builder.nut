@@ -32,12 +32,22 @@ class StationBuilder {
             return null;
         }
 
-        // Try each candidate tile, in each of the two orientations.
-        // Orientation = "rail track direction at the station".
-        local dirs = [AIRail.RAILTRACK_NE_SW, AIRail.RAILTRACK_NW_SE];
+        // Orient the station so its PLATFORM AXIS points toward the partner.
+        // The throat then fans straight out toward the partner and the two
+        // parallel tracks run alongside each other without crossing. Pick the
+        // orientation whose axis matches the dominant component of the vector
+        // from this industry to the partner; try the other only as a fallback.
+        local self_tile = AIIndustry.GetLocation(industry_id);
+        local dx = AIMap.GetTileX(partner_tile) - AIMap.GetTileX(self_tile);
+        local dy = AIMap.GetTileY(partner_tile) - AIMap.GetTileY(self_tile);
+        local dirs = (abs(dx) >= abs(dy))
+            ? [AIRail.RAILTRACK_NE_SW, AIRail.RAILTRACK_NW_SE]   // mostly east-west
+            : [AIRail.RAILTRACK_NW_SE, AIRail.RAILTRACK_NE_SW];  // mostly north-south
 
-        foreach (tile, _ in tiles) {
-            foreach (dir in dirs) {
+        // Orientation OUTER, tiles INNER: exhaust every candidate tile in the
+        // partner-facing orientation before falling back to the other.
+        foreach (dir in dirs) {
+            foreach (tile, _ in tiles) {
                 local result = StationBuilder._TryBuild(tile, dir, industry_id, cargo, is_source, partner_tile);
                 if (result != null) return result;
             }

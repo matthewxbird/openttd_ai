@@ -99,7 +99,7 @@ class RailPathFinder {
         this._cost_bridge_fixed   = 500;   // trivial dip-bridges lose to terraformed ground
         this._cost_tunnel_per_tile = 0;    // tunnels preferred over climbing
         this._cost_coast          = 20;
-        this._cost_crossing_rail  = 50;
+        this._cost_crossing_rail  = 200000;  // crossing FOREIGN rail: avoid unless no other way
         this._cost_level_crossing = 900;
         this._cost_guide          = 900;   // per level of reverse-tile distance
         this._cost_curve_spacing  = 600;   // corners closer than a train length = 55km/h cap
@@ -366,6 +366,14 @@ class RailPathFinder {
                     cost += self._cost_turn;
                 }
             }
+
+            // ---- CROSSING EXISTING RAIL --------------------------------
+            // Building rail on a tile that already carries rail (another
+            // route's line, or our own out-track) means the tracks cross.
+            // Penalise hard so A* routes AROUND other lines; it will only pay
+            // this if there is genuinely no alternative. (The back track is
+            // additionally blocked from out-track tiles via ignored_tiles.)
+            if (AIRail.IsRailTile(t[0])) cost += self._cost_crossing_rail;
 
             // ---- COAST SURCHARGE ----------------------------------------
             if (AITile.IsCoastTile(t[0])) cost += self._cost_coast;

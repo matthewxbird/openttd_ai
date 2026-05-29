@@ -49,8 +49,14 @@ class TrackBuilder {
         // other. That makes the back track consistently the RIGHT-hand rail
         // (= left for the returning train), and it lines up with the
         // right-of-travel side the pathfinder reserves and biases toward.
-        local s_pf = TrackBuilder._PickPlatforms(src);  // { out, back } tile pairs
-        local d_pf = TrackBuilder._PickPlatforms(dst);
+        // The handedness MUST be measured against ONE global axis (src -> dst)
+        // at BOTH stations - not each station's local outbound direction. If we
+        // used the local direction, the destination (whose throat faces back
+        // toward the source) would pick the opposite physical side, and the two
+        // parallel tracks would be forced to cross somewhere in the middle.
+        local global_dir = TrackBuilder._DominantStep(src.enter_tile, dst.enter_tile);
+        local s_pf = TrackBuilder._PickPlatforms(src, global_dir);  // { out, back }
+        local d_pf = TrackBuilder._PickPlatforms(dst, global_dir);
 
         // --- Pass 1: out track (left platform -> left platform) ---
         Log.Info(Log.PHASE_TRACK, "Pass 1 (out): straight lead-ins + pathfind srcâ†’dst");
@@ -93,19 +99,32 @@ class TrackBuilder {
     //     back = { enter, front } }  // the other platform
     // Platform 0 = { enter_tile, front_tile }; platform 1 = the *_b tiles,
     // sitting one tile to the side (perp) of platform 0.
-    static function _PickPlatforms(st) {
+    // `global_dir`: one-tile step along the dominant src->dst axis, the SAME
+    // for both stations. The out track always rides the LEFT of this global
+    // direction; so we pick, at each station, the platform on that left side.
+    static function _PickPlatforms(st, global_dir) {
         local p0 = { enter = st.enter_tile,   front = st.front_tile };
         local p1 = { enter = st.enter_tile_b, front = st.front_tile_b };
 
-        local depart = st.front_tile - st.enter_tile;          // out-travel direction
-        local left   = -RailPathFinder._RightOffset(depart);   // left-of-travel offset
-        local perp   = st.front_tile_b - st.front_tile;        // p0 -> p1 offset
+        local right = RailPathFinder._RightOffset(global_dir);  // right-of-global offset
+        local perp  = st.front_tile_b - st.front_tile;          // p0 -> p1 offset
 
-        // If platform 1 sits on the left of departure, the out track uses it.
-        if (left != 0 && perp == left) {
-            return { out = p1, back = p0 };
+        // perp points p0 -> p1. If it points to the RIGHT, then p1 is the
+        // right-hand platform and p0 is the left -> out (left) uses p0.
+        // If perp points LEFT, p1 is the left platform -> out uses p1.
+        if (right != 0 && perp == right) {
+            return { out = p0, back = p1 };
         }
-        return { out = p0, back = p1 };
+        return { out = p1, back = p0 };
+    }
+
+    // One-tile step (+-1 or +-MapSizeX) along the dominant axis from -> to.
+    static function _DominantStep(from, to) {
+        local dx = AIMap.GetTileX(to) - AIMap.GetTileX(from);
+        local dy = AIMap.GetTileY(to) - AIMap.GetTileY(from);
+        if (abs(dx) >= abs(dy)) return (dx >= 0) ? 1 : -1;
+        local mx = AIMap.GetMapSizeX();
+        return (dy >= 0) ? mx : -mx;
     }
 
     // Lay a straight lead-in stub out of a platform along the platform axis,
