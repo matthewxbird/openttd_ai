@@ -75,4 +75,14 @@ class Scoring {
         local amortized        = build_cost.tofloat() / years.tofloat();
         return revenue_per_year - amortized;
     }
+
+    // Distance at which the distance weight reaches +100% (doubles the score).
+    static DISTANCE_REFERENCE = 100.0;
+
+    // Weight a profit figure FURTHER by route length, so longer lines are
+    // favoured in the ranking beyond their natural profit. Sign is preserved
+    // (a loss stays a loss), so unprofitable routes are still filtered out.
+    static function DistanceWeighted(profit, dist) {
+        return profit * (1.0 + dist.tofloat() / Scoring.DISTANCE_REFERENCE);
+    }
 }

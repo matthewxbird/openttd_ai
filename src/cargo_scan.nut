@@ -59,10 +59,11 @@ class CargoScan {
                 local build_cost   = Scoring.BuildCostEstimate(dist);
                 // Accepter capacity is hard to read directly; assume large
                 // so producer is the binding side. v1 simplification.
-                // Rank by ABSOLUTE annual profit, not ROI ratio: this rewards
-                // long, high-throughput lines (cargo payment grows with
-                // distance) instead of cheap short ones.
-                local score        = Scoring.AnnualProfit(prod_amt, 99999, payment, build_cost);
+                // Rank by ABSOLUTE annual profit (rewards long, high-throughput
+                // lines), then weight it FURTHER by distance so longer routes
+                // are favoured in general - not just by their natural payment.
+                local profit       = Scoring.AnnualProfit(prod_amt, 99999, payment, build_cost);
+                local score        = Scoring.DistanceWeighted(profit, dist);
 
                 out.append({
                     cargo      = cargo,
