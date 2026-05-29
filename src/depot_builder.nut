@@ -91,48 +91,69 @@ class DepotBuilder {
         local right = RailPathFinder._RightOffset(d);
         local order = prefer_right ? [right, -right] : [-right, right];
 
+        // The siding wants flat, level ground. Require the whole footprint
+        // (mainline b,c,e plus siding sb,sc,depot) to be FLAT and at the same
+        // height. This rejects sloped sites up front so we never pay for a
+        // depot+rails that then fail half-built on a slope.
+        local base_h = AITile.GetMaxHeight(b);
+
         foreach (p in order) {
             local sb    = b + p;       // beside b
             local sc    = c + p;       // beside c (sb + d)
             local depot = sb + p;      // one more tile out, beside the siding
-            foreach (t in [sb, sc, depot]) {
-                if (!AIMap.IsValidTile(t) || !AITile.IsBuildable(t)) { sb = null; break; }
-            }
-            if (sb == null) continue;
 
-            if (!AIRail.BuildRailDepot(depot, sb)) continue;
+            if (!DepotBuilder._SiteIsFlat([sb, sc, depot], base_h, true)) continue;
+            if (!DepotBuilder._SiteIsFlat([c, e], base_h, false)) continue;
 
-            // Build the siding. The straight + merge/diverge corners are the
-            // must-haves; the upstream diverge (enter) is best-effort.
-            local ok = true;
-            ok = ok && AIRail.BuildRail(depot, sb, sc);  // sb: depot -> sc (curve)
-            ok = ok && AIRail.BuildRail(sb, sc, c);      // sc: sb -> c     (curve)
-            ok = ok && AIRail.BuildRail(sc, c, e);       // c : merge with flow
-            // ENTER (best-effort): diverge at b, then run straight into the
-            // depot along the siding. Needs BOTH the b corner and the sb
-            // straight; if either fails the depot is still usable exit-only.
-            local link_enter = AIRail.BuildRail(a, b, sb)
-                            && AIRail.BuildRail(b, sb, depot);
+            // Validate the ENTIRE build in test mode first - no money spent,
+            // nothing placed. Only if it all passes do we build for real.
+            {
+                local tm = AITestMode();
+                if (!DepotBuilder._LaySiding(a, b, c, e, sb, sc, depot).ok) {
+                    continue;   // can't build here; try the other side
+                }
+            }   // test mode ends here
 
-            if (!ok) {
-                Log.Warn(Log.PHASE_DEPOT,
-                    "Depot siding failed near " + b + ": "
-                    + AIError.GetLastErrorString() + " — removing partial build.");
+            // Build for real (we already know it succeeds).
+            local r = DepotBuilder._LaySiding(a, b, c, e, sb, sc, depot);
+            if (!r.ok) {
+                // Should not happen after a passing test, but stay safe.
                 AITile.DemolishTile(depot);
-                AIRail.RemoveRail(depot, sb, sc);
-                AIRail.RemoveRail(sb, sc, c);
-                AIRail.RemoveRail(sc, c, e);
-                AIRail.RemoveRail(a, b, sb);
-                AIRail.RemoveRail(b, sb, depot);
                 continue;
             }
 
             Log.Info(Log.PHASE_DEPOT,
                 "Depot siding at " + depot + " ("
                 + (p == right ? "right" : "left") + " of line, merge at " + c
-                + ", enter=" + (link_enter ? "yes" : "no") + ")");
+                + ", enter=" + (r.enter ? "yes" : "no") + ")");
             return depot;
         }
         return null;
+    }
+
+    // True if every tile in `tiles` is flat at `height`. `must_be_buildable`
+    // also requires open land (for the new siding tiles); the mainline tiles
+    // already carry our rail so we only check their height/slope.
+    static function _SiteIsFlat(tiles, height, must_be_buildable) {
+        foreach (t in tiles) {
+            if (!AIMap.IsValidTile(t)) return false;
+            if (must_be_buildable && !AITile.IsBuildable(t)) return false;
+            if (AITile.GetSlope(t) != AITile.SLOPE_FLAT) return false;
+            if (AITile.GetMaxHeight(t) != height) return false;
+        }
+        return true;
+    }
+
+    // Lay (or test-lay) the whole siding. Returns { ok, enter }.
+    //   ok    = the mandatory exit path built (depot + merge curves)
+    //   enter = the optional upstream diverge built too
+    static function _LaySiding(a, b, c, e, sb, sc, depot) {
+        if (!AIRail.BuildRailDepot(depot, sb)) return { ok = false, enter = false };
+        local ok = AIRail.BuildRail(depot, sb, sc)   // sb: depot -> sc (curve)
+                && AIRail.BuildRail(sb, sc, c)        // sc: sb -> c     (curve)
+                && AIRail.BuildRail(sc, c, e);        // c : merge with flow
+        local enter = AIRail.BuildRail(a, b, sb)      // b : diverge in
+                   && AIRail.BuildRail(b, sb, depot); // sb: straight to depot
+        return { ok = ok, enter = enter };
     }
 }
