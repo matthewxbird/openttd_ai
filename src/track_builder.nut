@@ -342,13 +342,20 @@ class TrackBuilder {
 
             if (AIRail.BuildRail(prev, cur, next)) {
                 built++;
+            } else if (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT) {
+                // already there; fine
+            } else if (!near_station && AITile.DemolishTile(cur)
+                    && AIRail.BuildRail(prev, cur, next)) {
+                // Something was in the way (e.g. a stray road tile). Clearing it
+                // and laying rail beats a long detour. Demolish can be refused
+                // by the local authority - then this falls through to the warn
+                // below and the reroute logic handles it.
+                Log.Info(Log.PHASE_TRACK, "[" + label + "] cleared obstacle at " + cur + " to lay rail.");
+                built++;
             } else {
-                local err = AIError.GetLastError();
-                if (err != AIError.ERR_ALREADY_BUILT) {
-                    Log.Warn(Log.PHASE_TRACK,
-                        "[" + label + "] rail fail at tile " + cur
-                        + ": " + AIError.GetLastErrorString());
-                }
+                Log.Warn(Log.PHASE_TRACK,
+                    "[" + label + "] rail fail at tile " + cur
+                    + ": " + AIError.GetLastErrorString());
             }
         }
 

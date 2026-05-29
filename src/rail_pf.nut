@@ -103,7 +103,8 @@ class RailPathFinder {
         this._cost_tunnel_per_tile = 0;    // tunnels preferred over climbing
         this._cost_coast          = 20;
         this._cost_crossing_rail  = 200000;  // crossing FOREIGN rail: avoid unless no other way
-        this._cost_level_crossing = 900;
+        this._cost_level_crossing = 200;  // crossing/clearing a road is cheap vs
+                                          // a long detour around it
         this._cost_guide          = 900;   // per level of reverse-tile distance
         this._cost_curve_spacing  = 600;   // corners closer than a train length = 55km/h cap
         this._cost_uphill         = 80;    // each climbing tile drags train speed down
