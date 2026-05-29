@@ -544,27 +544,16 @@ class RailPathFinder {
                 continue;
             }
 
-            // Can we move cur -> next?  Three cases:
-            //   buildable          -> empty/compatible tile, we can lay the rail.
-            //   ERR_ALREADY_BUILT  -> the connecting rail ALREADY exists, so we
-            //                         can JOIN it - this is how we build a
-            //                         junction into / route along an existing
-            //                         line (split-before-merge networks).
-            //   otherwise          -> blocked; skip.
-            local buildable = AIRail.BuildRail(par_tile, cur_node, next);
-            local joinable  = !buildable
-                && (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT);
-            if (!buildable && !joinable) continue;
+            // NEVER route onto a tile that already carries rail (another line or
+            // our own), except the GOAL tile we are connecting into. This keeps
+            // new lines off existing track entirely - no weaving through, no
+            // tangled junctions near stations. A foreign line in the way is
+            // grade-separated by the bridge/tunnel jump instead.
+            if (AIRail.IsRailTile(next) && !(next in self._goals_map)) continue;
 
-            // Don't lay a NEW piece onto an existing-rail tile mid-route - that
-            // is what made the tangled junctions at station throats. We only:
-            //   - route ALONG existing track where the rail already exists
-            //     (joinable / ERR_ALREADY_BUILT), and
-            //   - connect AT a goal (the station/line we're tying into).
-            // A pure foreign crossing still grade-separates via a bridge.
-            if (buildable && AIRail.IsRailTile(next) && !(next in self._goals_map)) continue;
-
-            tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
+            if (AIRail.BuildRail(par_tile, cur_node, next)) {
+                tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
+            }
         }
 
         // ---- BRIDGE / TUNNEL JUMPS ---------------------------------------
