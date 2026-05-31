@@ -35,21 +35,23 @@ class CargoScan {
     }
 
     // Build full list of candidate routes across all cargoes.
-    // Returns array of { cargo, producer, accepter, distance, score }.
-    static function Scan() {
+    // Returns array of { cargo, producer, accepter, distance, score, ... }.
+    // `railtype` is needed so the estimator can simulate the real fleet.
+    static function Scan(railtype) {
         local out = [];
         local cargoes = AICargoList();
         Log.Info(Log.PHASE_SCAN, "Cargoes detected: " + cargoes.Count());
 
+        Estimator.ClearCache();   // engine sets may have changed since last scan
         foreach (cargo, _ in cargoes) {
-            CargoScan._ScanCargo(cargo, out);
+            CargoScan._ScanCargo(cargo, out, railtype);
         }
         Log.Info(Log.PHASE_SCAN, "Total candidate pairs: " + out.len());
         return out;
     }
 
     // Append candidates for a single cargo to `out`.
-    static function _ScanCargo(cargo, out) {
+    static function _ScanCargo(cargo, out, railtype) {
         local cargo_label = AICargo.GetCargoLabel(cargo);
 
         local producers  = AIIndustryList_CargoProducing(cargo);
@@ -83,7 +85,7 @@ class CargoScan {
                 local acc_loc = AIIndustry.GetLocation(acc_id);
                 CargoScan._Consider(out, cargo, prod_id, prod_amt, prod_loc,
                     acc_id, acc_loc, false,
-                    prod_cluster + CargoScan._ClusterCount(acc_loc));
+                    prod_cluster + CargoScan._ClusterCount(acc_loc), railtype);
             }
 
             // Town accepters (end of chain). A town is inherently multi-cargo,
@@ -93,7 +95,7 @@ class CargoScan {
                 foreach (town, _ in towns) {
                     if (AITown.GetPopulation(town) < CargoScan.MIN_TOWN_POP) continue;
                     CargoScan._Consider(out, cargo, prod_id, prod_amt, prod_loc,
-                        town, AITown.GetLocation(town), true, prod_cluster + 2);
+                        town, AITown.GetLocation(town), true, prod_cluster + 2, railtype);
                 }
             }
         }
@@ -108,15 +110,21 @@ class CargoScan {
     // Score one producer->accepter pair and append it as a candidate.
     // `cluster` = how many industries (+town) sit in the two stations' catchment;
     // more means one build serves more cargo, so we favour it.
-    static function _Consider(out, cargo, prod_id, prod_amt, prod_loc, acc_id, acc_loc, acc_is_town, cluster) {
+    //
+    // Scoring now comes from the ESTIMATOR: it simulates the real fleet (engine,
+    // wagon, capacity, running cost, trips/year) and returns annual profit, ROI,
+    // income-per-vehicle and income-per-building-time. We rank on
+    // distance-weighted, cluster-boosted annual profit; the other metrics ride
+    // along for the adaptive profit model (Phase 2) and fleet sizing.
+    static function _Consider(out, cargo, prod_id, prod_amt, prod_loc, acc_id, acc_loc, acc_is_town, cluster, railtype) {
         local dist = AIMap.DistanceManhattan(prod_loc, acc_loc);
         if (dist < CargoScan.MIN_DISTANCE) return;
 
-        local payment    = AICargo.GetCargoIncome(cargo, dist, CargoScan.INCOME_DAYS);
-        local build_cost = Scoring.BuildCostEstimate(dist);
-        local profit     = Scoring.AnnualProfit(prod_amt, 99999, payment, build_cost);
-        local score      = Scoring.DistanceWeighted(profit, dist);
-        score            = Scoring.ClusterBoost(score, cluster);
+        local est = Estimator.Estimate(cargo, dist, prod_amt, railtype, Maintenance.MAX_TRAINS);
+        if (est == null) return;   // no fleet can serve this cargo
+
+        local score = Scoring.DistanceWeighted(est.annual_profit, dist);
+        score       = Scoring.ClusterBoost(score, cluster);
 
         out.append({
             cargo       = cargo,
@@ -126,6 +134,12 @@ class CargoScan {
             distance    = dist,
             production  = prod_amt,
             score       = score,
+            // Estimator metrics (for Phase 2 ranking + sizing).
+            est_profit              = est.annual_profit,
+            est_roi                 = est.roi,
+            est_income_per_vehicle  = est.income_per_vehicle,
+            est_income_per_btime    = est.income_per_building_time,
+            est_num_trains          = est.num_trains,
         });
     }
 
@@ -160,7 +174,11 @@ class CargoScan {
                 "#" + (i + 1) + " " + cargo_label
                 + " | " + prod_name + " -> " + acc_name
                 + " | dist=" + c.distance
-                + " | profit/yr=" + c.score);
+                + " | score=" + c.score
+                + " | est profit/yr=" + ("est_profit" in c ? c.est_profit : "?")
+                + " roi=" + ("est_roi" in c ? c.est_roi : "?")
+                + " £/veh=" + ("est_income_per_vehicle" in c ? c.est_income_per_vehicle : "?")
+                + " trains=" + ("est_num_trains" in c ? c.est_num_trains : "?"));
         }
     }
 }

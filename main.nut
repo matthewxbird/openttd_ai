@@ -7,6 +7,7 @@ require("src/logger.nut");
 require("src/money.nut");
 require("src/railtype.nut");
 require("src/scoring.nut");
+require("src/estimator.nut");
 require("src/candidates.nut");
 require("src/cargo_scan.nut");
 require("src/station_builder.nut");
@@ -83,8 +84,9 @@ function MvBAI::Start() {
         //    tops up busy routes with another train.
         Maintenance.Tick(this.state, this.railtype);
 
-        // 1. Scan + rank.
-        local cands  = CargoScan.Scan();
+        // 1. Scan + rank. The scan runs each candidate through the estimator,
+        //    which simulates the real fleet on this railtype to score it.
+        local cands  = CargoScan.Scan(this.railtype);
         // INDUSTRY-CHAIN BIAS: if a candidate's producer is an industry we ALREADY
         // supply (it's the accepter of one of our routes), boost it - hauling the
         // product onward to the next chain stage (raw -> processed -> goods) is
