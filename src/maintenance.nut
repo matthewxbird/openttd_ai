@@ -23,8 +23,15 @@ class Maintenance {
     static WAITING_FOR_EXTRA = 150;  // source cargo waiting that warrants a train
     static MAX_TRAINS        = 4;    // cap trains per route
     static MIN_CASH_FOR_TRAIN = 40000;  // don't add a train if cash is tight
-    static PROBATION_LIMIT   = 10;   // health passes to prove a line earns
     static CONDEMN_LIMIT     = 12;   // health passes to recall trains + tear down
+    // Probation is bounded by GAME TIME, not health-pass count: a long route with
+    // a full-load train can take MONTHS to complete its first round trip (fill at
+    // source, then travel), far longer than a fixed number of quick health passes.
+    // Condemning on a pass-count timer killed perfectly good lines before their
+    // first delivery. Give each line a deadline scaled to its length; genuinely
+    // broken lines are still caught immediately by the stuck detector.
+    static PROBATION_BASE_DAYS = 400;  // grace even for a zero-distance line
+    static PROBATION_PER_TILE  = 6;    // + this many days per tile of distance
 
     // Run the health pass over every route, dispatching by lifecycle status.
     static function Tick(state, railtype) {
@@ -78,6 +85,10 @@ class Maintenance {
         local dst_id = r.dst_station.station_id;
 
         if (r.trains == null) r.trains = (r.train_id != -1) ? [r.train_id] : [];
+        // Start the game-time probation clock on the first check.
+        if (!("probation_date" in r) || r.probation_date == null) {
+            r.probation_date = AIDate.GetCurrentDate();
+        }
         local alive = [];
         local stuck = 0;
         local profit = false;
@@ -95,11 +106,14 @@ class Maintenance {
         r.trains = alive;
 
         local round_trip = r.reached_dst && r.reached_src;
+        local deadline_days = Maintenance.PROBATION_BASE_DAYS
+            + (("distance" in r) ? r.distance : 0) * Maintenance.PROBATION_PER_TILE;
+        local elapsed = AIDate.GetCurrentDate() - r.probation_date;
         Log.Info(Log.PHASE_LOOP,
             "[probation] " + name + " trains=" + alive.len()
             + (stuck > 0 ? (" STUCK=" + stuck) : "")
             + " reachedDst=" + r.reached_dst + " backAtSrc=" + r.reached_src
-            + " check=" + r.probation_checks + "/" + Maintenance.PROBATION_LIMIT);
+            + " elapsed=" + elapsed + "/" + deadline_days + "d");
 
         if (alive.len() == 0) {
             Log.Err(Log.PHASE_LOOP, "[probation] " + name + ": no live train; condemning.");
@@ -116,10 +130,10 @@ class Maintenance {
             Maintenance._Condemn(state, r);
             return;
         }
-        r.probation_checks++;
-        if (r.probation_checks >= Maintenance.PROBATION_LIMIT) {
+        if (elapsed >= deadline_days) {
             Log.Err(Log.PHASE_LOOP,
-                "[probation] " + name + ": never completed a round trip; condemning.");
+                "[probation] " + name + ": no round trip / profit within " + deadline_days
+                + " days; condemning.");
             Maintenance._Condemn(state, r);
         }
     }
