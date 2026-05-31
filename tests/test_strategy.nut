@@ -43,9 +43,15 @@
             { est_roi = -0.2, est_profit = 1.0, distance = 100, cluster = 2, score = 0.0 },
         ];
         Strategy.Apply(cands, "roi");
-        // base 0.5, cluster 2 (no boost), distance 100 -> x(1+100/100)=x2 -> 1.0
-        assert_close(cands[0].score, 1.0, 0.0001, "roi mode score = roi * distance weight");
+        // roi mode does NOT apply distance weighting (ROI already captures
+        // capital efficiency): base 0.5, cluster 2 (no boost) -> 0.5
+        assert_close(cands[0].score, 0.5, 0.0001, "roi mode score = roi (no distance weight)");
         assert_true(cands[1].score < 0.0, "negative roi stays negative (excluded by build gate)");
+
+        // buildtime/pervehicle modes DO weight distance: base 0.5, dist 100 -> 1.0
+        local bt = [{ est_income_per_btime = 0.5, distance = 100, cluster = 2, score = 0.0 }];
+        Strategy.Apply(bt, "buildtime");
+        assert_close(bt[0].score, 1.0, 0.0001, "buildtime mode keeps distance weight");
 
         // Cluster boost increases score.
         local clustered = [{ est_roi = 0.5, distance = 0, cluster = 4, score = 0.0 }];

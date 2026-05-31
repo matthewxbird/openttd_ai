@@ -58,7 +58,15 @@ class Strategy {
         foreach (c in cands) {
             local metric = Strategy.Metric(c, mode);
             local cluster = ("cluster" in c) ? c.cluster : 2;
-            c.score = Scoring.DistanceWeighted(Scoring.ClusterBoost(metric, cluster), c.distance);
+            local score = Scoring.ClusterBoost(metric, cluster);
+            // In ROI mode (cash-poor / early game) DON'T add the distance weight:
+            // ROI already rewards capital efficiency, and distance-weighting on
+            // top biases toward long, expensive routes that drain the small early
+            // bank and fail to path more often. Cheap, short, high-ROI routes get
+            // income flowing first. Throughput / per-vehicle modes still favour
+            // distance (longer hauls earn more per trip once we're established).
+            if (mode != "roi") score = Scoring.DistanceWeighted(score, c.distance);
+            c.score = score;
         }
     }
 
