@@ -34,6 +34,10 @@ class MvBAI extends AIController {
     // DEBUG: stamp one flat double-track T-junction at boot so its geometry can
     // be screenshotted/verified in isolation, before wiring junctions into live
     // routing. Set false for normal play.
+    // How many routes may be on probation at once before we stop starting new
+    // ones (lets the company keep expanding instead of freezing on one line).
+    static MAX_CONCURRENT_PROBATION = 4;
+
     static DEBUG_JUNCTION = false;
 
     // DEBUG: set true and fill the region to SCAN a hand-built junction into a
@@ -112,11 +116,17 @@ function MvBAI::Start() {
         //    next one (no more building broken lines and moving on).
         local built_one = false;
         local holding   = false;
-        if (this.state.HasProbation()) {
-            // Don't idle: plan ahead while the new line proves itself.
+        // Allow a few routes to prove concurrently. Freezing ALL expansion on a
+        // single probation line let one slow/broken route stop the whole company
+        // from growing (we'd build one line and idle for the rest of the game).
+        // We still throttle - we don't build unboundedly while nothing has been
+        // verified - but we keep expanding up to MAX_CONCURRENT_PROBATION.
+        if (this.state.CountProbation() >= MvBAI.MAX_CONCURRENT_PROBATION) {
+            // Don't idle: plan ahead while the new lines prove themselves.
             holding = true;
             Log.Info(Log.PHASE_RANK,
-                "A route is on probation; planning ahead instead of building this tick.");
+                this.state.CountProbation() + " route(s) on probation (cap "
+                + MvBAI.MAX_CONCURRENT_PROBATION + "); planning ahead instead of building.");
             Planner.LookAhead(this.state, ranked, this.railtype);
         } else if (Maintenance.NeedsMoreCapacity(this.state)) {
             // Scale up existing lines (more trains / longer trains, done by the
@@ -194,6 +204,18 @@ function MvBAI::TryBuildRoute(c) {
         + " (dist=" + c.distance + ", profit/yr=" + c.score + ")");
 
     local route = Route.New(c.cargo, c.producer, c.accepter, c.distance, c.production, acc_is_town);
+
+    // PRE-FLIGHT (free): for an industry->industry route, confirm a rail path
+    // even EXISTS before we spend a penny on stations/track. The dominant money
+    // leak was building two stations + lead-in stubs for a route the pathfinder
+    // then couldn't connect ("open set empty") - repeated on long routes it
+    // bankrupted us. If unreachable, blacklist now with nothing built.
+    if (!acc_is_town && !TrackBuilder.CanReach(c.producer, c.accepter)) {
+        Log.Warn(Log.PHASE_TRACK,
+            "Pre-flight: no rail path " + AIIndustry.GetName(c.producer)
+            + " -> " + Route.AccepterName(c) + "; skipping (nothing built).");
+        return this._FailRoute(c, route, false, false);
+    }
 
     // Each station's throat is oriented to face the OTHER end, so the main line
     // runs straight toward its partner (no wrap-around loop).

@@ -58,6 +58,17 @@ class State {
         return false;
     }
 
+    // How many routes are currently on probation. The build loop allows a few
+    // to prove concurrently rather than freezing all expansion on a single one
+    // (one slow/broken line must not stop the company from growing).
+    function CountProbation() {
+        local n = 0;
+        foreach (_, r in this.routes) {
+            if (r.status == "probation") n++;
+        }
+        return n;
+    }
+
     // Drop a route from the registry (after it has been torn down).
     function RemoveRoute(route) {
         local k = Route.Key(route.cargo, route.producer, route.accepter);

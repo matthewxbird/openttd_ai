@@ -37,6 +37,52 @@ class TrackBuilder {
     static _touched = [];
     static function _Touch(t) { TrackBuilder._touched.push(t); }
 
+    static PREFLIGHT_RADIUS = 6;   // search this far around each industry for endpoints
+
+    // PRE-FLIGHT (test mode, FREE): is there ANY rail path between these two
+    // industries? Runs a single dry-run pathfind between buildable tiles near
+    // each (no stations, no track, no money). Returns false ONLY when we are
+    // confident no path exists, so the caller can blacklist the route WITHOUT
+    // first building (and then tearing down) stations + lead-ins. When endpoints
+    // can't be determined we return true (don't block - let the normal build try).
+    // Skipped for town accepters (towns sit on open/road land; path is rarely
+    // the blocker there and town endpoints are awkward to guess).
+    static function CanReach(src_id, dst_id) {
+        local sloc = AIIndustry.GetLocation(src_id);
+        local dloc = AIIndustry.GetLocation(dst_id);
+        local s = TrackBuilder._NearBuildable(
+            AITileList_IndustryProducing(src_id, TrackBuilder.PREFLIGHT_RADIUS), dloc);
+        local d = TrackBuilder._NearBuildable(
+            AITileList_IndustryAccepting(dst_id, TrackBuilder.PREFLIGHT_RADIUS), sloc);
+        if (s == null || d == null) return true;   // can't decide; don't block
+        local sp = TrackBuilder._StepToward(s, sloc);
+        local dp = TrackBuilder._StepToward(d, dloc);
+        local tm = AITestMode();   // belt-and-braces: nothing here builds anyway
+        local tiles = TrackBuilder._FindPath(
+            s, sp, d, dp, true, null, [], TrackBuilder.MAX_CHUNKS, "preflight");
+        return tiles != null && TrackBuilder._Reaches(tiles, d, dp);
+    }
+
+    // Nearest buildable tile in `list` to `target`, or null if none buildable.
+    static function _NearBuildable(list, target) {
+        if (list.IsEmpty()) return null;
+        list.Valuate(AIMap.DistanceManhattan, target);
+        list.Sort(AIList.SORT_BY_VALUE, true);   // nearest first
+        foreach (t, _ in list) {
+            if (AIMap.IsValidTile(t) && AITile.IsBuildable(t)) return t;
+        }
+        return null;
+    }
+
+    // One-tile step from `tile` toward `target` along the dominant axis.
+    static function _StepToward(tile, target) {
+        local dx = AIMap.GetTileX(target) - AIMap.GetTileX(tile);
+        local dy = AIMap.GetTileY(target) - AIMap.GetTileY(tile);
+        if (abs(dx) >= abs(dy)) return tile + ((dx >= 0) ? 1 : -1);
+        local mx = AIMap.GetMapSizeX();
+        return tile + ((dy >= 0) ? mx : -mx);
+    }
+
     // Build both tracks between two stations. Returns { out, back }.
     // `src`, `dst`: StationBuilder.BuildAt result tables. Each has front_tile/
     //   enter_tile (platform 0) and front_tile_b/enter_tile_b (platform 1).
