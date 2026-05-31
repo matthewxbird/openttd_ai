@@ -3,7 +3,7 @@
 
 (function() {
     // Helper: a baseline params table; override fields per case.
-    local base = function(over) {
+    local mk = function(over) {
         local p = {
             capacity_per_train     = 100,    // units a train holds
             running_cost_per_train = 5000,   // /yr
@@ -22,7 +22,7 @@
     // per_train_year = 100 * 6.083 = 608.3 ; annual_prod = 200*12 = 2400.
     // num_trains = round(2400 / 608.3) = round(3.945) = 4 (capped at 4).
     {
-        local m = Estimator.Compute(base({}));
+        local m = Estimator.Compute(mk({}));
         assert_eq(m.num_trains, 4, "num_trains sized to production (capped)");
         // fleet_capacity = 608.3*4 = 2433 > annual_prod 2400 -> serviced=2400.
         assert_close(m.serviced_per_year, 2400.0, 1.0, "serviced capped by production");
@@ -37,14 +37,14 @@
 
     // Production-limited: tiny producer -> 1 train, serviced = production.
     {
-        local m = Estimator.Compute(base({ production_per_month = 30 }));
+        local m = Estimator.Compute(mk({ production_per_month = 30 }));
         assert_eq(m.num_trains, 1, "small producer -> 1 train");
         assert_close(m.serviced_per_year, 360.0, 1.0, "serviced = annual production when below fleet capacity");
     }
 
     // Capacity-limited: huge producer, cap trains -> serviced = fleet capacity.
     {
-        local m = Estimator.Compute(base({ production_per_month = 100000 }));
+        local m = Estimator.Compute(mk({ production_per_month = 100000 }));
         assert_eq(m.num_trains, 4, "huge producer clamped to max_trains");
         // fleet capacity = 608.3 * 4 = ~2433, far below annual production.
         assert_true(m.serviced_per_year < 2500.0, "serviced limited by fleet capacity, not production");
@@ -53,15 +53,15 @@
     // Distance affects trips: shorter trip -> more trips/yr -> fewer trains for
     // same production.
     {
-        local short_trip = Estimator.Compute(base({ trip_days = 5 }));
-        local long_trip  = Estimator.Compute(base({ trip_days = 60 }));
+        local short_trip = Estimator.Compute(mk({ trip_days = 5 }));
+        local long_trip  = Estimator.Compute(mk({ trip_days = 60 }));
         assert_true(short_trip.trips_per_year > long_trip.trips_per_year,
             "shorter trips -> more trips per year");
     }
 
     // Negative profit when build cost dwarfs revenue.
     {
-        local m = Estimator.Compute(base({ payment_per_unit = 1, build_cost = 5000000 }));
+        local m = Estimator.Compute(mk({ payment_per_unit = 1, build_cost = 5000000 }));
         assert_true(m.annual_profit < 0.0, "unprofitable route has negative profit");
         assert_true(m.roi < 0.0, "unprofitable route has negative roi");
     }

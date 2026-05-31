@@ -56,9 +56,9 @@ class Strategy {
     // (negative metric) stay excluded by the build loop's `score <= 0` gate.
     static function Apply(cands, mode) {
         foreach (c in cands) {
-            local base = Strategy.Metric(c, mode);
+            local metric = Strategy.Metric(c, mode);
             local cluster = ("cluster" in c) ? c.cluster : 2;
-            c.score = Scoring.DistanceWeighted(Scoring.ClusterBoost(base, cluster), c.distance);
+            c.score = Scoring.DistanceWeighted(Scoring.ClusterBoost(metric, cluster), c.distance);
         }
     }
 

@@ -140,26 +140,34 @@ blacklist and the AI tries the next candidate.
 
 ## Running tests
 
-The pure modules (`scoring`, `candidates`, `money.ShouldRepay`) are
-covered by Squirrel unit tests.
+The pure modules (`scoring`, `estimator`, `strategy`, `candidates`,
+`money.ShouldRepay`) are covered by Squirrel unit tests.
 
-1. **Install Squirrel 3.x** (one-time). Get `sq.exe` from
-   <https://squirrel-lang.org/>, or build from source. Put it on PATH.
+**Recommended (no host install): Docker.** A tiny image builds a Squirrel
+interpreter from source, so nothing needs to be on PATH:
 
-2. From repo root:
-   ```
-   sq.exe tests/run_all.nut
-   ```
+```
+./tools/run_tests.ps1            # builds the image on first run, then runs tests
+./tools/run_tests.ps1 -Rebuild   # force-rebuild the interpreter image
+```
 
-3. Expected output ends with:
-   ```
-   passed: <N>
-   failed: 0
-   ALL TESTS PASSED
-   ```
+Under the hood: `tools/squirrel.Dockerfile` compiles `sq`, and the suite runs
+with the repo mounted at `/work` (`docker run --rm -v "${PWD}:/work" mvb-sq
+tests/run_all.nut`).
 
-If `sq.exe` isn't on PATH, the test files still work as documentation
-of the expected pure-module behavior.
+**Alternative: native `sq.exe`.** Build/get Squirrel 3.x, put `sq.exe` on PATH,
+then from repo root: `sq.exe tests/run_all.nut`.
+
+Expected output ends with:
+```
+passed: <N>
+failed: 0
+ALL TESTS PASSED
+```
+
+> Note: the upstream Squirrel master treats `base` as a fully reserved keyword
+> (stricter than OpenTTD's bundled Squirrel). Avoid `base` as a local variable
+> name in pure modules so they parse under both.
 
 ---
 
