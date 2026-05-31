@@ -79,7 +79,12 @@ class TrackBuilder {
             "out");
         if (out_tiles == null) {
             Log.Err(Log.PHASE_TRACK, "Out track: pathfinding failed both attempts.");
-            return { out = null, back = null };
+            // Return the tiles touched SO FAR (lead-in stubs, partial attempts) so
+            // the caller can clean them up. Must always include `touched` - a
+            // missing key crashes the whole AI on `tracks.touched` access.
+            local touched_fail = [];
+            foreach (t in TrackBuilder._touched) touched_fail.push(t);
+            return { out = null, back = null, touched = touched_fail };
         }
 
         // --- Pass 2: back track (right platform -> right platform) ---

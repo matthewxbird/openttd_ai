@@ -241,7 +241,9 @@ function MvBAI::TryBuildRoute(c) {
         route.src_station, route.dst_station);
     route.path_out  = tracks.out;
     route.path_back = tracks.back;
-    route.touched   <- tracks.touched;   // every tile rail was laid on (for cleanup)
+    // every tile rail was laid on (for cleanup); guard the key so a builder that
+    // bailed early (and omitted it) can never crash the whole AI here.
+    route.touched   <- ("touched" in tracks) ? tracks.touched : [];
     // BOTH tracks are required. With only the out track, a train reaches the
     // destination and then has no way home (the back platform is unconnected
     // and signals are one-way) - it strands. Fail the route instead.
