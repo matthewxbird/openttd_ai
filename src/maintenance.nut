@@ -32,6 +32,12 @@ class Maintenance {
     // broken lines are still caught immediately by the stuck detector.
     static PROBATION_BASE_DAYS = 400;  // grace even for a zero-distance line
     static PROBATION_PER_TILE  = 6;    // + this many days per tile of distance
+    static REACH_NEAR          = 8;    // within this many tiles of a station = "reached" it
+    // Fast-condemn deadline for a line that never even approaches its dest:
+    // ~2x a one-way trip. Shorter than full probation so broken lines stop
+    // bleeding sooner, but long enough that a slow full-load route still arrives.
+    static FIRST_DELIVERY_BASE     = 200;
+    static FIRST_DELIVERY_PER_TILE = 4;
 
     // Run the health pass over every route, dispatching by lifecycle status.
     static function Tick(state, railtype) {
@@ -98,10 +104,19 @@ class Maintenance {
             if (Maintenance._IsStuck(r, v)) stuck++;
             if (AIVehicle.GetProfitThisYear(v) > 0) profit = true;
 
-            // Track round-trip progress by which station the train is sitting at.
-            local sid = AIStation.GetStationID(AIVehicle.GetLocation(v));
-            if (sid == dst_id) r.reached_dst = true;
-            if (sid == src_id && r.reached_dst) r.reached_src = true;
+            // Track round-trip progress by PROXIMITY to each station, not an exact
+            // station-tile hit: with infrequent health passes a fast train is
+            // almost never sampled exactly on a station tile, so the exact-match
+            // test never fired and good routes only ever promoted via the profit
+            // fallback. Being within the station footprint (+margin) is enough.
+            local loc = AIVehicle.GetLocation(v);
+            if (AIMap.DistanceManhattan(loc, r.dst_station.tile) <= Maintenance.REACH_NEAR) {
+                r.reached_dst = true;
+            }
+            if (r.reached_dst
+                    && AIMap.DistanceManhattan(loc, r.src_station.tile) <= Maintenance.REACH_NEAR) {
+                r.reached_src = true;
+            }
         }
         r.trains = alive;
 
@@ -127,6 +142,19 @@ class Maintenance {
         }
         if (stuck > 0) {
             Log.Err(Log.PHASE_LOOP, "[probation] " + name + ": train stuck; condemning broken line.");
+            Maintenance._Condemn(state, r);
+            return;
+        }
+        // FAST CONDEMN of a non-functional line: if a train has never even got
+        // NEAR the destination within a first-delivery deadline (~2x the one-way
+        // trip) AND is not turning a profit, the line is broken - cut it now
+        // instead of bleeding running costs until the full probation deadline.
+        local first_delivery = Maintenance.FIRST_DELIVERY_BASE
+            + (("distance" in r) ? r.distance : 0) * Maintenance.FIRST_DELIVERY_PER_TILE;
+        if (!r.reached_dst && !profit && elapsed >= first_delivery) {
+            Log.Err(Log.PHASE_LOOP,
+                "[probation] " + name + ": never reached destination in " + first_delivery
+                + " days and unprofitable; condemning broken line.");
             Maintenance._Condemn(state, r);
             return;
         }
