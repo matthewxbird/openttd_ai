@@ -8,6 +8,7 @@ require("src/money.nut");
 require("src/railtype.nut");
 require("src/scoring.nut");
 require("src/estimator.nut");
+require("src/strategy.nut");
 require("src/candidates.nut");
 require("src/cargo_scan.nut");
 require("src/station_builder.nut");
@@ -91,6 +92,11 @@ function MvBAI::Start() {
         // supply (it's the accepter of one of our routes), boost it - hauling the
         // product onward to the next chain stage (raw -> processed -> goods) is
         // where the big money is. This makes the AI complete chains it started.
+        // ADAPTIVE PROFIT MODEL: pick the objective for this tick (grow capital
+        // / grow throughput / squeeze each vehicle) from the company's state,
+        // then re-score every candidate by that objective before ranking.
+        local mode = Strategy.DecideFromGame();
+        Strategy.Apply(cands, mode);
         foreach (c in cands) {
             if (this.state.SuppliesIndustry(c.producer)) {
                 c.score = Scoring.ChainBoost(c.score);

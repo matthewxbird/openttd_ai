@@ -11,12 +11,14 @@ dofile("tests/test_helpers.nut");
 // Source modules under test (pure ones only).
 dofile("src/scoring.nut");
 dofile("src/estimator.nut");
+dofile("src/strategy.nut");
 dofile("src/candidates.nut");
 dofile("src/money.nut");
 
 // Test files.
 dofile("tests/test_scoring.nut");
 dofile("tests/test_estimator.nut");
+dofile("tests/test_strategy.nut");
 dofile("tests/test_candidates.nut");
 dofile("tests/test_money.nut");
 

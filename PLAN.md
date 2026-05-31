@@ -131,18 +131,18 @@ later decision (which route, which mode, how many vehicles) sharply better.
 **Done when:** ranking uses estimator output; logged estimates roughly match
 realised profit on built routes (within ~30%).
 
-### Phase 2 — Adaptive profit model *(high leverage, low risk)*
+### Phase 2 — Adaptive profit model *(high leverage, low risk)* — IMPLEMENTED (pending in-game verification)
 
-- Add `Scoring`/strategy state: `roiBase` / `buildingTimeBase` /
-  `vehicleProfitBase`, recomputed each tick from cash, income, and
-  `AIGroup.GetNumVehicles` vs the train cap (mirrors the reference logic:
-  poor→roi, headroom→buildingTime, near-cap→perVehicle).
-- `Candidates.Rank` selects the score field via a `GetValue(roi, perTime,
-  perVehicle)` selector instead of always using distance-weighted profit.
-- Keep distance preference as a secondary tiebreaker.
+Status: `src/strategy.nut` added. `Strategy.Decide(cash, vehicles, cap)` picks
+`roi` / `buildtime` / `pervehicle` each tick (poor→roi, headroom→buildtime,
+near-cap→pervehicle); `Strategy.Apply` re-scores every candidate by the chosen
+estimator metric, keeping cluster + distance weighting consistent. Wired into
+the main loop before ranking, mode logged per tick. `tests/test_strategy.nut`
+covers mode thresholds, metric selection, and sign-preserving re-scoring.
 
-**Done when:** the AI provably builds cheap high-ROI routes early and switches to
-throughput once it's rich, visible in the per-tick log.
+Remaining: run the unit suite; confirm in-game that the logged mode switches as
+cash/vehicle-count grow and that early routes are high-ROI. Tune `RICH_CASH`
+and the headroom/busy fractions.
 
 ### Phase 3 — Deeper engine economics + railtype upgrades *(medium)*
 

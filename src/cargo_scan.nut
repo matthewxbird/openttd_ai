@@ -134,6 +134,7 @@ class CargoScan {
             distance    = dist,
             production  = prod_amt,
             score       = score,
+            cluster     = cluster,   // multi-industry catchment, for re-weighting per strategy mode
             // Estimator metrics (for Phase 2 ranking + sizing).
             est_profit              = est.annual_profit,
             est_roi                 = est.roi,
