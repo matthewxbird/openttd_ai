@@ -144,7 +144,14 @@ Remaining: run the unit suite; confirm in-game that the logged mode switches as
 cash/vehicle-count grow and that early routes are high-ROI. Tune `RICH_CASH`
 and the headroom/busy fractions.
 
-### Phase 3 — Deeper engine economics + railtype upgrades *(medium)*
+### Phase 3 — Deeper engine economics + railtype upgrades *(medium)* — PARTIALLY IMPLEMENTED
+
+Status: `Trains.PickEngine` now ranks by `Trains.EngineValue` = effective
+speed (rated, capped by power/weight sustainable speed) ÷ running cost, instead
+of `speed*power/cost`. Favours fast, adequately-powered, cheap-to-run locos;
+double-heading still covers raw power shortfalls. Pure + unit-tested
+(`tests/test_trains.nut`). STILL TODO: per-railtype route comparison and
+in-service railtype upgrades; refit-aware wagon choice.
 
 - Improve `PickEngine`: model train **weight** (loco + loaded wagons), use
   `AIEngine.GetPower` vs weight on the route's **max slope** to predict real
@@ -173,7 +180,13 @@ side-by-side route logs.
 **Done when:** bidirectional routes appear where geography allows and measurably
 raise income per vehicle; candidate list depth > a few dozen.
 
-### Phase 5 — Town authority management *(medium gain, low risk)*
+### Phase 5 — Town authority management *(medium gain, low risk)* — IMPLEMENTED
+
+Status: `src/town_authority.nut` added. `TownAuthority.Tick(state)` runs each
+loop: for every route delivering into a town, build a **statue** there once when
+affordable (permanent local-rating boost -> station accepts more cargo). Pure
+decision `ShouldBuildStatue` is unit-tested (`tests/test_town_authority.nut`).
+STILL TODO: fund other local actions; avoid dumping into low-rating towns.
 
 - For town-accepting routes (goods/food/pax/mail), build a **statue** and **fund
   local actions** when affordable to lift the station rating and accepted
