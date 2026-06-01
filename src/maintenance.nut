@@ -25,6 +25,7 @@ class Maintenance {
     static MIN_CASH_FOR_TRAIN = 40000;  // don't add a train if cash is tight
     static CONDEMN_LIMIT     = 12;   // health passes to recall trains + tear down
     static RETIRE_LOSS_YEARS = 2;    // consecutive losing years before retiring a built route
+    static STUCK_RETIRE_LIMIT = 3;   // consecutive built-route passes with a stuck train -> condemn
 
     // -- PURE helpers (unit-tested) ---------------------------------------
     // Next consecutive-losing-years streak given last year's route profit.
@@ -34,6 +35,17 @@ class Maintenance {
     // Retire a built route that has lost money this many years running.
     static function ShouldRetire(loss_streak, limit) {
         return loss_streak >= limit;
+    }
+    // Next consecutive-stuck streak given this pass's stuck-train count. A built
+    // route whose trains deadlock mid-line earns nothing yet still bleeds running
+    // costs; we track how many passes in a row we've seen a stalled train.
+    static function NextStuckStreak(streak, stuck_count) {
+        return (stuck_count > 0) ? streak + 1 : 0;
+    }
+    // Condemn a built route whose trains have stayed deadlocked this many passes
+    // running, to recover capital before the bleed compounds into bankruptcy.
+    static function ShouldCondemnStuck(stuck_streak, limit) {
+        return stuck_streak >= limit;
     }
     // Probation is bounded by GAME TIME, not health-pass count: a long route with
     // a full-load train can take MONTHS to complete its first round trip (fill at
@@ -195,10 +207,18 @@ class Maintenance {
     }
 
     // CONDEMNING: sell any train that has reached a depot. Once all trains are
-    // gone, demolish the infrastructure and report the route as done (the
-    // caller removes it). If trains can't reach a depot (truly stuck) within
-    // CONDEMN_LIMIT checks, demolish what we can and abandon the rest.
-    // Returns true when this route is finished and should be removed.
+    // gone, demolish the infrastructure and report the route as done (the caller
+    // removes it).
+    //
+    // We NEVER give up while a train is still alive. The old code abandoned the
+    // recall after CONDEMN_LIMIT passes and demolished the infra (depots
+    // included) - which ORPHANED any train that hadn't parked yet. Orphaned
+    // trains keep running money-losing orders forever, draining the company into
+    // bankruptcy (this was the dominant solo-loss path). Instead we keep the
+    // depots standing and keep recovering: a train physically blocked in a
+    // deadlock can't path to a depot, so we REVERSE the stuck ones to break the
+    // jam, then re-issue the depot order. As trains park we sell them, which
+    // frees the line for the rest. Returns true only once every train is sold.
     static function _CheckCondemning(state, r) {
         local name = AIIndustry.GetName(r.producer) + "->" + Route.AccepterName(r);
         local remaining = [];
@@ -220,15 +240,16 @@ class Maintenance {
             Log.Info(Log.PHASE_LOOP, "[condemn] " + name + ": torn down and removed.");
             return true;
         }
-        if (r.condemn_checks >= Maintenance.CONDEMN_LIMIT) {
-            Log.Err(Log.PHASE_LOOP,
-                "[condemn] " + name + ": " + remaining.len()
-                + " train(s) never reached a depot; abandoning (infra may remain).");
-            Maintenance._DemolishInfra(r);  // best effort; tiles under trains stay
-            return true;
+        // Keep recovering every still-running train. A deadlocked train can't
+        // reach a depot while blocked, so reverse it to break the jam first.
+        foreach (v in remaining) {
+            if (Maintenance._IsStuck(r, v)) AIVehicle.ReverseVehicle(v);
+            AIVehicle.SendVehicleToDepot(v);
         }
-        // Re-issue the depot order in case the first attempt was refused.
-        foreach (v in remaining) AIVehicle.SendVehicleToDepot(v);
+        if (r.condemn_checks % 8 == 0) {
+            Log.Warn(Log.PHASE_LOOP, "[condemn] " + name + ": still recovering "
+                + remaining.len() + " train(s) to depot (no orphaning).");
+        }
         return false;
     }
 
@@ -335,10 +356,25 @@ class Maintenance {
         }
 
         if (stuck > 0) {
+            r.stuck_streak = Maintenance.NextStuckStreak(
+                ("stuck_streak" in r) ? r.stuck_streak : 0, stuck);
             Log.Err(Log.PHASE_LOOP,
-                "[review] " + name + ": " + stuck + " train(s) not moving - line may be broken.");
+                "[review] " + name + ": " + stuck + " train(s) not moving (streak "
+                + r.stuck_streak + "/" + Maintenance.STUCK_RETIRE_LIMIT + ") - line may be broken.");
+            // A persistently deadlocked line earns nothing yet keeps bleeding
+            // running costs; left alone it eventually triggers the 2-year loss
+            // retirement, by which point the trains are too tangled to recall and
+            // get ORPHANED (the old bankruptcy path). Condemn now to recover the
+            // capital while the depots still stand and trains can still be freed.
+            if (Maintenance.ShouldCondemnStuck(r.stuck_streak, Maintenance.STUCK_RETIRE_LIMIT)) {
+                Log.Err(Log.PHASE_LOOP,
+                    "[review] " + name + ": deadlocked " + r.stuck_streak
+                    + " passes; condemning to recover capital.");
+                Maintenance._Condemn(state, r);
+            }
             return;  // don't pile more trains onto a broken line
         }
+        r.stuck_streak = 0;  // healthy this pass
 
         // STATION SIZING BY OUTPUT: the source station's platform count tracks
         // the producer's monthly output (2 base, +1 per 100t over 200). As the
