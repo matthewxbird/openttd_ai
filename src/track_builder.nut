@@ -22,6 +22,9 @@
 
 class TrackBuilder {
 
+    static DEBUG_DUMP = true;   // on a track-build failure, log an ASCII map of
+                                // the region so we can see WHY the path failed
+                                // (water/steep/blocked). Turn off once robust.
     static MAX_CHUNKS = 2000;   // pathfinder chunks per attempt
     static RETRY_CHUNKS = 6000; // chunks for the relaxed-cost retry
     static MAX_REBUILD = 5;     // reroute attempts around un-buildable segments
@@ -125,6 +128,13 @@ class TrackBuilder {
             "out");
         if (out_tiles == null) {
             Log.Err(Log.PHASE_TRACK, "Out track: pathfinding failed both attempts.");
+            // Visual diagnosis: render the terrain between the endpoints so the
+            // failure cause (water, steep gradient, blocked corridor) is legible
+            // in the log without a GUI.
+            if (TrackBuilder.DEBUG_DUMP) {
+                MapDump.Region(src.enter_tile, dst.enter_tile,
+                    [s_out.tip, d_out.tip], "out-fail");
+            }
             // Return the tiles touched SO FAR (lead-in stubs, partial attempts) so
             // the caller can clean them up. Must always include `touched` - a
             // missing key crashes the whole AI on `tracks.touched` access.
@@ -149,6 +159,10 @@ class TrackBuilder {
             "back");
         if (back_tiles == null) {
             Log.Warn(Log.PHASE_TRACK, "Back track: pathfinding failed; single track only.");
+            if (TrackBuilder.DEBUG_DUMP) {
+                MapDump.Region(src.enter_tile, dst.enter_tile,
+                    [s_back.tip, d_back.tip], "back-fail");
+            }
         }
 
         // Return a COPY so the caller's list survives the next build's clear().

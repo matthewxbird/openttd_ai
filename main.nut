@@ -4,6 +4,7 @@
 // Built routes are remembered in `state`; failed pairs go on the blacklist.
 
 require("src/logger.nut");
+require("src/map_dump.nut");
 require("src/money.nut");
 require("src/railtype.nut");
 require("src/scoring.nut");

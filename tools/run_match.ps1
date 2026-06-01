@@ -13,6 +13,7 @@
 param(
     [int]$Years = 30,
     [int]$Seed  = 0,
+    [int]$MapSize = 0,         # log2 of map dimension (7=128 8=256 9=512 10=1024); 0 = leave cfg default
     [string]$Opponent = "",
     [string]$OpponentName = "",
     [switch]$Keep,
@@ -37,6 +38,10 @@ if ($Rebuild -or [string]::IsNullOrEmpty($haveImage)) {
 # [ai_players] and bump the competitor count; done here (not via in-container
 # sed) to avoid shell-quoting pain.
 $cfgText = Get-Content (Join-Path $repo "tools\match\openttd.cfg") -Raw
+if ($MapSize -gt 0) {
+    $cfgText = $cfgText -replace '(?m)^map_x = .*$', "map_x = $MapSize"
+    $cfgText = $cfgText -replace '(?m)^map_y = .*$', "map_y = $MapSize"
+}
 if ($Opponent -ne "") {
     if ($OpponentName -eq "") { throw "-Opponent requires -OpponentName (the AI's in-game GetName)." }
     $cfgText = $cfgText -replace '(?m)^max_no_competitors = .*$', 'max_no_competitors = 2'

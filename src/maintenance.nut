@@ -294,6 +294,7 @@ class Maintenance {
         if (r.trains == null) r.trains = (r.train_id != -1) ? [r.train_id] : [];
         local alive = [];
         local stuck = 0;
+        local stuck_loc = null;   // location of the first stalled train (for the dump)
         local sum_len = 0;
         local shortest = null;
         local shortest_len = 0x7FFFFFFF;
@@ -301,7 +302,10 @@ class Maintenance {
         foreach (v in r.trains) {
             if (!AIVehicle.IsValidVehicle(v)) continue;
             alive.push(v);
-            if (Maintenance._IsStuck(r, v)) stuck++;
+            if (Maintenance._IsStuck(r, v)) {
+                stuck++;
+                if (stuck_loc == null) stuck_loc = AIVehicle.GetLocation(v);
+            }
             local len = AIVehicle.GetLength(v);
             sum_len += len;
             if (len < shortest_len) { shortest_len = len; shortest = v; }
@@ -370,6 +374,13 @@ class Maintenance {
                 Log.Err(Log.PHASE_LOOP,
                     "[review] " + name + ": deadlocked " + r.stuck_streak
                     + " passes; condemning to recover capital.");
+                // Visual diagnosis: render the layout around the stalled train so
+                // the jam (throat crossover, depot junction, opposing train) is
+                // legible in the log.
+                if (stuck_loc != null) {
+                    MapDump.Around(stuck_loc, 10,
+                        [r.src_station.tile, r.dst_station.tile], "stuck");
+                }
                 Maintenance._Condemn(state, r);
             }
             return;  // don't pile more trains onto a broken line

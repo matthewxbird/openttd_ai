@@ -237,6 +237,15 @@ split routes; periodic rebalance. (Route retirement already in.)
 - **Route retirement** (drop chronic losers) — done.
 - **Routing hygiene** — crash fix, game-time probation, free pre-flight
   pathfind, concurrent probation, proximity round-trip detection — done.
+- **Orphan/deadlock recovery** (commit 1c69c27) — solo seeds were going bankrupt
+  (value=1) with NO opponent: a route scaled to MAX_TRAINS deadlocks the
+  reversing terminus, the built-route stuck handler never acted, and the eventual
+  2-year-loss condemn gave up on the deadlocked trains and demolished the depots,
+  ORPHANING still-running trains into a debt spiral. Fix: condemn a built route
+  after 3 stuck passes; never orphan in condemnation (keep depots, reverse stuck
+  trains, sell as they park, finish only when empty). Solo mean 284k -> 314k,
+  bankruptcy eliminated. The reversing-terminus deadlock itself (the throughput
+  ceiling, ~540k) is the next lever.
 
 The above are necessary hygiene but did **not** move the 1v1 result off 0% —
 confirming the verdict: **solvency (Phase 0) + scale (multi-modal, Phases 1–4)**
