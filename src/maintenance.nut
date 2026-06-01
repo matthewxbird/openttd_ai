@@ -398,6 +398,14 @@ class Maintenance {
         }
         r.stuck_streak = 0;  // healthy this pass
 
+        // A single-track line mid-upgrade: drive that state machine to completion
+        // (park all trains -> convert -> redispatch) before any other capacity
+        // action this pass.
+        if (("upgrade_state" in r) && r.upgrade_state != null && r.upgrade_state != "failed") {
+            Maintenance._UpgradeSingleToDouble(r, railtype, name);
+            return;
+        }
+
         // STATION SIZING BY OUTPUT: the source station's platform count tracks
         // the producer's monthly output (2 base, +1 per 100t over 200). As the
         // industry grows we add platforms to match. (AddPlatform self-reverts if
@@ -434,10 +442,107 @@ class Maintenance {
                     + ", trains under-length -> recalling train " + shortest + " to lengthen.");
                 AIVehicle.SendVehicleToDepot(shortest);
                 r.lengthening = shortest;
+            } else if (single && Maintenance._CanUpgrade(r)) {
+                // DEMAND-DRIVEN UPGRADE: a single-track line whose lone (full
+                // length) train can't clear the backlog. Convert to double track
+                // so it can run a second train. The state machine parks all trains
+                // first, so no track/signal edit happens with a train on the line.
+                Log.Info(Log.PHASE_LOOP,
+                    "[review] " + name + ": backlog " + waiting
+                    + " maxed on single track -> upgrading to double (recalling trains).");
+                r.upgrade_state <- "recall";
+                Maintenance._UpgradeSingleToDouble(r, railtype, name);
             } else {
                 Log.Info(Log.PHASE_LOOP,
                     "[review] " + name + ": backlog " + waiting
                     + " but at full capacity (trains and length maxed).");
+            }
+        }
+    }
+
+    // Eligible to attempt a single->double upgrade now: not already failed, has a
+    // stored out path to run parallel to, and affordable (track + a 2nd train).
+    static function _CanUpgrade(r) {
+        if (("upgrade_state" in r) && r.upgrade_state == "failed") return false;
+        if (!("path_out" in r) || r.path_out == null) return false;
+        local cost = Scoring.BuildCostEstimate(r.distance, true)
+                   + Scoring.FleetCostEstimate(1);
+        return Money.Usable() > cost + Money.OPERATING_BUFFER;
+    }
+
+    // DEMAND-DRIVEN single->double upgrade, across health passes. Crucially we
+    // PARK EVERY TRAIN before touching any track or signal, so nothing crashes on
+    // a half-converted layout.
+    //   recall  -> send all trains to a depot; wait until EVERY one is parked.
+    //   convert -> (line now clear) lay the parallel back track + back depot,
+    //              swap two-way PBS for one-way on both tracks, mark double, then
+    //              verify each train's orders and re-send them out.
+    static function _UpgradeSingleToDouble(r, railtype, name) {
+        if (r.upgrade_state == "recall") {
+            local all_parked = true;
+            if (r.trains != null) {
+                foreach (v in r.trains) {
+                    if (!AIVehicle.IsValidVehicle(v)) continue;
+                    if (AIVehicle.GetState(v) == AIVehicle.VS_IN_DEPOT) continue;
+                    all_parked = false;
+                    AIVehicle.SendVehicleToDepot(v);   // (idempotent re-issue is fine)
+                }
+            }
+            if (all_parked) {
+                r.upgrade_state = "convert";
+                Log.Info(Log.PHASE_LOOP, "[upgrade] " + name + ": all trains parked; converting.");
+            }
+            return;
+        }
+
+        if (r.upgrade_state == "convert") {
+            // Pay for the work up front so a partial build can't strand us.
+            Money.EnsureFunds(Scoring.BuildCostEstimate(r.distance, true)
+                            + Scoring.FleetCostEstimate(1) + Money.OPERATING_BUFFER);
+
+            TrackBuilder._touched.clear();
+            local back = TrackBuilder.BuildBackTrack(r.src_station, r.dst_station, r.path_out);
+            if (!("touched" in r) || r.touched == null) r.touched = [];
+            foreach (t in TrackBuilder._touched) r.touched.push(t);
+
+            if (back == null || !TrackBuilder.ValidateAndRepair(back, "back")) {
+                // Couldn't lay a parallel track here; stay single-track and send
+                // the parked train back out so the line keeps running.
+                Log.Warn(Log.PHASE_LOOP, "[upgrade] " + name
+                    + ": back track unbuildable; staying single-track.");
+                r.upgrade_state = "failed";
+                Maintenance._RedispatchParked(r);
+                return;
+            }
+            r.path_back = back;
+            local d_back = DepotBuilder.New(r.path_back, "back");
+            if (d_back != null) foreach (t in d_back) r.depot_tiles.push(t);
+
+            // Two-way PBS (single, reversing) -> one-way PBS on BOTH tracks
+            // (double: out flows srcâ†’dst, back flows dstâ†’src). The crossover at
+            // each throat keeps its own two-way PBS (the train still reverses in
+            // the platform), so we only re-signal the open mainlines.
+            Signals.RemoveAlong(r.path_out, "out");
+            Signals.PlaceAlong(r.path_out,  true, "out");
+            Signals.PlaceAlong(r.path_back, true, "back");
+            r.single_track = false;
+
+            // Line is now double track and clear: re-check each parked train's
+            // orders and send them back out. The capacity pass adds the 2nd train.
+            Maintenance._RedispatchParked(r);
+            r.upgrade_state = null;
+            Log.Info(Log.PHASE_LOOP, "[upgrade] " + name
+                + ": now DOUBLE TRACK; trains redispatched, capacity pass will add a 2nd.");
+            return;
+        }
+    }
+
+    // Verify orders on every parked train of a route and send it back out.
+    static function _RedispatchParked(r) {
+        if (r.trains == null) return;
+        foreach (v in r.trains) {
+            if (AIVehicle.IsValidVehicle(v)) {
+                Trains.EnsureOrders(v, r.src_station.tile, r.dst_station.tile);
             }
         }
     }

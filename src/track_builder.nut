@@ -158,12 +158,29 @@ class TrackBuilder {
         }
 
         // --- Pass 2: back track (right platform -> right platform) ---
-        // The out-track tiles are passed as the guide: they (a) seed the
-        // parallel side-bias so the back track hugs ONE side (left-hand
-        // running) and (b) are used as hard ignored_tiles so the back track
-        // can never sit on an out-track tile - guaranteeing the two tracks
-        // never cross.
-        Log.Info(Log.PHASE_TRACK, "Pass 2 (back): straight lead-ins + pathfind dstâ†’src");
+        local back_tiles = TrackBuilder.BuildBackTrack(src, dst, out_tiles);
+
+        // Return a COPY so the caller's list survives the next build's clear().
+        local touched = [];
+        foreach (t in TrackBuilder._touched) touched.push(t);
+        return { out = out_tiles, back = back_tiles, touched = touched };
+    }
+
+    // Build the BACK track of a route whose out track already exists, parallel
+    // to it. Used both by the double-track first build (pass 2) and by the
+    // demand-driven single->double UPGRADE. The out-track tiles guide it: they
+    // (a) seed the parallel side-bias so the back track hugs ONE side (left-hand
+    // running) and (b) are hard ignored_tiles so the back track can never sit on
+    // an out-track tile - guaranteeing the two never cross. Returns the back
+    // tiles or null. Appends to TrackBuilder._touched (caller collects/clears it).
+    static function BuildBackTrack(src, dst, out_tiles) {
+        local src_h = AITile.GetMaxHeight(src.enter_tile);
+        local dst_h = AITile.GetMaxHeight(dst.enter_tile);
+        local global_dir = TrackBuilder._DominantStep(src.enter_tile, dst.enter_tile);
+        local s_pf = TrackBuilder._PickPlatforms(src, global_dir);
+        local d_pf = TrackBuilder._PickPlatforms(dst, global_dir);
+
+        Log.Info(Log.PHASE_TRACK, "Back track: straight lead-ins + pathfind dstâ†’src");
         local s_back = TrackBuilder._BuildLeadIn(s_pf.back.enter, s_pf.back.front, src_h);
         local d_back = TrackBuilder._BuildLeadIn(d_pf.back.enter, d_pf.back.front, dst_h);
         local back_tiles = TrackBuilder._RunPathfinder(
@@ -172,17 +189,13 @@ class TrackBuilder {
             out_tiles,  // guide + no-cross set
             "back");
         if (back_tiles == null) {
-            Log.Warn(Log.PHASE_TRACK, "Back track: pathfinding failed; single track only.");
+            Log.Warn(Log.PHASE_TRACK, "Back track: pathfinding failed.");
             if (TrackBuilder.DEBUG_DUMP) {
                 MapDump.Region(src.enter_tile, dst.enter_tile,
                     [s_back.tip, d_back.tip], "back-fail");
             }
         }
-
-        // Return a COPY so the caller's list survives the next build's clear().
-        local touched = [];
-        foreach (t in TrackBuilder._touched) touched.push(t);
-        return { out = out_tiles, back = back_tiles, touched = touched };
+        return back_tiles;
     }
 
     // Decide which of a station's two platforms the OUT track uses so the out
