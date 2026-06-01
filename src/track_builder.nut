@@ -509,7 +509,8 @@ class TrackBuilder {
     // a bridge or tunnel spanning exactly from prev to cur. Returns the index of
     // the FIRST broken segment, or -1 if the whole path is intact.
     static function FindGap(tiles) {
-        if (tiles == null || tiles.len() < 2) return 0;
+        if (tiles == null) return -1;   // no path => nothing broken (IsConnected safe)
+        if (tiles.len() < 2) return 0;
         for (local i = 1; i < tiles.len(); i++) {
             local prev = tiles[i - 1];
             local cur  = tiles[i];
@@ -564,6 +565,9 @@ class TrackBuilder {
     // ERR_ALREADY_BUILT, missing ones get built). Returns true if the path is
     // intact afterwards.
     static function ValidateAndRepair(tiles, label) {
+        // Null path (e.g. a single-track route has no back track): nothing to
+        // validate. Returning true here also makes IsConnected(null) safe.
+        if (tiles == null) return true;
         // Global 90-degree-turn guard: should never fire (the pathfinder bans
         // them) - if it does, log loudly so the source can be found and fixed.
         local bad = TrackBuilder.Find90Turn(tiles);

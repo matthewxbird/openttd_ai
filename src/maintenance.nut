@@ -350,7 +350,9 @@ class Maintenance {
 
         // Periodic INTEGRITY check: the track should still be continuous end to
         // end. Build glitches, or later damage, can leave a gap. Repair if we
-        // can; if the line is broken and unrepairable, condemn it.
+        // can; if the line is broken and unrepairable, condemn it. (A single-track
+        // route has no back track - path_back is null - which IsConnected and
+        // ValidateAndRepair now treat as "nothing to check".)
         if (!TrackBuilder.IsConnected(r.path_out) || !TrackBuilder.IsConnected(r.path_back)) {
             local ro = TrackBuilder.ValidateAndRepair(r.path_out,  "out");
             local rb = TrackBuilder.ValidateAndRepair(r.path_back, "back");
