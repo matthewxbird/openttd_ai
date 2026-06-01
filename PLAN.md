@@ -1,259 +1,253 @@
 # MvB AI — Profitability & Competitiveness Plan
 
 Goal: make MvB AI a top-tier, aggressively profitable competitor that out-earns
-and out-expands rival companies on the same map. This plan is derived from
-studying how the strongest open-source NoAI competitors win, and lays out the
-gaps in our current design plus a phased roadmap to close them.
-
-The headline weaknesses, in order of competitive impact:
-
-1. **Single transport mode (rail only).** We never use road, ship, or air.
-   We forfeit the fastest early-money plays and can't serve routes where rail
-   is uneconomic.
-2. **Static, crude profit scoring.** We rank on `AnnualProfit × distance` using
-   hard-coded per-tile cost constants. We never simulate the *actual* engine
-   set, capacity, running cost, or build time of a candidate before committing.
-3. **No adaptive strategy.** We always optimise the same thing. Strong AIs
-   switch their objective by game phase (grow capital → grow throughput → grow
-   per-vehicle yield as the vehicle cap approaches).
-4. **Shallow engine selection.** "Best speed×power/cost" loco + "highest
-   capacity" wagon. No weight/slope/acceleration model, no railtype comparison,
-   no proper double-heading economics.
-5. **No feeder / transfer networks, no backhaul.** Every route is one isolated
-   producer→accepter pair with empty return legs.
-6. **No town authority management.** We never build statues / fund local
-   actions to lift station ratings, so we leave cargo (and money) on the table.
-7. **Junction templating not wired into routing.** We can't share corridors, so
-   the map fills with redundant parallel lines and we hit space limits.
+and out-expands rival companies on the same map — and, critically, **stays
+solvent under competition**. This plan is grounded in (a) a measured honest
+verdict from our own headless benchmark and (b) a deep study of how a leading
+multi-modal NoAI wins. We are **learning from it, not copying it** — several
+places below note where our design should be *cleaner / more robust* than the
+reference.
 
 ---
 
-## How the strongest competitors are built (reference findings)
+## Honest verdict (measured, not guessed)
 
-Studied a mature multi-modal NoAI. Key architecture:
+Our parallel benchmark (`tools/run_bench.ps1`, 5 seeds, 12 game-years, 1v1) gave:
 
-- **Adaptive profit model.** Each turn it picks ONE objective:
-  - `roiBase` — when cash-poor or during inflation: maximise return on
-    investment (grow the bank fastest).
-  - `buildingTimeBase` — when there's lots of vehicle headroom: maximise
-    income per unit of *building time* (throughput; build as fast as possible).
-  - `vehicleProfitBase` — when near the vehicle cap: maximise income per
-    *vehicle* (squeeze the most out of each scarce vehicle slot).
-  A single `GetValue(roi, incomePerBuildingTime, incomePerVehicle)` selector
-  feeds the candidate ranking, so the *same* candidate list is re-ranked for the
-  current phase.
+```
+WIN-RATE vs reference: 0/5 = 0%
+seed 1  LOSS  reference=54.4M  MvB=52.6k
+seed 2  LOSS  reference=47.8M  MvB=1
+seed 3  LOSS  reference=54.0M  MvB=1
+seed 4  LOSS  reference=56.9M  MvB=1
+seed 5  LOSS  reference=30.8M  MvB=74.4k
+```
 
-- **A real Estimator.** Before building anything it computes, per candidate:
-  income, running cost, building cost, building time (a function of distance and
-  infrastructure), days per trip, vehicles-per-route, capacity, and from those
-  derives ROI / income-per-building-time / income-per-vehicle. It simulates the
-  actual engine set (loco+wagon combo, count, refit, double-head) using live
-  `AIEngine` data, weight, slopes, and acceleration — not constants.
+Two facts dominate:
 
-- **Massive candidate generation.** It enumerates cargo×place pairs across the
-  whole map (capped by a time budget), PLUS transfer candidates, meet-place
-  candidates, and return-route pairs, then ranks the lot and builds top-down
-  until money or the time budget runs out.
+1. **We bankrupt under competition.** On 3/5 seeds we ended at company value = 1
+   (broke), even though the *same seeds solo* reached ~0.5–1.1M. A competitor
+   grabbing prime industries/space first, plus our own money mismanagement,
+   tips us into a debt spiral. **A bankrupt company cannot win — solvency is
+   prerequisite #1, ahead of everything else.**
+2. **Even solvent, we earn ~1000× too little.** Best case ~74k vs ~30–57M. That
+   gap is network *scale*: one transport mode, thin single-pair routes, empty
+   return legs, no early-cash play, slow expansion.
 
-- **Feeder / transfer / backhaul networks.** Routes feed each other (a short
-  road feeder into a rail trunk), and return legs carry cargo back
-  (bidirectional routes) instead of running empty.
+### Root causes (ranked by impact on the result)
 
-- **Multi-modal.** Rail, road, tram, ship, aircraft — picks the cheapest
-  profitable mode per candidate. Aircraft give explosive early cash; road gives
-  cheap feeders and short hauls; ships handle water gaps.
-
-- **Capacity / overflow management.** Detects overflowing stations and
-  under-served demand, then adds vehicles, lengthens trains, or builds
-  additional producing/accepting routes to balance the network.
-
-- **Town authority management.** Builds statues and funds local actions to lift
-  ratings where it matters.
+1. **No money discipline.** We `TakeMaxLoan()` at boot and never give it back,
+   so we bleed interest from day one; we never contract when cash-stressed; we
+   commit to builds without reasoning about total spending power. → bankruptcy.
+2. **Single mode (rail) + fragile builder.** No air (the fastest early cash),
+   no road (cheap feeders/short hauls); our double-track builder fails on hard
+   terrain and wastes money.
+3. **Per-pair, rail-only scoring.** We estimate each producer→accepter pair in
+   isolation; we don't compare modes, and we don't rank on a fast global value
+   surface, so we pick weak targets and expand slowly.
+4. **Thin network.** No backhaul (empty return legs), no demand-driven feeder /
+   supply routes to grow chain throughput, no future-production sizing.
 
 ---
 
-## Current MvB AI architecture (baseline)
+## What we've already built (assets to keep)
 
-- `main.nut` loop: maintenance tick → `CargoScan.Scan` → chain-boost → rank →
-  build best affordable candidate → autoreplace → repay loan → sleep. Gated on
-  probation (verify a line earns before building the next) and capacity (scale
-  existing before building new).
-- `scoring.nut`: `AnnualProfit` from production×payment, minus amortised
-  `BuildCostEstimate` (constant per-tile costs); `DistanceWeighted`,
-  `ChainBoost`, `ClusterBoost`.
-- `cargo_scan.nut`: scores producer→accepter (+town accepter) pairs;
-  `MIN_DISTANCE=40`.
-- `trains.nut`: `PickEngine` (speed×power/cost), `PickWagon` (capacity),
-  `PickNumTrains` (production/120), double-head when underpowered.
-- `track_builder.nut` + `rail_pf.nut`: custom A* double-track builder.
-- `maintenance.nut`: probation/condemn lifecycle, capacity scaling.
-- `junction_builder.nut`: scan→template→rotate (NOT wired into routing yet).
-- Rail only. Picks one railtype at boot. No transfers, no backhaul, no towns.
+- **Headless measurement loop** — `tools/openttd.Dockerfile` (OpenTTD 15.3,
+  null driver), `tools/run_match.ps1`, and the parallel `tools/run_bench.ps1`
+  (win-rate across seeds). This is a genuine edge: we can tune *with data*.
+- **Pure-math unit tests** (`tools/run_tests.ps1`, dockerized Squirrel, 68
+  passing) for scoring / estimator / strategy / engine / retirement decisions.
+- **Strict route lifecycle** — probation → built, teardown + blacklist, protect
+  shared stations, free pre-flight pathfind before spending.
+- **Estimator** (`src/estimator.nut`) — pre-build fleet simulation → annual
+  profit / ROI / income-per-vehicle / income-per-building-time.
+- **Adaptive profit model** (`src/strategy.nut`) — roi / buildtime / pervehicle.
+- **Engine economics** — power-to-weight-aware loco choice.
+- **Town authority** (statues) and **route retirement** (drop chronic losers).
 
----
-
-## Roadmap
-
-Phased so each phase is independently shippable and measurably improves results,
-ordered by **expected competitive gain ÷ implementation risk**. Every phase must
-keep the existing strict-validation lifecycle (probation, teardown+blacklist of
-broken lines, protect shared stations).
-
-### Phase 1 — Estimator: simulate before building *(highest leverage, low risk)* — IMPLEMENTED (pending in-game verification)
-
-Status: `src/estimator.nut` added (`EngineSet` fleet sim + pure `Compute`
-metrics); wired into `cargo_scan` ranking; metrics logged in the top-N output;
-`tests/test_estimator.nut` added. Needs the unit suite run (`sq.exe`) and in-game
-confirmation that logged estimates track realised profit (~30%), then tune
-`TILES_PER_DAY_PER_KMH` / `RAIL_DIST_FACTOR` / `TERMINAL_DAYS`.
-
-
-Replace constant-based scoring with a real pre-build estimate. This makes every
-later decision (which route, which mode, how many vehicles) sharply better.
-
-- New `src/estimator.nut` computing, for a `(cargo, src, dst, distance,
-  production)` candidate:
-  - **Engine set**: reuse/extend `Trains.PickEngine`/`PickWagon` to return a
-    full set — loco(s), wagon, wagon count to fill the platform, double-head
-    decision — and its real capacity from `AIEngine.GetCapacity`.
-  - **Trip days**: `distance / effectiveSpeed` (effective speed derated for
-    acceleration on the route's slopes; start with a flat derate, refine later).
-  - **Income/trip**: `capacity × AICargo.GetCargoIncome(cargo, distance, days)`.
-  - **Running cost/year**: `Σ AIEngine.GetRunningCost` across the fleet.
-  - **Build cost**: keep `BuildCostEstimate` but calibrate constants against
-    `AIRail.GetBuildCost` / `AIBridge` / station / depot real costs.
-  - **Vehicles per route**: `ceil(production / trips-per-month-per-train)`.
-  - Derive **roi**, **incomePerBuildingTime**, **incomePerVehicle**.
-- Calibrate the cost constants in `scoring.nut` against live `GetBuildCost`
-  calls at boot (store inflated values) instead of magic numbers.
-- Tests in `tests/` (pure-math parts) the same way `scoring` is tested.
-
-**Done when:** ranking uses estimator output; logged estimates roughly match
-realised profit on built routes (within ~30%).
-
-### Phase 2 — Adaptive profit model *(high leverage, low risk)* — IMPLEMENTED (pending in-game verification)
-
-Status: `src/strategy.nut` added. `Strategy.Decide(cash, vehicles, cap)` picks
-`roi` / `buildtime` / `pervehicle` each tick (poor→roi, headroom→buildtime,
-near-cap→pervehicle); `Strategy.Apply` re-scores every candidate by the chosen
-estimator metric, keeping cluster + distance weighting consistent. Wired into
-the main loop before ranking, mode logged per tick. `tests/test_strategy.nut`
-covers mode thresholds, metric selection, and sign-preserving re-scoring.
-
-Remaining: run the unit suite; confirm in-game that the logged mode switches as
-cash/vehicle-count grow and that early routes are high-ROI. Tune `RICH_CASH`
-and the headroom/busy fractions.
-
-### Phase 3 — Deeper engine economics + railtype upgrades *(medium)* — PARTIALLY IMPLEMENTED
-
-Status: `Trains.PickEngine` now ranks by `Trains.EngineValue` = effective
-speed (rated, capped by power/weight sustainable speed) ÷ running cost, instead
-of `speed*power/cost`. Favours fast, adequately-powered, cheap-to-run locos;
-double-heading still covers raw power shortfalls. Pure + unit-tested
-(`tests/test_trains.nut`). STILL TODO: per-railtype route comparison and
-in-service railtype upgrades; refit-aware wagon choice.
-
-- Improve `PickEngine`: model train **weight** (loco + loaded wagons), use
-  `AIEngine.GetPower` vs weight on the route's **max slope** to predict real
-  speed; pick the loco that maximises *income per running cost* at that speed,
-  not raw speed×power.
-- Compare **railtypes**: estimate the best route on each available railtype
-  (faster track can pay for itself) and pick the winner; upgrade existing lines
-  when a markedly better railtype unlocks and ROI justifies it.
-- Refit-aware wagon choice; articulated/multiple-unit handling.
-
-**Done when:** chosen engines beat the current heuristic on income/vehicle in
-side-by-side route logs.
-
-### Phase 4 — Network effects: backhaul + feeders + more candidates *(high gain, medium risk)*
-
-- **Backhaul / bidirectional**: when src and dst each produce a cargo the other
-  accepts, run loaded both ways (huge income/vehicle gain). Detect via
-  `Place`/industry cargo maps; extend `Route` + ordering to load at both ends.
-- **More candidates**: widen `CargoScan` to enumerate more cargo×place pairs
-  under a per-tick time budget (resume-style generator), so we always have a
-  deep ranked list rather than a handful.
-- **Feeders (after road, Phase 6)**: short feeders gathering cargo into a trunk
-  station. Defer the build until road exists; design the route model now to
-  allow transfer orders (`OF_TRANSFER`).
-
-**Done when:** bidirectional routes appear where geography allows and measurably
-raise income per vehicle; candidate list depth > a few dozen.
-
-### Phase 5 — Town authority management *(medium gain, low risk)* — IMPLEMENTED
-
-Status: `src/town_authority.nut` added. `TownAuthority.Tick(state)` runs each
-loop: for every route delivering into a town, build a **statue** there once when
-affordable (permanent local-rating boost -> station accepts more cargo). Pure
-decision `ShouldBuildStatue` is unit-tested (`tests/test_town_authority.nut`).
-STILL TODO: fund other local actions; avoid dumping into low-rating towns.
-
-- For town-accepting routes (goods/food/pax/mail), build a **statue** and **fund
-  local actions** when affordable to lift the station rating and accepted
-  fraction. (`AITown.PerformTownAction`.)
-- Prefer towns where our rating is already decent; avoid dumping into low-rating
-  towns.
-
-**Done when:** town delivery routes show higher accepted-cargo fractions after
-the authority actions.
-
-### Phase 6 — Second transport mode: ROAD *(high gain, higher risk)*
-
-Road is the cheapest second mode and unlocks feeders + short hauls rail can't
-serve economically. Biggest single expansion of where we can make money.
-
-- `src/road/` builder: road pathfinder (or reuse A* with road cost), bus/truck
-  stations, drive-through stops, depots.
-- Extend the estimator + candidate gen to consider `VT_ROAD` per candidate and
-  pick the cheaper profitable mode.
-- Feeders into rail trunks (ties off Phase 4).
-
-**Done when:** the AI builds profitable road routes and road feeders, and chooses
-road over rail when it's cheaper for short/low-volume cargo.
-
-### Phase 7 — AIR (and later SHIP) *(explosive early cash, contained risk)*
-
-- Aircraft: city-pair pax/mail. Very high early ROI, minimal infrastructure —
-  ideal `roiBase`-phase play. Airport placement + estimator support for `VT_AIR`.
-- Ships last (most situational): water-gap cargo, docks, buoys.
-
-**Done when:** in the opening years the AI seeds a couple of high-ROI air routes
-that fund rapid rail/road expansion.
-
-### Phase 8 — Junction integration & corridor sharing *(efficiency / late-game space)*
-
-- Wire `junction_builder` templates into routing: when a new route would parallel
-  an existing corridor, tie into it with a validated stamped junction (test-mode
-  first, fall back to grade-separated crossing), keeping the
-  `JUNCTION_STATION_GUARD` ban near stations.
-- Station templates (the deferred `docs/JUNCTIONS_TODO.md` item) for clean,
-  regression-free throats.
-
-**Done when:** routes share trunk corridors instead of laying redundant parallel
-track, and the map stays buildable late game.
-
-### Phase 9 — Capacity / overflow tuning *(continuous)*
-
-- Sharpen `maintenance.nut`: detect station overflow (cargo waiting trending up)
-  and under-served demand; respond with +trains / longer trains / split routes.
-- Periodic network rebalance pass; retire chronically unprofitable routes.
+These stay. The plan below adds the missing pillars on top of them.
 
 ---
 
-## Sequencing rationale
+## How a top-tier multi-modal NoAI wins (deep study findings)
 
-- **Phases 1–2 first**: they multiply the value of *everything* else for little
-  risk — better estimates and the right objective per phase. Do these before
-  adding modes, or we'd just expand a poorly-ranked search.
-- **Phase 3–5**: deepen rail economics and squeeze existing routes.
-- **Phases 6–7**: add modes — the largest source of new profitable
-  opportunities, but the most build effort, so they come after the brain is good.
-- **Phases 8–9**: efficiency and late-game scaling.
+Mechanisms observed in the reference, with the *principle* we take from each:
 
-## Test / validation discipline
+1. **Usable-money accounting + borrow-on-demand.**
+   `usable = bankBalance + (maxLoan − currentLoan)` — it reasons about total
+   spending power, not just cash. It borrows the *minimum* needed for the next
+   build (`SetMinimumLoanAmount(loan + need − balance + buffer)`) and repays to
+   zero whenever the balance allows. → never pays idle interest.
+   **Principle:** model usable money; borrow minimally, just-in-time; repay fast.
 
-- Pure-math additions get `sq.exe` unit tests in `tests/` (as `scoring` does).
-- Every phase verified in-game with heavy logging before moving on.
-- Keep the strict route lifecycle: probation → built, or teardown + blacklist;
-  never demolish a station serving another line.
+2. **Emergency contraction.** When usable money goes negative / cash is tight,
+   it *sells vehicles idle in depots, stops unprofitable vehicles, and shrinks
+   road/air fleets* before they sink the company.
+   **Principle:** under stress, shed losers — don't ride them into bankruptcy.
+
+3. **Disciplined build pacing.** It builds candidates top-down by value, but
+   before each build checks `buildingCost + vehiclePrice ≤ usable`, waits for
+   funds if short, and *stops the whole pass* when the next candidate's value
+   drops below a threshold (or money/time runs out).
+   **Principle:** never overcommit; spend only when the next thing clears a value
+   bar and is affordable.
+
+4. **Precomputed value surface → global multi-modal ranking.** For every cargo it
+   precomputes `Estimate(vehicleType, cargo, distanceBucket, stdProduction)` →
+   a `value`, across **all modes and distance buckets**. Candidates are then
+   matched to real places and ranked globally (roi phase: by value; throughput
+   phase: by value × production), choosing the **best mode per cargo/distance**.
+   **Principle:** rank the whole map at once on a fast value surface; let the
+   mode fall out of the economics, not a hard-coded "rail only".
+
+5. **Multi-modal, mode chosen by economics.** Air (pax/mail) = explosive early
+   ROI with tiny infrastructure and *no track to misbuild*; road = cheap short
+   hauls + feeders; rail = high-volume trunks; water = gaps. Each gated by
+   per-mode feasibility (airport noise/size, coast, road reuse).
+   **Principle:** aircraft first for early capital; then road feeders + rail
+   trunks; pick whichever mode wins the estimate for each candidate.
+
+6. **Native bidirectional / backhaul.** When both endpoints produce *and* accept
+   the cargo, it runs the route loaded both ways.
+   **Principle:** detect mutual cargo and load the return leg.
+
+7. **Demand-driven chain building.** It actively builds *supply/feeder* routes to
+   satisfy a processing industry's input demand, lifting the whole chain's
+   throughput (and the volume we deliver).
+   **Principle:** grow production by feeding the industries we already serve.
+
+8. **Future/expected production sizing.** It sizes routes for *expected* (often
+   growing) production, not just last month's figure.
+   **Principle:** build for where the industry is going.
+
+---
+
+## Where MvB AI will be *better* (not a clone)
+
+- **Data-driven tuning.** Our `run_bench` win-rate harness lets us tune every
+  constant against real outcomes across seeds — measure, don't guess. The
+  reference hand-tunes opaque magic numbers; we'll regression-test ours.
+- **Test-backed pure economics.** Money discipline, value ranking, and emergency
+  rules are pure functions with unit tests — fewer silent regressions.
+- **Stricter pre-commit validation.** We already pre-flight pathfinding and run
+  a strict probation lifecycle; extending the same "validate before you spend"
+  rule to *money* (Phase 0) should waste even less than the reference.
+- **Simplicity where it pays.** We won't chase every mode/mod at once; we'll add
+  the highest-EV modes (air, road) cleanly and keep the rail core robust.
+
+---
+
+## Roadmap (re-prioritized by the measured verdict)
+
+Ordered by **expected competitive gain ÷ risk**, with *solvency first* because a
+bankrupt company scores zero. Each phase ships independently, keeps the strict
+route lifecycle, gets unit tests for pure parts, and is verified with
+`run_bench` before moving on.
+
+### Phase 0 — Solvency & money discipline *(NEW — top priority, low risk)*
+
+The single change most likely to move us off 0%: stop bankrupting ourselves.
+
+- **Usable-money model:** `Usable = cash + (maxLoan − loan)`. Replace
+  `Money.HasFunds(cash ≥ x)` with affordability against *usable*.
+- **Borrow on demand, repay fast:** drop `TakeMaxLoan()` at boot. Borrow the
+  minimum needed for the next build just-in-time; repay toward zero whenever
+  `cash − buffer > loan`.
+- **Emergency contraction:** when usable < 0 (or cash < buffer), sell trains
+  idle in depots and condemn the worst-performing route until solvent.
+  (Builds on the existing retirement logic.)
+- **Pre-commit affordability:** before any build, require
+  `buildCost + initialFleetCost ≤ usable`; otherwise skip to a cheaper candidate
+  or wait — never start a build we can't finish.
+
+**Done when:** no seed in a 1v1 `run_bench` ends bankrupt (value = 1); we end
+solvent on all seeds even when out-expanded. *(This alone won't win, but it
+turns guaranteed losses into live games.)*
+
+### Phase 1 — Value surface + global multi-modal ranking *(high leverage)*
+
+- Precompute `Estimator.Estimate(mode, cargo, distanceBucket, stdProduction)` →
+  value, for each cargo across distance buckets (extend the estimator to all
+  modes as they land). Cache per scan.
+- Rank ALL candidates globally on that surface (roi phase: value; buildtime:
+  value × expected production), choosing the best *mode* per cargo/distance.
+- Replace the current per-pair rail-only scan path with this surface lookup.
+
+**Done when:** the scan ranks dozens of cross-mode candidates by value in one
+pass; logged top-N shows the chosen mode per candidate.
+
+### Phase 2 — Aircraft (early-cash engine) *(explosive ROI, low rail-risk)*
+
+Air sidesteps our fragile track builder entirely — 2 airports + planes + orders.
+
+- `src/air.nut`: airport siting (town pax/mail), plane selection, orders; reuse
+  `Estimator.Compute` for the economics (it's mode-agnostic).
+- Add `VT_AIR` candidates to the value surface; an air route lifecycle that
+  skips rail-only maintenance.
+
+**Done when:** in the opening years the AI seeds a few high-ROI air routes that
+fund rapid expansion; `run_bench` company value in year ~5 jumps materially.
+
+### Phase 3 — Road mode + feeders *(unlocks short hauls + network density)*
+
+- `src/road/`: road pathfinder, drive-through stops, depots; `VT_ROAD` in the
+  value surface; choose road when it beats rail for short/low-volume cargo.
+- Feeders that transfer into rail/air trunks (`OF_TRANSFER`).
+
+**Done when:** the AI builds profitable road routes and road→rail feeders, and
+picks road when it's the cheaper profitable mode.
+
+### Phase 4 — Network effects: backhaul + demand-driven chains *(high gain)*
+
+- **Backhaul:** detect endpoints that mutually produce+accept a cargo; load both
+  legs. Start with same-cargo (no refit), then refit-aware where wagons allow.
+- **Demand-driven supply routes:** for a processing industry we serve, build
+  feeder routes to meet its *input* demand → grows chain throughput and our
+  delivered volume. Use expected/future production for sizing.
+
+**Done when:** bidirectional routes appear where geography allows and chain
+output (hence our income) grows over a match.
+
+### Phase 5 — Town authority (DONE) & growth
+
+Statues implemented. TODO: fund growth actions where it lifts accepted cargo;
+avoid low-rating towns.
+
+### Phase 6 — Junction integration & corridor sharing *(late-game space)*
+
+Wire `junction_builder` templates into routing (test-mode validated, fall back
+to grade-separated crossing; banned near stations) so routes share trunks
+instead of laying redundant parallel track. Station templates for clean throats.
+
+### Phase 7 — Continuous capacity / overflow tuning
+
+Sharpen `maintenance.nut`: overflow-trend detection → +trains / longer trains /
+split routes; periodic rebalance. (Route retirement already in.)
+
+---
+
+## Implemented so far (status)
+
+- **Estimator** (Phase-1 fleet sim) — done; feeds ranking.
+- **Adaptive profit model** (`strategy.nut`) — done; ROI mode drops distance
+  weighting (turned a bankrupt solo seed into ~0.5M).
+- **Engine economics** — power-to-weight loco metric — done (partial Phase 3 of
+  the old plan; railtype upgrades still TODO).
+- **Town authority** (statues) — done.
+- **Route retirement** (drop chronic losers) — done.
+- **Routing hygiene** — crash fix, game-time probation, free pre-flight
+  pathfind, concurrent probation, proximity round-trip detection — done.
+
+The above are necessary hygiene but did **not** move the 1v1 result off 0% —
+confirming the verdict: **solvency (Phase 0) + scale (multi-modal, Phases 1–4)**
+are the levers that matter next.
+
+---
+
+## Validation discipline
+
+- Pure-math additions get dockerized `sq.exe` unit tests (`tools/run_tests.ps1`).
+- Every phase measured with `tools/run_bench.ps1` (parallel, multi-seed) — track
+  **1v1 win-rate** and per-seed solvency, not just solo value.
+- Keep the strict route lifecycle; never demolish a station serving another line.
 - Commit module-by-module, push after each.
