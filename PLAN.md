@@ -246,6 +246,17 @@ split routes; periodic rebalance. (Route retirement already in.)
   trains, sell as they park, finish only when empty). Solo mean 284k -> 314k,
   bankruptcy eliminated. The reversing-terminus deadlock itself (the throughput
   ceiling, ~540k) is the next lever.
+- **Multi-size benchmarking + map-dump diagnostics** (commit 4db1705) -
+  run_bench `-MapSizes`, run_match `-MapSize`; src/map_dump.nut renders the
+  terrain/route layout as an ASCII grid in the log on track-build failure and
+  on stuck-train condemn (headless can't screenshot). Exposed the back-track
+  failure leak below.
+- **Single-track salvage** (commit b36b1f6) - when only the back track fails to
+  build (parallel track can't get a 2nd water/terrain crossing), run the route
+  on the out track alone with ONE reversing train (two-way PBS, capped at 1
+  train) instead of abandoning the built out track + stations. BIGGEST lever so
+  far: solo mean @256 jumped to ~817k with TWO seeds over 1,000,000; 128x128
+  bankruptcies eliminated. Overall mean (128+256) ~572k.
 
 The above are necessary hygiene but did **not** move the 1v1 result off 0% —
 confirming the verdict: **solvency (Phase 0) + scale (multi-modal, Phases 1–4)**
