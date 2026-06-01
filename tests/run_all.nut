@@ -16,6 +16,7 @@ dofile("src/candidates.nut");
 dofile("src/money.nut");
 dofile("src/town_authority.nut");
 dofile("src/trains.nut");
+dofile("src/maintenance.nut");
 
 // Test files.
 dofile("tests/test_scoring.nut");
@@ -25,6 +26,7 @@ dofile("tests/test_candidates.nut");
 dofile("tests/test_money.nut");
 dofile("tests/test_town_authority.nut");
 dofile("tests/test_trains.nut");
+dofile("tests/test_maintenance.nut");
 
 print("\n----\n");
 print("passed: " + Tests.passed + "\n");

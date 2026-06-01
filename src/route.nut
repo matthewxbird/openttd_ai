@@ -30,6 +30,8 @@ class Route {
             reached_src     = false,  // ...and then back at the source (full loop)
             probation_checks = 0,     // (legacy) health passes spent waiting for proof
             probation_date   = null,  // game date probation began (deadline clock)
+            loss_streak      = 0,     // consecutive FULL YEARS this built route lost money
+            last_profit_year = 0,     // game year we last sampled annual profit
             condemn_checks   = 0,     // health passes spent tearing the line down
             lengthening      = null,  // train currently recalled to grow longer
         };

@@ -24,6 +24,17 @@ class Maintenance {
     static MAX_TRAINS        = 4;    // cap trains per route
     static MIN_CASH_FOR_TRAIN = 40000;  // don't add a train if cash is tight
     static CONDEMN_LIMIT     = 12;   // health passes to recall trains + tear down
+    static RETIRE_LOSS_YEARS = 2;    // consecutive losing years before retiring a built route
+
+    // -- PURE helpers (unit-tested) ---------------------------------------
+    // Next consecutive-losing-years streak given last year's route profit.
+    static function NextLossStreak(streak, profit_last_year) {
+        return (profit_last_year < 0) ? streak + 1 : 0;
+    }
+    // Retire a built route that has lost money this many years running.
+    static function ShouldRetire(loss_streak, limit) {
+        return loss_streak >= limit;
+    }
     // Probation is bounded by GAME TIME, not health-pass count: a long route with
     // a full-load train can take MONTHS to complete its first round trip (fill at
     // source, then travel), far longer than a fixed number of quick health passes.
@@ -287,6 +298,26 @@ class Maintenance {
             + " rating(src/dst)=" + src_rating + "/" + dst_rating
             + " len(avg/short)=" + avg_len + "/" + shortest_len + " of " + plat
             + " engine='" + engine_name + "'");
+
+        // PROFITABILITY RETIREMENT: once per game-year, sample the route's
+        // profit over the PRIOR full year (sum across its trains). A line that
+        // loses money RETIRE_LOSS_YEARS years running is a capital drain - retire
+        // it so the money funds better routes. (Sampling per-year, not per-tick,
+        // and using last YEAR's figure, avoids reacting to a just-scaled line.)
+        local year = AIDate.GetYear(AIDate.GetCurrentDate());
+        if (year > r.last_profit_year) {
+            r.last_profit_year = year;
+            local route_profit = 0;
+            foreach (v in alive) route_profit += AIVehicle.GetProfitLastYear(v);
+            r.loss_streak = Maintenance.NextLossStreak(r.loss_streak, route_profit);
+            if (Maintenance.ShouldRetire(r.loss_streak, Maintenance.RETIRE_LOSS_YEARS)) {
+                Log.Err(Log.PHASE_LOOP,
+                    "[review] " + name + ": lost money " + r.loss_streak
+                    + " years running (last yr " + route_profit + "); retiring.");
+                Maintenance._Condemn(state, r);
+                return;
+            }
+        }
 
         // Periodic INTEGRITY check: the track should still be continuous end to
         // end. Build glitches, or later damage, can leave a gap. Repair if we
