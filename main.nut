@@ -23,6 +23,7 @@ require("src/route.nut");
 require("src/state.nut");
 require("src/autoreplace.nut");
 require("src/maintenance.nut");
+require("src/town_authority.nut");
 require("src/planner.nut");
 require("src/junction_builder.nut");
 
@@ -179,6 +180,11 @@ function MvBAI::Start() {
 
         // 4. Surplus loan repay if cash is healthy.
         Money.RepaySurplusIfAny();
+
+        // 4b. Town authority: build a statue in each town we deliver into (once,
+        //     when affordable) - a permanent local-rating boost so our stations
+        //     there accept more cargo.
+        TownAuthority.Tick(this.state);
 
         Log.Info(Log.PHASE_LOOP,
             "Tick done. Routes=" + this.state.CountRoutes()
