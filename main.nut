@@ -70,7 +70,9 @@ function MvBAI::Start() {
 
     Log.Info(Log.PHASE_BOOT, "MvB AI starting. Hello, OpenTTD!");
 
-    Money.TakeMaxLoan();
+    // Borrow on demand (Phase 0), not a max loan at boot - holding idle loan
+    // bleeds interest and depresses company value (value counts -loan) for no
+    // reason. We raise the loan just-in-time before each build instead.
     this.railtype     = Railtype.PickAndSet();
     this.state        = State();
     this.auto_replace = AutoReplace();
@@ -180,6 +182,9 @@ function MvBAI::Start() {
                     + " (need ~" + needed + ", have " + Money.Cash() + ")");
                 continue;
             }
+            // Decided to build this one: borrow just enough to cover it now, so
+            // incremental spends (stations, track, fleet) never run dry midway.
+            Money.EnsureFunds(needed);
             if (this.TryBuildRoute(c, single_only)) {
                 built_one = true;
                 break;
@@ -189,8 +194,9 @@ function MvBAI::Start() {
         // 3. Yearly engine roster review.
         this.auto_replace.Tick(this.railtype, this.state);
 
-        // 4. Surplus loan repay if cash is healthy.
-        Money.RepaySurplusIfAny();
+        // 4. Repay the loan down to our operating buffer (cuts interest + lifts
+        //    company value, which counts -loan).
+        Money.RepayDownToBuffer();
 
         // 4b. Town authority: build a statue in each town we deliver into (once,
         //     when affordable) - a permanent local-rating boost so our stations
