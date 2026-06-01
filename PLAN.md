@@ -220,7 +220,8 @@ route lifecycle, gets unit tests for pure parts, and is verified with
   builder + Phase 2 (air for fastest early cash).
 - **MID (upgrade + grow):** double-track/multi-platform upgrade of proven lines,
   Phase 3 (road feeders), Phase 4 (move goods/resources into towns), Phase 5
-  (town growth).
+  (town growth), Phase 9 (passenger network + bus/mail feeders → grow towns).
+  Short road lines (≤~25 tiles) from Phase 9 also seed the EARLY land-grab.
 - **LATE (optimise + compound):** Phase 4 (backhaul/compound), Phase 6 (junction
   corridor sharing), Phase 7 (capacity tuning).
 - **All phases (competitive only):** Phase 8 (foreign-track-aware building +
@@ -368,6 +369,49 @@ this is a major reason builds break down once an opponent is on the map.
 now complete (detour or grade-separated crossing) or fail *cleanly* to single
 -track salvage; every build abort produces a structured, owner-annotated
 diagnostic; the foreign-track classifier and cost function are unit-tested.
+
+### Phase 9 — Passenger network & town growth (bus/truck feeders) *(NEW — MID-game growth engine)*
+
+**Why:** towns grow when a nearby station has a good rating and we *transport*
+their passengers/mail and *deliver* accepted cargo (goods, food) — see the
+[Towns](https://wiki.openttd.org/en/Manual/Towns) manual. A bigger town produces
+more passengers/mail and accepts more cargo, compounding every line that serves
+it. Passengers are also a large, always-available cargo we currently ignore.
+
+**Feeder pattern (the core mechanic).** A town's passengers sit in its *centre*,
+but a high-capacity train station usually can't go there. So run cheap **bus
+feeders inside the town** that pick up passengers and **transfer**
+(`OF_TRANSFER`, paid on final delivery not at the transfer) them to a train (or
+air) station on the town edge; the trunk vehicle then hauls them the long
+distance for the big payment — see
+[Feeder service](https://wiki.openttd.org/en/Manual/Feeder%20service). Same
+pattern for mail and for moving *goods/food into the town centre* to grow it.
+
+- **Passenger/mail as first-class cargo.** Add town pax/mail pairs to the value
+  surface (Phase 1). Origin = town centre catchment; destination = another town
+  (pax) or anywhere accepting mail.
+- **Intra-town bus feeders.** `src/road/` bus stops in the town centre + a depot;
+  short loop that transfers into the trunk station. Size the feeder fleet to the
+  trunk's throughput, not the other way round.
+- **Trunk leg picks the winning mode.** Bus/air/rail for the long leg falls out of
+  the value-surface estimate per distance bucket.
+- **Grow towns we serve.** Tie into Phase 5: prioritise delivering accepted cargo
+  (goods/food/pax) *into* served towns, keep station rating high, and fund
+  growth/authority actions where they lift accepted cargo — so served towns
+  enlarge over the match.
+
+**Short-haul mode rule (bus/truck instead of train).** For short routes —
+roughly **≤ 20–30 tiles** — a single train + its track/stations is overkill and
+slow to pay back. Make the value surface / mode selector prefer **road (bus for
+pax/mail, truck for freight)** under that distance threshold (and for
+low-volume cargo), reserving rail for longer, higher-volume trunks. The exact
+threshold is a tunable constant, swept with `run_bench`. This also feeds the
+EARLY land-grab: cheap short road lines plant fast and claim space with almost no
+build risk.
+
+**Done when:** the AI runs bus/mail feeders that transfer into longer trunks,
+serves and visibly grows towns over a match (rising population / accepted cargo),
+and chooses road over rail for sub-~25-tile / low-volume candidates.
 
 ---
 
