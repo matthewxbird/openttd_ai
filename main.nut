@@ -273,23 +273,36 @@ function MvBAI::TryBuildRoute(c) {
     // every tile rail was laid on (for cleanup); guard the key so a builder that
     // bailed early (and omitted it) can never crash the whole AI here.
     route.touched   <- ("touched" in tracks) ? tracks.touched : [];
-    // BOTH tracks are required. With only the out track, a train reaches the
-    // destination and then has no way home (the back platform is unconnected
-    // and signals are one-way) - it strands. Fail the route instead.
-    if (route.path_out == null || route.path_back == null) {
-        Log.Err(Log.PHASE_TRACK, "Incomplete double track (out or back missing); abandoning route.");
+    // The OUT track is mandatory. If even it failed there's nothing to run.
+    if (route.path_out == null) {
+        Log.Err(Log.PHASE_TRACK, "Out track missing; abandoning route.");
         return this._FailRoute(c, route, new_src, new_dst);
     }
+    // SINGLE-TRACK SALVAGE: when only the back track failed (common where the
+    // out track had to bridge water / thread tight terrain - the parallel back
+    // track can't get a second crossing), don't throw away the built out track +
+    // two stations. Run the route on the out track ALONE with exactly ONE train
+    // that reverses at each terminus. One train can never meet an opposing train,
+    // so single track is collision-free; we just signal it two-way and cap it at
+    // one train. This converts a wasted build (the dominant 128x128 bankruptcy
+    // cause) into a working, if lower-capacity, route.
+    route.single_track = (route.path_back == null);
 
     // Validate the freshly built track is CONTINUOUS end-to-end and repair any
     // gaps (e.g. a tunnel/bridge that failed to build) BEFORE we spend money on
     // crossovers, depots, signals and a train. A broken line that can't be
     // repaired is abandoned now rather than stranding a train later.
     local out_ok  = TrackBuilder.ValidateAndRepair(route.path_out,  "out");
-    local back_ok = TrackBuilder.ValidateAndRepair(route.path_back, "back");
+    local back_ok = route.single_track
+        ? true
+        : TrackBuilder.ValidateAndRepair(route.path_back, "back");
     if (!out_ok || !back_ok) {
         Log.Err(Log.PHASE_TRACK, "Track failed validation and could not be repaired; abandoning route.");
         return this._FailRoute(c, route, new_src, new_dst);
+    }
+    if (route.single_track) {
+        Log.Warn(Log.PHASE_TRACK,
+            "Back track unavailable; running this route SINGLE-TRACK with one train.");
     }
 
     // Throat crossover at each terminus so a train can arrive on the out
@@ -312,10 +325,15 @@ function MvBAI::TryBuildRoute(c) {
     route.depot_tiles = depots;
     route.depot_tile  = depots[0];   // primary: where trains are built
 
-    // Signals on both tracks (back track may be null on very awkward terrain).
-    Signals.PlaceAlong(route.path_out,  true,  "out");
-    if (route.path_back != null) {
-        Signals.PlaceAlong(route.path_back, true, "back");
+    // Signals. Double track: one-way PBS per rail. Single track: two-way PBS on
+    // the out track so the lone reversing train passes in BOTH directions.
+    if (route.single_track) {
+        Signals.PlaceAlong(route.path_out, true, "out", false);  // two-way PBS
+    } else {
+        Signals.PlaceAlong(route.path_out,  true,  "out");
+        if (route.path_back != null) {
+            Signals.PlaceAlong(route.path_back, true, "back");
+        }
     }
 
     // Trains.
@@ -329,7 +347,11 @@ function MvBAI::TryBuildRoute(c) {
     // trains from day one), each train filled to the platform / engine power.
     // The periodic capacity review tops this up or lengthens trains later.
     local n          = Trains.PickNumWagons(c.distance, c.production);
-    local num_trains = Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS);
+    // Single-track routes run exactly ONE train (a second would collide head-on);
+    // double-track routes get a fleet sized to the producer's output.
+    local num_trains = route.single_track
+        ? 1
+        : Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS);
     route.trains = [];
     for (local k = 0; k < num_trains; k++) {
         local id = Trains.BuildTrain(route.depot_tile, engine, wagon, c.cargo, n);

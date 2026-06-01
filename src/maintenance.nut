@@ -98,7 +98,11 @@ class Maintenance {
                     if (Trains.IsUnderLength(v)) under = true;
                 }
             }
-            if (n < Maintenance.MAX_TRAINS || under) return true;  // can still scale
+            // A single-track route is capped at ONE train (a second would meet
+            // it head-on), so it can only "scale" by running a longer train.
+            local single = ("single_track" in r) && r.single_track;
+            local can_add_train = !single && n < Maintenance.MAX_TRAINS;
+            if (can_add_train || under) return true;  // can still scale
         }
         return false;
     }
@@ -410,7 +414,9 @@ class Maintenance {
         // adding a train; if we're already at the train cap, lengthen the
         // shortest train (more cargo per trip) instead.
         if (waiting >= Maintenance.WAITING_FOR_EXTRA && r.depot_tile != null) {
-            if (n < Maintenance.MAX_TRAINS
+            // Single-track routes are capped at one train; grow them by length only.
+            local single = ("single_track" in r) && r.single_track;
+            if (!single && n < Maintenance.MAX_TRAINS
                     && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN) {
                 Log.Info(Log.PHASE_LOOP,
                     "[review] " + name + ": backlog " + waiting + " -> adding a train.");

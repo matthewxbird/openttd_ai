@@ -15,8 +15,12 @@ class Signals {
     // path:    tiles in order src -> dst
     // forward: true if the track flows src -> dst (front tile = next),
     //          false if dst -> src.
+    // oneway:  one-way PBS (double-track main, each rail one direction) vs
+    //          two-way PBS (single-track route run by ONE reversing train, which
+    //          must be allowed to pass each signal in BOTH directions).
     // Returns count of signals placed.
-    static function PlaceAlong(path, forward, label) {
+    static function PlaceAlong(path, forward, label, oneway = true) {
+        local sigtype = oneway ? AIRail.SIGNALTYPE_PBS_ONEWAY : AIRail.SIGNALTYPE_PBS;
         if (path == null || path.len() < (Signals.SKIP_NEAR_END * 2 + Signals.SPACING)) {
             Log.Warn(Log.PHASE_SIGNAL, "[" + label + "] path too short for signals");
             return 0;
@@ -35,7 +39,7 @@ class Signals {
             // BuildSignal returns false if already exists or terrain
             // disallows; we tolerate failures silently except logging
             // totals at the end.
-            if (AIRail.BuildSignal(tile, front, AIRail.SIGNALTYPE_PBS_ONEWAY)) {
+            if (AIRail.BuildSignal(tile, front, sigtype)) {
                 placed++;
             }
         }

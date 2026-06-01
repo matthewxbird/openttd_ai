@@ -17,6 +17,8 @@ class Route {
             dst_station = null,
             path_out    = null,   // array of tiles producer -> accepter
             path_back   = null,   // array of tiles accepter -> producer
+            single_track = false, // back track couldn't be built: run ONE train on
+                                  // the out track both ways (reverse at each end)
             depot_tiles = null,   // array of spur depots off the out-track mainline
             depot_tile  = null,   // primary depot (where trains are built)
             train_id    = -1,
