@@ -254,7 +254,9 @@ were all built + benched and all REGRESSED vs the 973,579 best:
   **Re-add requirement:** recall ALL of the line's trains to a depot and wait
   until every one is parked BEFORE laying the back track or changing any signal —
   never edit track/signals while a train is on the line (it can crash or stall on
-  a half-converted layout). Convert only when the line is clear, then redispatch.
+  a half-converted layout). Convert only when the line is clear. Then, once the
+  line IS upgraded, check each parked train's orders, fix them if the new
+  double-track layout needs different routing, and re-send the trains out.
 
 **=> The real unlock is the reversing-terminus deadlock itself.** Our stations are
 dead-end terminuses; a train drives in, reverses, and leaves over a shared throat
