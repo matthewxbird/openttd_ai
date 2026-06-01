@@ -257,6 +257,26 @@ split routes; periodic rebalance. (Route retirement already in.)
   train) instead of abandoning the built out track + stations. BIGGEST lever so
   far: solo mean @256 jumped to ~817k with TWO seeds over 1,000,000; 128x128
   bankruptcies eliminated. Overall mean (128+256) ~572k.
+- **Single-track crash fix** (commit 409cc1d) - the integrity check dereferenced
+  a null back-track path on single-track routes ("index '0' does not exist"),
+  killing the whole AI; existing routes then coasted, silently inflating some
+  benchmark seeds. Fixed (null-safe FindGap / ValidateAndRepair). Matches are
+  DETERMINISTIC, so each measurement is exact.
+- **Train cap = 2** (commits 52bf476, 8c99691) - the reversing-terminus deadlock
+  was the dominant value destroyer (routes scaling to 3-4 trains deadlock ->
+  condemn -> ~200k lost each). Sweep of MAX_TRAINS (overall solo mean): 4=460k,
+  3=491k, 2=806k, 1=699k. **MAX_TRAINS=2 hits the 1,000,000 solo goal @256
+  (mean 1.028M; seed4 1.6M, seed1 1.32M).** 128 mean ~585k (a later lever).
+  Root cap is still the terminus; RoRo through-stations would let the cap rise.
+
+## Milestone: solo 1M reached (256 maps) -> 1v1 vs AAHOG begins
+
+Per the goal, solo benchmarking continued until ~1M company value; reached on
+256x256 (mean just over 1M) at MAX_TRAINS=2. Now benchmarking 1v1 vs AAAHogEx
+(C:\dev\_aaahogex_ref). AAHOG is multi-modal and very strong, so the initial 1v1
+gap is expected to be large; this sets the real competitive baseline. Remaining
+solo levers (128-map scale, terminus rework, money discipline / build pacing)
+feed back into the 1v1 fight.
 
 The above are necessary hygiene but did **not** move the 1v1 result off 0% —
 confirming the verdict: **solvency (Phase 0) + scale (multi-modal, Phases 1–4)**
