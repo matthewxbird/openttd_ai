@@ -50,6 +50,77 @@ Two facts dominate:
 
 ---
 
+## Game-phase strategy (EARLY → MID → LATE) *(NEW — primary doctrine)*
+
+**Why this exists:** our old opener built **double-track, two-pair "dual lines"
+from turn one**. They cost too much, take too long to lay, and stall the company
+before it has any income — slow start, thin map presence, easy to out-expand.
+We replace it with a phase-aware doctrine: start cheap and wide, upgrade only
+what proves itself, optimise only at the end. The phase is selected from game
+age + company state (cash, usable money, # of healthy built routes), not a fixed
+clock.
+
+### EARLY — land-grab for cash (single-track, one-train lines)
+
+Goal: **plant as many cheap, profitable lines as fast as possible** to claim map
+space and throw off early cash. Speed and footprint beat per-line efficiency.
+
+- **Single-track, one-train, two-way PBS** is the *default* build, not a salvage
+  fallback. One out-track, one reversing train, simple terminus stations.
+- **Cheap, high-ROI pairs:** short/medium hauls with quick payback; rank by
+  income-per-building-time so we lay the next line sooner. Avoid expensive
+  terrain crossings — skip a candidate rather than spend big to cross water.
+- **Spread out / claim space:** prefer candidates that stake new ground (new
+  towns/industries, away from existing lines) so rivals can't box us in. Map
+  presence is a strategic asset, not just income.
+- **Money discipline (Phase 0):** borrow just-in-time per line, repay fast; never
+  start a line we can't finish. Many small affordable bets, not one big one.
+
+**Exit to MID when:** ~6 healthy single-track lines are built and profitable
+(and cash/usable money is comfortably positive).
+
+### MID — upgrade the winners + grow towns
+
+Goal: **stop laying new cheap track; deepen the proven lines and start growing
+the demand side.** Compounding, not land-grab.
+
+- **Upgrade earners to double-track + multi-platform stations:** take the
+  half-dozen+ profitable single-track lines and convert them to double-track with
+  multi-platform (RoRo / through) stations so the train cap can rise past the
+  single reversing train. (This is where the throughput ceiling lifts — see the
+  reversing-terminus deadlock note.) Upgrade by profitability rank; leave
+  marginal lines single-track.
+- **Move goods & created resources into towns:** prioritise routes that deliver
+  *processed* cargo (goods, food, etc.) and raw production **into towns** —
+  delivering accepted cargo grows the town.
+- **Grow towns deliberately:** town authority actions (statues already done →
+  fund growth where it lifts accepted cargo), so the towns we serve get bigger
+  and accept/produce more, compounding the upgraded lines.
+
+**Exit to LATE when:** the core upgraded network is saturating (overflow trends,
+high station ratings) and cash is strong.
+
+### LATE — extreme optimisation + huge compound routes
+
+Goal: **squeeze maximum value from a mature network.**
+
+- **Huge compound routes:** multi-stop / multi-cargo trunks, backhaul on every
+  leg, demand-driven feeder chains into the trunks. Maximise loaded vehicle-km.
+- **Corridor sharing & junctions:** route new traffic onto shared trunks via
+  `junction_builder` templates instead of redundant parallel track; clean
+  station throats.
+- **Continuous capacity tuning:** overflow-trend → +trains / longer trains /
+  split routes; periodic rebalance; retire chronic losers.
+
+This doctrine **reorders the roadmap**: Phase 0 (solvency) underpins EARLY; the
+single-track-default + land-grab is the EARLY deliverable; double-track upgrade +
+town growth (Phases 4–5) become the MID deliverable; backhaul/compound routes +
+junction sharing + capacity tuning (Phases 4,6,7) become LATE. Multi-modal
+(air/road, Phases 2–3) slots into EARLY (air = fastest early cash) and MID (road
+feeders).
+
+---
+
 ## What we've already built (assets to keep)
 
 - **Headless measurement loop** — `tools/openttd.Dockerfile` (OpenTTD 15.3,
@@ -143,6 +214,19 @@ Ordered by **expected competitive gain ÷ risk**, with *solvency first* because 
 bankrupt company scores zero. Each phase ships independently, keeps the strict
 route lifecycle, gets unit tests for pure parts, and is verified with
 `run_bench` before moving on.
+
+**Mapping to the game-phase doctrine above:**
+- **EARLY (land-grab):** Phase 0 (solvency) + single-track-default land-grab
+  builder + Phase 2 (air for fastest early cash).
+- **MID (upgrade + grow):** double-track/multi-platform upgrade of proven lines,
+  Phase 3 (road feeders), Phase 4 (move goods/resources into towns), Phase 5
+  (town growth).
+- **LATE (optimise + compound):** Phase 4 (backhaul/compound), Phase 6 (junction
+  corridor sharing), Phase 7 (capacity tuning).
+
+The single-track-default opener and the EARLY→MID→LATE phase selector are the
+**new top-priority build items** (they replace the dual-track opener); they ride
+on top of the Phase 0 money model.
 
 ### Phase 0 — Solvency & money discipline *(NEW — top priority, low risk)*
 
@@ -268,6 +352,10 @@ split routes; periodic rebalance. (Route retirement already in.)
   3=491k, 2=806k, 1=699k. **MAX_TRAINS=2 hits the 1,000,000 solo goal @256
   (mean 1.028M; seed4 1.6M, seed1 1.32M).** 128 mean ~585k (a later lever).
   Root cap is still the terminus; RoRo through-stations would let the cap rise.
+  **Under the new doctrine this cap is the EARLY single-track ceiling** (1–2
+  reversing trains per cheap land-grab line); the MID double-track + multi-platform
+  upgrade is exactly what lifts the cap on the proven lines, and LATE compound
+  routes raise it further.
 
 ## Milestone: solo 1M reached (256 maps) -> 1v1 vs AAHOG begins
 
