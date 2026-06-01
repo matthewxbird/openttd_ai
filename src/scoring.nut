@@ -28,15 +28,18 @@ class Scoring {
         return num_trains * per_train;
     }
 
-    // Estimate total build cost for a double-track route of given length.
+    // Estimate total build cost for a route of given length.
     // Pessimistic: assumes 10% of tiles need bridging.
-    // dist:  manhattan distance in tiles between the two industries
-    static function BuildCostEstimate(dist) {
-        local rail_tiles_cost   = 2 * dist * Scoring.RAIL_COST_PER_TILE;     // x2 = double track
+    // dist:         manhattan distance in tiles between the two industries
+    // single_track: EARLY land-grab lines lay ONE track (out only) + one signal
+    //               run, so they cost ~half the rail/signal of a double line.
+    static function BuildCostEstimate(dist, single_track = false) {
+        local track_mult        = single_track ? 1 : 2;
+        local rail_tiles_cost   = track_mult * dist * Scoring.RAIL_COST_PER_TILE;
         local bridge_allowance  = (dist / 10) * Scoring.BRIDGE_TILE_PENALTY;
         local station_cost      = 2 * Scoring.STATION_COST;
         local depot_cost        = Scoring.DEPOT_COST;
-        local signal_cost       = 2 * (dist / Scoring.SIGNAL_EVERY_N_TILES) * Scoring.SIGNAL_COST;
+        local signal_cost       = track_mult * (dist / Scoring.SIGNAL_EVERY_N_TILES) * Scoring.SIGNAL_COST;
         return rail_tiles_cost + bridge_allowance + station_cost + depot_cost + signal_cost;
     }
 

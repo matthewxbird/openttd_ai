@@ -69,6 +69,17 @@ class State {
         return n;
     }
 
+    // How many routes are PROVEN (promoted past probation to "built"). Drives
+    // the EARLY -> MID game-phase transition: the EARLY land-grab runs until we
+    // have a half-dozen proven lines, then MID upgrades them.
+    function CountBuilt() {
+        local n = 0;
+        foreach (_, r in this.routes) {
+            if (r.status == "built") n++;
+        }
+        return n;
+    }
+
     // Drop a route from the registry (after it has been torn down).
     function RemoveRoute(route) {
         local k = Route.Key(route.cargo, route.producer, route.accepter);

@@ -82,6 +82,49 @@ class Strategy {
         return mode;
     }
 
+    // ===================================================================
+    // GAME-PHASE DOCTRINE (EARLY -> MID -> LATE). Separate axis from the
+    // profit objective above: this picks the BUILD STYLE, not the ranking.
+    //   early - land-grab: cheap single-track one-train lines, fast + wide.
+    //   mid   - upgrade the proven lines (double-track / more trains), grow towns.
+    //   late  - extreme optimisation, compound routes. (not yet a distinct build
+    //           path; folded into mid until those features land.)
+    // Phase is chosen from how many lines we've PROVEN, per the plan's
+    // "upgrade once we have ~half a dozen" rule.
+    // ===================================================================
+
+    // Exit EARLY once this many routes are proven (promoted past probation).
+    static EARLY_BUILT_EXIT = 6;
+
+    // EARLY single-track is a CRAMPED-MAP play, not a universal one. Measured:
+    // blanket single-track lifted 128x128 (+19%: cheap, collision-free, dodges the
+    // reversing-terminus deadlock that bites in tight space) but sank 256x256
+    // (-13%: long hauls starve at one train). The discriminator is map congestion,
+    // so we single-track only on small maps; spacious maps build double track for
+    // throughput. Map DIMENSION (tiles per side). TUNE.
+    static EARLY_SINGLE_MAX_MAPDIM = 128;
+
+    // PURE: should an EARLY route on a map of this dimension be built single-track?
+    static function EarlySingleTrack(phase, map_dim) {
+        return phase == "early" && map_dim <= Strategy.EARLY_SINGLE_MAX_MAPDIM;
+    }
+
+    // PURE: pick the build-style phase from the count of proven (built) routes.
+    static function GamePhase(built_routes) {
+        if (built_routes < Strategy.EARLY_BUILT_EXIT) return "early";
+        return "mid";
+    }
+
+    // AI* wrapper: read the proven-route count and decide the build phase.
+    static function GamePhaseFromGame(state) {
+        local built = state.CountBuilt();
+        local phase = Strategy.GamePhase(built);
+        Log.Info(Log.PHASE_RANK,
+            "[phase] " + phase + " (built=" + built
+            + "/" + Strategy.EARLY_BUILT_EXIT + ")");
+        return phase;
+    }
+
     // Global max trains setting, with a safe fallback if unreadable.
     static function MaxTrains() {
         try {

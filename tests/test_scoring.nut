@@ -9,6 +9,13 @@ local c100 = Scoring.BuildCostEstimate(100);
 assert_true(c100 > c50, "build cost increases with distance");
 assert_true(c100 < c50 * 3, "build cost roughly linear, not explosive");
 
+// Single-track (EARLY land-grab) costs less than double track for same length
+// (one rail run + one signal run instead of two), but not less than half (the
+// two stations + depot are shared/fixed cost).
+local s100 = Scoring.BuildCostEstimate(100, true);
+assert_true(s100 < c100, "single-track cheaper than double for same distance");
+assert_true(s100 > c100 / 2, "single-track not less than half (fixed station/depot)");
+
 // ROI: zero production => negative (only cost, no revenue).
 local roi_zero = Scoring.EstimateROI(0, 100, 10, 100000);
 assert_true(roi_zero < 0, "zero production yields negative ROI");

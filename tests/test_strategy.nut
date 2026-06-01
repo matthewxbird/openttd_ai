@@ -59,4 +59,24 @@
         // cluster 4 -> extra 2 -> x(1+2*0.4)=x1.8 ; distance 0 -> x1 -> 0.9
         assert_close(clustered[0].score, 0.9, 0.0001, "cluster boost applied in all modes");
     }
+
+    // ---- GamePhase: build-style doctrine by proven-route count ---------
+    {
+        assert_eq(Strategy.GamePhase(0), "early", "no proven routes -> early land-grab");
+        assert_eq(Strategy.GamePhase(Strategy.EARLY_BUILT_EXIT - 1), "early", "just under exit -> early");
+        assert_eq(Strategy.GamePhase(Strategy.EARLY_BUILT_EXIT), "mid", "hit exit -> mid (upgrade)");
+        assert_eq(Strategy.GamePhase(20), "mid", "many proven routes -> mid");
+    }
+
+    // ---- EarlySingleTrack: cramped-map single-track gate ----------------
+    {
+        // EARLY + small map -> single-track land-grab.
+        assert_true(Strategy.EarlySingleTrack("early", 64), "early + tiny map -> single");
+        assert_true(Strategy.EarlySingleTrack("early", Strategy.EARLY_SINGLE_MAX_MAPDIM),
+            "early + at-threshold map -> single");
+        // EARLY + spacious map -> double track (throughput).
+        assert_true(!Strategy.EarlySingleTrack("early", 256), "early + big map -> double");
+        // MID never single-tracks regardless of map size.
+        assert_true(!Strategy.EarlySingleTrack("mid", 64), "mid -> never single regardless of map");
+    }
 })();

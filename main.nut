@@ -103,6 +103,10 @@ function MvBAI::Start() {
         // then re-score every candidate by that objective before ranking.
         local mode = Strategy.DecideFromGame();
         Strategy.Apply(cands, mode);
+        // GAME-PHASE DOCTRINE: EARLY (land-grab) builds cheap single-track
+        // one-train lines; MID/LATE build full double track. Decided from how
+        // many lines we've proven so far.
+        local phase = Strategy.GamePhaseFromGame(this.state);
         foreach (c in cands) {
             if (this.state.SuppliesIndustry(c.producer)) {
                 c.score = Scoring.ChainBoost(c.score);
@@ -161,8 +165,14 @@ function MvBAI::Start() {
             // Full up-front cost = track + the initial fleet of trains/wagons,
             // plus a margin for under-counted overruns. Including the fleet stops
             // us laying track and then running dry before buying the trains.
-            local est    = Scoring.BuildCostEstimate(c.distance)
-                         + Scoring.FleetCostEstimate(Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS));
+            // EARLY land-grab on CRAMPED maps: build single-track + ONE train
+            // (cheap, fast, collision-free, dodges the terminus deadlock). On
+            // spacious maps long hauls need double-track throughput, so EARLY
+            // there still builds double.
+            local single_only = Strategy.EarlySingleTrack(phase, AIMap.GetMapSizeX());
+            local ntrains    = single_only ? 1 : Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS);
+            local est    = Scoring.BuildCostEstimate(c.distance, single_only)
+                         + Scoring.FleetCostEstimate(ntrains);
             local needed = est + est / 3;   // ~1.3x for overruns + operating buffer
             if (!Money.HasFunds(needed)) {
                 Log.Info(Log.PHASE_MONEY,
@@ -170,7 +180,7 @@ function MvBAI::Start() {
                     + " (need ~" + needed + ", have " + Money.Cash() + ")");
                 continue;
             }
-            if (this.TryBuildRoute(c)) {
+            if (this.TryBuildRoute(c, single_only)) {
                 built_one = true;
                 break;
             }
@@ -201,8 +211,12 @@ function MvBAI::Start() {
 // Try to build the full route described by `c`.
 // Reuses an existing station if we already serve that industry.
 // Adds pair to blacklist on any failure.
-function MvBAI::TryBuildRoute(c) {
+function MvBAI::TryBuildRoute(c, single_only = false) {
     local cargo_label = AICargo.GetCargoLabel(c.cargo);
+    // single_only (EARLY land-grab, short haul): build this line single-track
+    // (out track only, one reversing train) on purpose - cheaper + faster than
+    // double track, so we plant more lines and claim more map space. MID/LATE
+    // and long hauls build full double track.
     local acc_is_town = ("acc_is_town" in c) ? c.acc_is_town : false;
     Log.Info(Log.PHASE_RANK,
         "Attempting " + cargo_label
@@ -267,7 +281,7 @@ function MvBAI::TryBuildRoute(c) {
     // each platform (so no tight turn at the throat), then pathfinds. The
     // out-track uses platform 0 at both ends, the back-track platform 1.
     local tracks = TrackBuilder.BuildDoubleTracks(
-        route.src_station, route.dst_station);
+        route.src_station, route.dst_station, single_only);
     route.path_out  = tracks.out;
     route.path_back = tracks.back;
     // every tile rail was laid on (for cleanup); guard the key so a builder that

@@ -95,7 +95,12 @@ class TrackBuilder {
     // over at the throat (which is what caused the tight S-curve). Before
     // pathfinding we lay a straight lead-in stub out of each platform so any
     // curve is pushed well clear of the station entrance.
-    static function BuildDoubleTracks(src, dst) {
+    // single_only: EARLY land-grab doctrine - build ONLY the out track (one
+    // reversing train, two-way PBS) deliberately, skipping the back-track pass
+    // entirely. Cheaper + faster to lay, so we plant more lines sooner and claim
+    // map space. (This is the same single-track shape the back-track-failure
+    // salvage produces, but chosen up front instead of as a fallback.)
+    static function BuildDoubleTracks(src, dst, single_only = false) {
         TrackBuilder._touched.clear();   // start tracking every tile we lay rail on
         local src_h = AITile.GetMaxHeight(src.enter_tile);
         local dst_h = AITile.GetMaxHeight(dst.enter_tile);
@@ -141,6 +146,15 @@ class TrackBuilder {
             local touched_fail = [];
             foreach (t in TrackBuilder._touched) touched_fail.push(t);
             return { out = null, back = null, touched = touched_fail };
+        }
+
+        // EARLY land-grab: stop here with the out track only. One reversing
+        // train runs it (two-way PBS), no second crossing to pay for or fail on.
+        if (single_only) {
+            Log.Info(Log.PHASE_TRACK, "Single-track (land-grab): skipping back-track pass.");
+            local touched_s = [];
+            foreach (t in TrackBuilder._touched) touched_s.push(t);
+            return { out = out_tiles, back = null, touched = touched_s };
         }
 
         // --- Pass 2: back track (right platform -> right platform) ---
