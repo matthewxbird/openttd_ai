@@ -32,6 +32,12 @@ class Maintenance {
     static RETIRE_LOSS_YEARS = 2;    // consecutive losing years before retiring a built route
     static STUCK_RETIRE_LIMIT = 3;   // consecutive built-route passes with a stuck train -> condemn
 
+    // DEMAND-DRIVEN single->double upgrade gate. OFF: the converted routes still
+    // deadlock the reversing terminus (measured regressive, 867,991 vs 973,579),
+    // so the parked feature (commit "wip: demand-driven single->double") stays
+    // dormant until the terminus deadlock is fixed. Flip to true to re-enable.
+    static ENABLE_DEMAND_UPGRADE = false;
+
     // -- PURE helpers (unit-tested) ---------------------------------------
     // Next consecutive-losing-years streak given last year's route profit.
     static function NextLossStreak(streak, profit_last_year) {
@@ -463,6 +469,7 @@ class Maintenance {
     // Eligible to attempt a single->double upgrade now: not already failed, has a
     // stored out path to run parallel to, and affordable (track + a 2nd train).
     static function _CanUpgrade(r) {
+        if (!Maintenance.ENABLE_DEMAND_UPGRADE) return false;
         if (("upgrade_state" in r) && r.upgrade_state == "failed") return false;
         if (!("path_out" in r) || r.path_out == null) return false;
         local cost = Scoring.BuildCostEstimate(r.distance, true)
