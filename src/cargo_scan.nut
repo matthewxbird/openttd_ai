@@ -141,6 +141,7 @@ class CargoScan {
             est_income_per_vehicle  = est.income_per_vehicle,
             est_income_per_btime    = est.income_per_building_time,
             est_num_trains          = est.num_trains,
+            est_mode                = ("mode" in est) ? est.mode : AIVehicle.VT_RAIL,
         });
     }
 

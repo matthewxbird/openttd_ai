@@ -16,3 +16,15 @@ if (!("AILog" in getroottable())) {
 if (!("require" in getroottable())) {
     require <- function(path) { dofile(path); };
 }
+
+// AIVehicle vehicle-type enum. Needed at PARSE time because estimator.nut now
+// has a `static MODES = [AIVehicle.VT_RAIL]` initializer (evaluated when the
+// class is defined). Values match OpenTTD's AIVehicle.VT_* ordering.
+if (!("AIVehicle" in getroottable())) {
+    AIVehicle <- {
+        VT_RAIL  = 0,
+        VT_ROAD  = 1,
+        VT_WATER = 2,
+        VT_AIR   = 3,
+    };
+}

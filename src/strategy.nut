@@ -117,6 +117,12 @@ class Strategy {
         return phase == "early" && trains_needed <= Strategy.EARLY_SINGLE_MAX_TRAINS;
     }
 
+    // NOTE: a MID/LATE build-pacing value bar (skip new routes below an
+    // annual-profit floor) was tried and MEASURED HARMFUL: an 8000/yr floor sank
+    // solo 256 ~20% (it throttled the best-expanding seeds). Low-but-positive
+    // routes still add company value over a match and claim map space; the real
+    // value loss is DEADLOCK churn (condemn/rebuild), not modest earners. Dropped.
+
     // PURE: pick the build-style phase from the count of proven (built) routes.
     static function GamePhase(built_routes) {
         if (built_routes < Strategy.EARLY_BUILT_EXIT) return "early";
