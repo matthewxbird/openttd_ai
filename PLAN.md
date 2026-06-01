@@ -251,6 +251,10 @@ were all built + benched and all REGRESSED vs the 973,579 best:
   256 it deadlocked the converted routes (seed4 944k→445k). Implemented
   (`Maintenance._UpgradeSingleToDouble`, `TrackBuilder.BuildBackTrack`,
   `Signals.RemoveAlong`) then reverted; re-add once the deadlock is gone.
+  **Re-add requirement:** recall ALL of the line's trains to a depot and wait
+  until every one is parked BEFORE laying the back track or changing any signal —
+  never edit track/signals while a train is on the line (it can crash or stall on
+  a half-converted layout). Convert only when the line is clear, then redispatch.
 
 **=> The real unlock is the reversing-terminus deadlock itself.** Our stations are
 dead-end terminuses; a train drives in, reverses, and leaves over a shared throat
