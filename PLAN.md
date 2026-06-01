@@ -232,7 +232,44 @@ The single-track-default opener and the EARLY→MID→LATE phase selector are th
 **new top-priority build items** (they replace the dual-track opener); they ride
 on top of the Phase 0 money model.
 
-### Phase 0 — Solvency & money discipline *(NEW — top priority, low risk)*
+**EARLY land-grab — IMPLEMENTED (commit 6b452b8).** `Strategy.GamePhase` (EARLY
+until 6 proven routes, then MID) + `EarlySingleTrack` build cheap one-train
+single-track lines in EARLY, gated to cramped maps (≤128 dim): measured solo
+128x128 +19% (cheap, collision-free, dodges the reversing-terminus deadlock),
+while spacious maps keep double-track throughput (blanket single-track sank 256
+−13%). MID/LATE distinct build paths still TODO.
+
+**MEASURED: the throughput ceiling is the reversing-terminus deadlock, and it
+gates every "more capacity" idea.** Three approaches to lift per-route throughput
+were all built + benched and all REGRESSED vs the 973,579 best:
+- *Production-gated* (build double up front for high-output routes): 818,879
+  — 128 sank 960k→648k. Double-track + 2 trains on cramped maps deadlocks.
+- *Distance-gated* single-track: 777,411 — same distance helps 128, hurts 256.
+- *Demand-driven single→double in-place upgrade* (build back track + re-signal +
+  add 2nd train when a single line's lone full train can't clear its backlog):
+  867,991 — never fired on the poor seed (cash-gated), and where it did fire on
+  256 it deadlocked the converted routes (seed4 944k→445k). Implemented
+  (`Maintenance._UpgradeSingleToDouble`, `TrackBuilder.BuildBackTrack`,
+  `Signals.RemoveAlong`) then reverted; re-add once the deadlock is gone.
+
+**=> The real unlock is the reversing-terminus deadlock itself.** Our stations are
+dead-end terminuses; a train drives in, reverses, and leaves over a shared throat
+crossover — with 2+ trains that throat deadlocks (hence MAX_TRAINS=2 and why
+single-track-1-train wins cramped maps). Fixing it (RoRo / drive-through stations,
+or a deadlock-proof throat) lets MAX_TRAINS rise AND makes the demand upgrade pay.
+This is now the top solo lever (was Phase 6/7; promote it).
+
+### Phase 0 — Solvency & money discipline *(IMPLEMENTED — commit d24084a)*
+
+DONE: dropped boot `TakeMaxLoan`; `Money.Usable = cash + (maxLoan−loan)`;
+`EnsureFunds(need)` borrows just-in-time before a committed build;
+`RepayDownToBuffer()` repays the loan down to an 80k operating buffer each tick;
+`HasFunds` gates on `Usable`. Pure `RepayAmount`/`BorrowTarget` unit-tested.
+**Measured solo: overall 873,603 → 973,579 (+11.4%; +20.7% vs the original
+baseline).** 128 +37.8% (idle-loan interest was a big cramped-map drag). Buffer
+swept: 80k optimal (50k=831k, 150k=766k — non-monotonic/chaotic). TODO remaining:
+emergency contraction (sell idle/condemn worst when usable<0) — not yet needed
+solo (no bankruptcies), revisit for 1v1.
 
 The single change most likely to move us off 0%: stop bankrupting ourselves.
 
