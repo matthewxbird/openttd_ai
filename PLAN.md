@@ -223,6 +223,9 @@ route lifecycle, gets unit tests for pure parts, and is verified with
   (town growth).
 - **LATE (optimise + compound):** Phase 4 (backhaul/compound), Phase 6 (junction
   corridor sharing), Phase 7 (capacity tuning).
+- **All phases (competitive only):** Phase 8 (foreign-track-aware building +
+  build-failure debuggability) — applies the moment a rival shares the map,
+  which is every 1v1 turn; without it the land-grab itself breaks on rival track.
 
 The single-track-default opener and the EARLY→MID→LATE phase selector are the
 **new top-priority build items** (they replace the dual-track opener); they ride
@@ -307,6 +310,64 @@ instead of laying redundant parallel track. Station templates for clean throats.
 
 Sharpen `maintenance.nut`: overflow-trend detection → +trains / longer trains /
 split routes; periodic rebalance. (Route retirement already in.)
+
+### Phase 8 — Foreign-track-aware building & track-build debuggability *(NEW — competition-critical)*
+
+**Problem (measured behaviour):** our pathfinder (`src/rail_pf.nut`) costs and
+*joins* any tile where `AIRail.IsRailTile()` is true, but it does **not** check
+tile ownership. In a 1v1 / multi-company game a rival's rail is interleaved with
+ours and the map's, so the pathfinder happily routes a path onto/through foreign
+track; the builder (`src/track_builder.nut`) then fails the piece with
+`ERR_OWNED_BY_ANOTHER_COMPANY` (and we cannot demolish or build on it). Today we
+just `Log.Warn` the failed piece and the whole line build stalls or aborts —
+this is a major reason builds break down once an opponent is on the map.
+
+**Robust foreign-track handling:**
+
+- **Ownership-aware pathfinding.** In the neighbour/cost step, classify every
+  rail tile by `AITile.GetOwner` / `AIRail.GetOwner` relative to `COMPANY_SELF`:
+  - *Own* rail → joinable/shareable as today.
+  - *Foreign* rail → **impassable** by default (do not route onto it). Only allow
+    a clean grade-separated crossing (bridge/tunnel over/under) at a heavy cost,
+    never a flat join or a build *on* the foreign tile.
+  - *Town/road* level-crossing rules unchanged.
+- **Foreign-aware crossing cost.** Replace the single `_cost_crossing_rail` with
+  distinct costs: cheap for our own corridor, expensive-but-legal for a
+  grade-separated jump over foreign track, ∞ (forbidden) for a flat join to
+  foreign track. This pushes paths *around* rivals when feasible, *over* them
+  when not.
+- **Builder pre-check + graceful detour.** Before laying each piece, verify the
+  tile is buildable by us (clear / own); if a piece comes back
+  `ERR_OWNED_BY_ANOTHER_COMPANY` / `ERR_AREA_NOT_CLEAR` due to foreign property,
+  trigger a **local re-route** around the offending tile rather than aborting the
+  whole line. Cap retries, then fall back to single-track salvage / abandon
+  cleanly (never orphan, per the condemn rules).
+- **Don't touch what isn't ours.** Cleanup/teardown must never demolish or count
+  foreign tiles (extend the existing `_Touch` discipline to skip non-owned rail).
+
+**Track-build debuggability (we must be able to see *why* a build failed):**
+
+- **Structured build-failure report.** On any build abort, emit a single
+  structured log line: phase, route label, failing tile + coords, the exact
+  `AIError.GetLastErrorString()`, tile owner, and the pathfinder cost class of
+  that tile. (Today the error is logged but not the *ownership/cost context* that
+  explains it.)
+- **Annotated map dump.** Extend `src/map_dump.nut` to colour/mark tiles by
+  owner (self / each rival / town / unowned) and overlay the attempted path and
+  the failing tile, so the ASCII dump on failure shows *where the rival track
+  blocked us*. (Headless can't screenshot — this is our eyes.)
+- **Pathfinder trace mode.** A debug flag that logs the top-N expanded nodes with
+  their cost breakdown (terrain / crossing / foreign penalty) for a failed
+  search, so we can tell "no route" from "route existed but priced wrong".
+- **Regression tests.** Pure-math `sq.exe` tests for the ownership classifier and
+  the foreign-aware cost function; a scripted 1v1 `run_bench` scenario that puts a
+  rival line across our best corridor and asserts we still build (detour or
+  grade-separated) rather than abort.
+
+**Done when:** in 1v1, lines that previously aborted in mixed-ownership terrain
+now complete (detour or grade-separated crossing) or fail *cleanly* to single
+-track salvage; every build abort produces a structured, owner-annotated
+diagnostic; the foreign-track classifier and cost function are unit-tested.
 
 ---
 
