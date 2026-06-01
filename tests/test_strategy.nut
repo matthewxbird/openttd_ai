@@ -68,15 +68,14 @@
         assert_eq(Strategy.GamePhase(20), "mid", "many proven routes -> mid");
     }
 
-    // ---- EarlySingleTrack: cramped-map single-track gate ----------------
+    // ---- EarlySingleTrack: per-route throughput gate --------------------
     {
-        // EARLY + small map -> single-track land-grab.
-        assert_true(Strategy.EarlySingleTrack("early", 64), "early + tiny map -> single");
-        assert_true(Strategy.EarlySingleTrack("early", Strategy.EARLY_SINGLE_MAX_MAPDIM),
-            "early + at-threshold map -> single");
-        // EARLY + spacious map -> double track (throughput).
-        assert_true(!Strategy.EarlySingleTrack("early", 256), "early + big map -> double");
-        // MID never single-tracks regardless of map size.
-        assert_true(!Strategy.EarlySingleTrack("mid", 64), "mid -> never single regardless of map");
+        // EARLY + route only needs one train -> single-track land-grab (any map).
+        assert_true(Strategy.EarlySingleTrack("early", 1), "early + 1-train route -> single");
+        // EARLY + route needs >=2 trains -> double-track (throughput).
+        assert_true(!Strategy.EarlySingleTrack("early", 2), "early + 2-train route -> double");
+        assert_true(!Strategy.EarlySingleTrack("early", 4), "early + high-output route -> double");
+        // MID never single-tracks regardless of throughput.
+        assert_true(!Strategy.EarlySingleTrack("mid", 1), "mid -> never single");
     }
 })();

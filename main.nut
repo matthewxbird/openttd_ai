@@ -167,12 +167,17 @@ function MvBAI::Start() {
             // Full up-front cost = track + the initial fleet of trains/wagons,
             // plus a margin for under-counted overruns. Including the fleet stops
             // us laying track and then running dry before buying the trains.
-            // EARLY land-grab on CRAMPED maps: build single-track + ONE train
-            // (cheap, fast, collision-free, dodges the terminus deadlock). On
-            // spacious maps long hauls need double-track throughput, so EARLY
-            // there still builds double.
-            local single_only = Strategy.EarlySingleTrack(phase, AIMap.GetMapSizeX());
-            local ntrains    = single_only ? 1 : Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS);
+            // EARLY land-grab: build single-track + ONE train when the route's
+            // production only justifies one train (cheap, fast, collision-free,
+            // dodges the terminus deadlock; claims space) - on ANY map size. Only
+            // the few genuinely high-throughput routes (>=2 trains' worth of
+            // output) get double-track, which is the only layout that can run a
+            // 2nd train without a head-on collision.
+            local trains_needed = ("est_num_trains" in c)
+                ? c.est_num_trains
+                : Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS);
+            local single_only = Strategy.EarlySingleTrack(phase, trains_needed);
+            local ntrains     = single_only ? 1 : Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS);
             local est    = Scoring.BuildCostEstimate(c.distance, single_only)
                          + Scoring.FleetCostEstimate(ntrains);
             local needed = est + est / 3;   // ~1.3x for overruns + operating buffer
