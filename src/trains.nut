@@ -15,6 +15,32 @@ class Trains {
                                    // this the train crawls, so we cap wagons or
                                    // double-head the engine
 
+    // Representative loaded-train weight (tonnes) used to judge whether a loco
+    // can actually SUSTAIN its top speed under a full platform of wagons. Rough
+    // (a platform of loaded freight wagons), good enough for RELATIVE ranking.
+    static EST_TRAIN_WEIGHT = 450;
+
+    // Converts power(hp)/weight(t) into a sustainable speed (km/h). Tuned so a
+    // typical early loco (~1200hp pulling ~500t) sustains ~roughly its rated
+    // speed; weak engines fall short and are penalised.
+    static POWER_SPEED_K = 50.0;
+
+    // PURE: the value of a loco = the speed it can actually hold under load,
+    // divided by its running cost. Power is judged against weight (not added
+    // raw), because trips/year - hence income - scale with the speed the engine
+    // SUSTAINS, while double-heading separately covers any raw power shortfall.
+    //   max_speed:    engine rated top speed (km/h; 0 treated as "very fast")
+    //   power:        engine power (hp)
+    //   weight:       loco weight + a loaded-train estimate (t)
+    //   running_cost: engine yearly running cost
+    static function EngineValue(max_speed, power, weight, running_cost) {
+        if (running_cost <= 0 || weight <= 0) return -1.0;
+        local rated = (max_speed <= 0) ? 1000 : max_speed;   // 0 == no limit
+        local sustainable = Trains.POWER_SPEED_K * power.tofloat() / weight.tofloat();
+        local eff = (sustainable < rated) ? sustainable : rated.tofloat();
+        return eff / running_cost.tofloat();
+    }
+
     // Pick best engine for (cargo, railtype). Returns engine id or -1.
     static function PickEngine(cargo, railtype) {
         local list = AIEngineList(AIVehicle.VT_RAIL);
@@ -30,10 +56,13 @@ class Trains {
             local speed   = AIEngine.GetMaxSpeed(eng);
             local power   = AIEngine.GetPower(eng);
             local cost    = AIEngine.GetRunningCost(eng);
-            if (speed <= 0 || cost <= 0) continue;
+            if (cost <= 0 || power <= 0) continue;
 
-            // Higher is better.
-            local score = (speed * power).tofloat() / cost.tofloat();
+            // Income scales with the speed the loco can SUSTAIN under load, per
+            // unit running cost (capacity is wagon-fixed; double-heading covers
+            // raw power). Favours fast, adequately-powered, cheap-to-run engines.
+            local weight = AIEngine.GetWeight(eng) + Trains.EST_TRAIN_WEIGHT;
+            local score  = Trains.EngineValue(speed, power, weight, cost);
             if (best_score == null || score > best_score) {
                 best = eng;
                 best_score = score;
