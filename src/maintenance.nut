@@ -21,10 +21,12 @@ class Maintenance {
     static STUCK_LIMIT       = 2;    // unmoved checks before a train is "stuck"
     static QUEUE_NEAR        = 5;    // tiles from a station counted as "queuing"
     static WAITING_FOR_EXTRA = 150;  // source cargo waiting that warrants a train
-    static MAX_TRAINS        = 3;    // cap trains per route. 4 reliably deadlocks
-                                     // the reversing-terminus throat (trains=4/4 ->
-                                     // STUCK -> condemn -> ~200k capital lost each);
-                                     // 3 stays under that threshold. TUNE/measure.
+    static MAX_TRAINS        = 2;    // cap trains per route. The reversing-terminus
+                                     // throat deadlocks with 3-4 trains (-> condemn ->
+                                     // ~200k lost each); 2 trains barely deadlock, so
+                                     // routes survive. Measured huge: solo mean @256
+                                     // 658k (cap 3) -> 1.03M (cap 2). TUNE if the
+                                     // terminus is ever made deadlock-proof (RoRo).
     static MIN_CASH_FOR_TRAIN = 40000;  // don't add a train if cash is tight
     static CONDEMN_LIMIT     = 12;   // health passes to recall trains + tear down
     static RETIRE_LOSS_YEARS = 2;    // consecutive losing years before retiring a built route
