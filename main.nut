@@ -476,6 +476,36 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
 function MvBAI::_FailRoute(c, route, new_src, new_dst) {
     this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
 
+    // BUILD-FAILURE DIAGNOSTICS (our eyes in a headless match). Emit a structured
+    // summary + an owner-annotated corridor map with the attempted path overlaid
+    // and the breaking tile marked, BEFORE we demolish anything. This is how we
+    // tell "no route" from "rival blocked us" from "priced wrong" from the log.
+    {
+        local acc_is_town = ("acc_is_town" in c) ? c.acc_is_town : false;
+        local src_tile = AIIndustry.GetLocation(c.producer);
+        local dst_tile = acc_is_town ? AITown.GetLocation(c.accepter) : AIIndustry.GetLocation(c.accepter);
+        local path     = ("path_out" in route && route.path_out != null) ? route.path_out : null;
+        local fail     = -1;
+        if (path != null) {
+            local gap = TrackBuilder.FindGap(path);    // first discontinuity, if any
+            if (gap != -1 && gap < path.len()) fail = path[gap];
+        }
+        local stage = (route.src_station == null) ? "src-station"
+                    : (route.dst_station == null) ? "dst-station"
+                    : (path == null)              ? "out-track-pathfind"
+                    : (fail != -1)                ? "out-track-gap"
+                    : "post-track";
+        Log.Err(Log.PHASE_TRACK,
+            "[buildfail] RAIL " + AICargo.GetCargoLabel(c.cargo)
+            + " " + AIIndustry.GetName(c.producer) + " -> " + Route.AccepterName(c)
+            + " dist=" + c.distance + " stage=" + stage
+            + " src=(" + AIMap.GetTileX(src_tile) + "," + AIMap.GetTileY(src_tile) + ")"
+            + " dst=(" + AIMap.GetTileX(dst_tile) + "," + AIMap.GetTileY(dst_tile) + ")"
+            + " pathlen=" + (path != null ? path.len() : 0));
+        if (fail != -1) BuildDiag.Report(fail, "buildfail", stage);   // owner/error/cause of the break
+        MapDump.RouteFail(src_tile, dst_tile, path, fail, "buildfail");
+    }
+
     // PROTECT anything belonging to ANOTHER route. The failing route isn't in
     // state yet, so every station already in state belongs to a different line.
     // Build a set of their station ids and a zone of tiles around each (the

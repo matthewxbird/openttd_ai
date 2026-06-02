@@ -100,6 +100,56 @@ class MapDump {
         }
     }
 
+    // BUILD-FAILURE DUMP. Render the corridor between src and dst, overlaying the
+    // ATTEMPTED path ('.') and the failing tile ('X'), so the log shows the route
+    // shape and exactly where/why it broke (water, rival track, blocked ground).
+    // `path` = array of tiles the builder tried (may be partial); `fail_tile` =
+    // the offending tile (or -1). This is our eyes in a headless match.
+    static function RouteFail(src_tile, dst_tile, path, fail_tile, label) {
+        if (!MapDump.ENABLED) return;
+        if (!AIMap.IsValidTile(src_tile) || !AIMap.IsValidTile(dst_tile)) return;
+        local ax = AIMap.GetTileX(src_tile), ay = AIMap.GetTileY(src_tile);
+        local bx = AIMap.GetTileX(dst_tile), by = AIMap.GetTileY(dst_tile);
+
+        // Bounds cover both endpoints AND the whole attempted path.
+        local x1 = ax < bx ? ax : bx, y1 = ay < by ? ay : by;
+        local x2 = ax > bx ? ax : bx, y2 = ay > by ? ay : by;
+        local pset = {};
+        if (path != null) foreach (t in path) {
+            if (!AIMap.IsValidTile(t)) continue;
+            pset[t] <- true;
+            local px = AIMap.GetTileX(t), py = AIMap.GetTileY(t);
+            if (px < x1) x1 = px; if (px > x2) x2 = px;
+            if (py < y1) y1 = py; if (py > y2) y2 = py;
+        }
+        x1 -= MapDump.MARGIN; y1 -= MapDump.MARGIN;
+        x2 += MapDump.MARGIN; y2 += MapDump.MARGIN;
+        if (x1 < 1) x1 = 1; if (y1 < 1) y1 = 1;
+        if (x2 >= AIMap.GetMapSizeX() - 1) x2 = AIMap.GetMapSizeX() - 2;
+        if (y2 >= AIMap.GetMapSizeY() - 1) y2 = AIMap.GetMapSizeY() - 2;
+        local sx = MapDump.Step(x2 - x1 + 1, MapDump.MAX_SPAN);
+        local sy = MapDump.Step(y2 - y1 + 1, MapDump.MAX_SPAN);
+
+        Log.Warn(Log.PHASE_TRACK, "[mapdump:" + label + "] FAIL corridor x[" + x1 + ".." + x2
+            + "] y[" + y1 + ".." + y2 + "] step=" + sx + "/" + sy
+            + " A=src(" + ax + "," + ay + ") B=dst(" + bx + "," + by + ")"
+            + (fail_tile != -1 ? " X=fail(" + AIMap.GetTileX(fail_tile) + "," + AIMap.GetTileY(fail_tile) + ")" : ""));
+        Log.Warn(Log.PHASE_TRACK, "[mapdump:" + label + "] X=failtile .=attempted-path "
+            + MapDump._LEGEND + " (upper=ours lower=rival: =/x rail S/s station)");
+        for (local y = y1; y <= y2; y += sy) {
+            local row = "";
+            for (local x = x1; x <= x2; x += sx) {
+                local t = AIMap.GetTileIndex(x, y);
+                if (fail_tile != -1 && t == fail_tile) { row += "X"; continue; }
+                if (x == ax && y == ay) { row += "A"; continue; }
+                if (x == bx && y == by) { row += "B"; continue; }
+                if (t in pset) { row += "."; continue; }
+                row += MapDump._Cell(t, -1, -1, -1, -1, {});
+            }
+            Log.Warn(Log.PHASE_TRACK, "[mapdump:" + label + "] " + row);
+        }
+    }
+
     static _LEGEND = "0-9=height ~=water ^=steep ==rail S=station r=road H=blocked";
 
     // One character for a tile. Endpoints + markers win; then features; then a

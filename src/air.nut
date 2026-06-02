@@ -228,7 +228,13 @@ class Air {
             src_st = Air.BuildBestAirportNear(src_t);
             new_src = true;
         }
-        if (src_st == null) { Log.Warn(Log.PHASE_STATION, "AIR: no src airport site."); return false; }
+        if (src_st == null) {
+            Log.Err(Log.PHASE_STATION, "[buildfail] AIR no src airport site for "
+                + AITown.GetName(src_t) + " pop=" + AITown.GetPopulation(src_t)
+                + " (town too built-up / no flat clear WxH area / noise budget). Dump:");
+            MapDump.Around(AITown.GetLocation(src_t), 12, [], "airfail-src");
+            return false;
+        }
 
         local dst_st = Air._FindAirport(state, dst_t);
         if (dst_st == null) {
@@ -236,7 +242,10 @@ class Air {
             new_dst = true;
         }
         if (dst_st == null) {
-            Log.Warn(Log.PHASE_STATION, "AIR: no dst airport site.");
+            Log.Err(Log.PHASE_STATION, "[buildfail] AIR no dst airport site for "
+                + AITown.GetName(dst_t) + " pop=" + AITown.GetPopulation(dst_t)
+                + " (town too built-up / no flat clear WxH area / noise budget). Dump:");
+            MapDump.Around(AITown.GetLocation(dst_t), 12, [], "airfail-dst");
             if (new_src) Air._RemoveAirport(src_st);
             return false;
         }
