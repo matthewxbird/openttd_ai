@@ -32,3 +32,8 @@ assert_eq(roi_safe, -1.0, "zero build cost returns -1 sentinel");
 // ROI: a healthy route should be positive.
 local roi_good = Scoring.EstimateROI(200, 200, 80, 150000);
 assert_true(roi_good > 0, "healthy route has positive ROI");
+
+// ---- SupplyBoost / ChainBoost: chain multipliers preserve sign -------------
+assert_eq(Scoring.SupplyBoost(100.0), 100.0 * Scoring.SUPPLY_BONUS, "supply boost multiplies");
+assert_true(Scoring.SupplyBoost(-5.0) < 0, "supply boost keeps a loss negative (still excluded)");
+assert_eq(Scoring.ChainBoost(100.0), 100.0 * Scoring.CHAIN_BONUS, "chain boost multiplies");

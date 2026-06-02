@@ -98,6 +98,16 @@ class Scoring {
         return score * Scoring.CHAIN_BONUS;
     }
 
+    static SUPPLY_BONUS = 3.0;   // multiplier for a route that SUPPLIES the input
+                                 // of an industry whose output we already haul
+
+    // DEMAND-DRIVEN SUPPLY (Phase 4): boost a route that delivers the INPUT cargo
+    // of an industry we already haul FROM. Feeding its inputs grows its
+    // production, so the line we run out of it carries more. Preserves sign.
+    static function SupplyBoost(score) {
+        return score * Scoring.SUPPLY_BONUS;
+    }
+
     static CLUSTER_WEIGHT = 0.4;   // +40% per extra industry in the catchment
 
     // Favour routes whose stations sit in an industry cluster (one station can

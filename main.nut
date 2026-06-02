@@ -131,7 +131,13 @@ function MvBAI::Start() {
             local mode = Strategy.DecideFromGame();
             Strategy.Apply(cands, mode);
             foreach (c in cands) {
+                // FORWARD chain: haul the output of an industry we deliver into.
                 if (this.state.SuppliesIndustry(c.producer)) c.score = Scoring.ChainBoost(c.score);
+                // DEMAND-DRIVEN SUPPLY (Phase 4): feed the INPUT of an industry
+                // whose output we already haul - grows its production, so our
+                // existing line out of it carries more.
+                local c_town = ("acc_is_town" in c) ? c.acc_is_town : false;
+                if (!c_town && this.state.HaulsFrom(c.accepter)) c.score = Scoring.SupplyBoost(c.score);
             }
             ranked = Candidates.Rank(cands, this.state.blacklist);
             CargoScan.LogPerCargoBest(ranked);

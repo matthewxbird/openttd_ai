@@ -38,6 +38,19 @@ class State {
         return false;
     }
 
+    // True if WE HAUL the OUTPUT of this industry (it's the producer of one of
+    // our rail routes). Delivering this industry's INPUT cargo grows its
+    // production - and hence the output we already haul (demand-driven supply
+    // chains, Phase 4). Rail only (air/road producers are towns).
+    function HaulsFrom(industry_id) {
+        foreach (_, r in this.routes) {
+            if (("air" in r) && r.air) continue;
+            if (("road" in r) && r.road) continue;
+            if (r.producer == industry_id) return true;
+        }
+        return false;
+    }
+
     // True if this producer is ALREADY feeding a route. A producer's output is
     // finite and captured by its one station, so a second route from the same
     // producer just splits the same cargo onto a worse line. (Serving the same
