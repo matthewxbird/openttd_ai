@@ -11,6 +11,7 @@ require("src/scoring.nut");
 require("src/build_diag.nut");
 require("src/estimator.nut");
 require("src/air.nut");
+require("src/road.nut");
 require("src/strategy.nut");
 require("src/candidates.nut");
 require("src/cargo_scan.nut");
@@ -102,6 +103,9 @@ function MvBAI::Start() {
         // ALONGSIDE rail pairs on the shared value surface. Air = fast early
         // cash, no track to misbuild, no terminus deadlock.
         foreach (ac in Air.ScanCandidates(this.railtype)) cands.append(ac);
+        // Road (Phase 3): short-haul bus/truck candidates - cheap infra wins for
+        // short, low-volume hauls air/rail won't bother with.
+        foreach (rc in Road.ScanCandidates(this.railtype)) cands.append(rc);
         // INDUSTRY-CHAIN BIAS: if a candidate's producer is an industry we ALREADY
         // supply (it's the accepter of one of our routes), boost it - hauling the
         // product onward to the next chain stage (raw -> processed -> goods) is
@@ -171,6 +175,18 @@ function MvBAI::Start() {
                 }
                 Money.EnsureFunds(need);
                 if (Air.TryBuild(this.state, c)) { built_one = true; break; }
+                continue;
+            }
+            // ROAD candidate (Phase 3): own affordability + builder.
+            if (("road" in c) && c.road) {
+                if (this.state.ProducerServed(c.producer)) continue;
+                local rveh = Road.VehicleSet(c.cargo);
+                local rneed = c.distance * 400 + 2 * 4000 + 2000
+                            + (rveh != null ? rveh.price : 20000);
+                rneed += rneed / 3;
+                if (!Money.HasFunds(rneed)) continue;
+                Money.EnsureFunds(rneed);
+                if (Road.TryBuild(this.state, c)) { built_one = true; break; }
                 continue;
             }
             // One route per producer (ANY industry - mine, forest, oil well,

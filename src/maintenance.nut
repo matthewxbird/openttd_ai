@@ -88,6 +88,15 @@ class Maintenance {
                 }
                 continue;
             }
+            // ROAD routes (Phase 3): thin lifecycle, no rail track/stuck logic.
+            if (("road" in r) && r.road) {
+                if (r.status == "condemning") {
+                    if (Road.CheckCondemning(state, r)) condemned_done.push(r);
+                } else {
+                    Road.MaintainRoute(state, r);
+                }
+                continue;
+            }
             if (r.status == "built") {
                 Maintenance._CheckRoute(state, railtype, r);
             } else if (r.status == "probation") {
@@ -107,6 +116,7 @@ class Maintenance {
     static function NeedsMoreCapacity(state) {
         foreach (_, r in state.routes) {
             if (("air" in r) && r.air) continue;   // air scales itself (Air.MaintainRoute)
+            if (("road" in r) && r.road) continue; // road scales itself (Road.MaintainRoute)
             if (r.status != "built" || r.depot_tile == null) continue;
             local waiting = AIStation.GetCargoWaiting(r.src_station.station_id, r.cargo);
             if (waiting < Maintenance.WAITING_FOR_EXTRA) continue;

@@ -94,7 +94,8 @@ class State {
     // reusing an industry station for a same-numbered town (or vice versa).
     function FindExistingStation(id, is_source, is_town = false) {
         foreach (_, r in this.routes) {
-            if (("air" in r) && r.air) continue;   // air manages its own airports
+            if (("air" in r) && r.air) continue;    // air manages its own airports
+            if (("road" in r) && r.road) continue;  // road manages its own stops
             if (is_source && r.producer == id && r.src_station != null) return r.src_station;
             if (!is_source && r.accepter == id && r.dst_station != null) {
                 local r_town = ("acc_is_town" in r) ? r.acc_is_town : false;

@@ -124,8 +124,9 @@ class Estimator {
     // vehicleType selects the mode; only VT_RAIL is implemented today - road/air
     // return null until Phases 3/2 add them, so the mode picker simply skips them.
     static function UnitEconomics(vehicleType, cargo, dist, railtype) {
-        if (vehicleType == AIVehicle.VT_AIR) return Estimator._AirUnit(cargo, dist);
-        if (vehicleType != AIVehicle.VT_RAIL) return null;   // road: Phase 3
+        if (vehicleType == AIVehicle.VT_AIR)  return Estimator._AirUnit(cargo, dist);
+        if (vehicleType == AIVehicle.VT_ROAD) return Estimator._RoadUnit(cargo, dist);
+        if (vehicleType != AIVehicle.VT_RAIL) return null;
 
         local set = Estimator.EngineSet(cargo, railtype);
         if (set == null) return null;
@@ -167,6 +168,28 @@ class Estimator {
             trip_days              = trip_days,
             payment_per_unit       = AICargo.GetCargoIncome(cargo, fly, trip_days),
             build_cost             = 2 * Air.AIRPORT_COST_EST + plane.price,
+        };
+    }
+
+    // Per-(cargo,distance) unit economics for ROAD. Roads wind a bit (factor
+    // 1.3); a road vehicle is slow but the infrastructure is cheap (drive-through
+    // stops + depot + per-tile road), so road wins for SHORT, low-volume hauls.
+    static function _RoadUnit(cargo, dist) {
+        local veh = Road.VehicleSet(cargo);
+        if (veh == null) return null;
+        local road_dist = (dist.tofloat() * 1.3).tointeger();
+        local trip_days = (road_dist.tofloat()
+                           / (veh.speed.tofloat() * Estimator.TILES_PER_DAY_PER_KMH)).tointeger();
+        if (trip_days < 1) trip_days = 1;
+        // Cheap infra: ~400/tile road + 2 drive-through stops (~4000 each) + depot.
+        local build_cost = dist * 400 + 2 * 4000 + 2000 + veh.price;
+        return {
+            mode                   = AIVehicle.VT_ROAD,
+            capacity_per_train     = veh.capacity,
+            running_cost_per_train = veh.running_cost,
+            trip_days              = trip_days,
+            payment_per_unit       = AICargo.GetCargoIncome(cargo, road_dist, trip_days),
+            build_cost             = build_cost,
         };
     }
 
