@@ -208,6 +208,9 @@ function MvBAI::Start() {
                 }
                 Money.EnsureFunds(need);
                 if (Air.TryBuild(this.state, c)) { built_one = true; break; }
+                // Build failed - blacklist so the fast loop doesn't retry this
+                // doomed pair every tick (was spamming thousands of failed builds).
+                this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
                 continue;
             }
             // ROAD candidate (Phase 3): own affordability + builder.
@@ -220,6 +223,7 @@ function MvBAI::Start() {
                 if (!Money.HasFunds(rneed)) continue;
                 Money.EnsureFunds(rneed);
                 if (Road.TryBuild(this.state, c)) { built_one = true; break; }
+                this.state.blacklist.Add(c.cargo, c.producer, c.accepter);   // don't retry a doomed pair every tick
                 continue;
             }
             // One route per producer (ANY industry - mine, forest, oil well,
@@ -533,8 +537,15 @@ function MvBAI::_FailRoute(c, route, new_src, new_dst) {
     }
 
     // Helper: demolish a tile only if it's safe (not a station tile, not in a
-    // protected zone belonging to another route).
-    local safe_demolish = function(t) : (prot_tiles) {
+    // protected zone belonging to another route). THROTTLE demolitions inside a
+    // town's local-authority zone: clearing many tiles fast near a town tanks our
+    // rating (then airports/stations there get REFUSED - a cascade). 1-2 is fine;
+    // beyond that we LEAVE our own abandoned rail (harmless, the pair is
+    // blacklisted) rather than sour the town. `near_town_demos` counts via a
+    // 1-element array so the closure can mutate it.
+    local near_town_demos = [0];
+    local TOWN_DEMO_CAP = 2;
+    local safe_demolish = function(t) : (prot_tiles, near_town_demos, TOWN_DEMO_CAP) {
         if (!AIMap.IsValidTile(t)) return;
         if (AIRail.IsRailStationTile(t)) return;          // never a station
         if (t in prot_tiles) return;                      // shared/other-route area
@@ -542,6 +553,12 @@ function MvBAI::_FailRoute(c, route, new_src, new_dst) {
         // isn't ours to demolish (the call would fail anyway), and we must not
         // count it as cleaned. Only demolish rail that is ours / unowned ground.
         if (AIRail.IsRailTile(t) && !AICompany.IsMine(AITile.GetOwner(t))) return;
+        // Within a town's authority? Cap how many we clear to protect our rating.
+        local town = AITile.GetTownAuthority(t);
+        if (AITown.IsValidTown(town)) {
+            if (near_town_demos[0] >= TOWN_DEMO_CAP) return;   // leave it; protect rating
+            near_town_demos[0]++;
+        }
         AITile.DemolishTile(t);
     };
 

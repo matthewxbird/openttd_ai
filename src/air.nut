@@ -181,9 +181,23 @@ class Air {
             // Test passed; commit for real.
             local em = AIExecMode();
             if (!AIAirport.BuildAirport(origin, atype, AIStation.STATION_NEW)) {
-                Log.Warn(Log.PHASE_STATION,
-                    "Airport build failed at " + origin + ": " + AIError.GetLastErrorString());
-                return null;
+                // LOCAL AUTHORITY refused? Lift our rating with trees and retry
+                // once - rivals (and our own demolitions) can sour a town.
+                if (TownAuthority.WasRefused()) {
+                    TownAuthority.PlantTrees(town);
+                    if (AIAirport.BuildAirport(origin, atype, AIStation.STATION_NEW)) {
+                        // fall through to success below
+                    } else {
+                        Log.Warn(Log.PHASE_STATION,
+                            "Airport still refused after trees at " + origin + ": "
+                            + AIError.GetLastErrorString());
+                        continue;   // try another tile/type
+                    }
+                } else {
+                    Log.Warn(Log.PHASE_STATION,
+                        "Airport build failed at " + origin + ": " + AIError.GetLastErrorString());
+                    continue;   // try another tile/type rather than abandoning outright
+                }
             }
             local sid = AIStation.GetStationID(origin);
             Log.Info(Log.PHASE_STATION,

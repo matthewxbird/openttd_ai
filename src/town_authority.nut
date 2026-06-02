@@ -27,6 +27,31 @@ class TownAuthority {
         return cash >= min_cash_after;    // only when comfortably affordable
     }
 
+    // Raise our LOCAL-AUTHORITY rating in a town by planting a block of trees
+    // near its centre (cheap, ~£1-2k, and authorities love trees). Use this to
+    // recover from ERR_LOCAL_AUTHORITY_REFUSES before retrying a build (airport/
+    // station), or proactively when a town's rating is poor. Mirrors AAAHogEx.
+    static function PlantTrees(town) {
+        if (!AITown.IsValidTown(town)) return;
+        local c   = AITown.GetLocation(town);
+        local cx  = AIMap.GetTileX(c), cy = AIMap.GetTileY(c);
+        local mx  = AIMap.GetMapSizeX(), my = AIMap.GetMapSizeY();
+        local x1  = cx - 10, y1 = cy - 10;
+        if (x1 < 1) x1 = 1; if (y1 < 1) y1 = 1;
+        if (x1 + 20 >= mx) x1 = mx - 21; if (y1 + 20 >= my) y1 = my - 21;
+        if (x1 < 1) x1 = 1; if (y1 < 1) y1 = 1;
+        local before = AITown.GetRating(town, AICompany.COMPANY_SELF);
+        AITile.PlantTreeRectangle(AIMap.GetTileIndex(x1, y1), 20, 20);
+        Log.Info(Log.PHASE_STATION,
+            "[authority] planted trees at " + AITown.GetName(town)
+            + " to lift rating (was " + before + ").");
+    }
+
+    // True if the LAST AIError was a local-authority refusal.
+    static function WasRefused() {
+        return AIError.GetLastError() == AIError.ERR_LOCAL_AUTHORITY_REFUSES;
+    }
+
     // -- AI* glue ---------------------------------------------------------
     // Once per tick, look at every route that delivers into a town and build a
     // statue there if we should. Cheap: most ticks every served town already

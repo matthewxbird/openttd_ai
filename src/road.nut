@@ -189,9 +189,17 @@ class Road {
         }
         if (!AIRoad.BuildDriveThroughRoadStation(tile, front, veh_type, AIStation.STATION_NEW)
                 && !AIRoad.IsRoadStationTile(tile)) {
-            Log.Warn(Log.PHASE_STATION,
-                "[road] stop build failed at " + tile + ": " + AIError.GetLastErrorString());
-            return null;
+            // LOCAL AUTHORITY refused? Lift rating with trees, retry once.
+            if (TownAuthority.WasRefused()) {
+                local town = AITile.GetTownAuthority(tile);
+                if (AITown.IsValidTown(town)) TownAuthority.PlantTrees(town);
+            }
+            if (!AIRoad.BuildDriveThroughRoadStation(tile, front, veh_type, AIStation.STATION_NEW)
+                    && !AIRoad.IsRoadStationTile(tile)) {
+                Log.Warn(Log.PHASE_STATION,
+                    "[road] stop build failed at " + tile + ": " + AIError.GetLastErrorString());
+                return null;
+            }
         }
         local sid = AIStation.GetStationID(tile);
         return { station_id = sid, tile = tile, front = front, road = true };
