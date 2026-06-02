@@ -1,13 +1,25 @@
-# MvB AI — an OpenTTD NoAI script
+# MvB AI — a multi-modal OpenTTD NoAI script
 
-A learning-project AI for OpenTTD. It scans the map for the most
-profitable producer→accepter cargo pair (by ROI across **all** cargoes,
-not just coal), builds a double-track rail line with stations + depot
-between them, dispatches a train, then loops to add more routes as
-funds allow.
+A competitive AI for OpenTTD. It scans the whole map and ranks every
+candidate route — **across rail, air and road** — on a shared
+economic *value surface* (per-mode, per-cargo, per-distance estimates),
+then builds whichever mode wins for each opportunity:
+
+- **Aircraft** — town↔town passenger & mail shuttles. Fastest early cash,
+  no track to misbuild, no terminus deadlock; the biggest single earner.
+- **Rail** — high-volume industry trunks (single- or double-track chosen
+  per route), with **backhaul** (loaded return legs) where geography allows.
+- **Road** — cheap short-haul bus/truck routes + **intra-town bus feeders**
+  that transfer passengers into airport trunks (extends catchment).
+
+It runs strict money discipline (borrow just-in-time, repay to a buffer),
+a route lifecycle (probation → built → condemn/retire), and is hardened for
+**competition**: ownership-aware pathfinding that routes around / over rival
+track, and structured build-failure diagnostics (it can't screenshot, so it
+explains failures and dumps an annotated ASCII map).
 
 Heavy in-game logging at every phase so you can watch it think in the
-AI Debug window.
+AI Debug window. See `PLAN.md` for the full design + measured benchmarks.
 
 ---
 
@@ -35,23 +47,12 @@ AI Debug window.
    ai\MvB_AI\
      info.nut
      main.nut
-     src\
-       logger.nut
-       money.nut
-       railtype.nut
-       scoring.nut
-       candidates.nut
-       cargo_scan.nut
-       station_builder.nut
-       depot_builder.nut
-       track_builder.nut
-       signals.nut
-       trains.nut
-       route.nut
-       state.nut
-       autoreplace.nut
-       aystar.nut
-       rail_pf.nut
+     src\        (copy the whole folder - estimator, air, road, backhaul,
+                  cargo_scan, scoring, strategy, money, candidates, route,
+                  state, station_builder, depot_builder, terminus, signals,
+                  track_builder, rail_pf, aystar, trains, railtype, autoreplace,
+                  maintenance, planner, town_authority, junction_builder,
+                  build_diag, map_dump, logger ...)
    ```
 
    **For development**, symlink instead of copying so edits flow through.
@@ -171,25 +172,38 @@ ALL TESTS PASSED
 
 ---
 
-## What works in v1
+## What works now
 
-- Multi-cargo scan, ROI ranking across all (producer, accepter) pairs.
-- Double-track rail between picked pair.
-- Station + depot + PBS one-way signals.
-- Engine + wagon pick by cost-effectiveness, distance-sized trains.
-- Loop: keep adding routes as cash allows.
-- Reuse stations at industries we already serve.
-- Yearly autoreplace via AIGroup.
-- Max loan on boot, surplus repaid when cash is healthy.
+- **Multi-modal value surface** — every candidate (rail / air / road) ranked
+  together by estimated annual profit; the winning mode falls out of the
+  economics per cargo & distance (`src/estimator.nut`).
+- **Aircraft** (`src/air.nut`) — town↔town pax + mail; largest-airport-that-fits
+  siting, airport-size plane scaling, continuous-shuttle orders, thin lifecycle.
+- **Rail** — single- or double-track per route (cheapest layout that works),
+  PBS signals, single-track salvage, **backhaul** loaded return legs
+  (`src/backhaul.nut`), spur depots, capacity scaling, route retirement.
+- **Road** (`src/road.nut`) — compact road A*, drive-through stops, short-haul
+  bus/truck routes, and **intra-town bus feeders** transferring into airports.
+- **Money discipline** (`src/money.nut`) — borrow just-in-time per build, repay
+  the loan down to an operating buffer; affordability gates on usable money.
+- **Competition hardening** (Phase 8) — ownership-aware pathfinding (routes
+  around / grade-separates over rival track, never builds on foreign tiles) and
+  structured build-failure diagnostics + owner-annotated ASCII map dumps
+  (`src/build_diag.nut`, `src/map_dump.nut`).
+- **Lifecycle** — probation → built → condemn/retire; never orphans vehicles.
+- Town authority statues; yearly autoreplace.
 
-## Not in v1 (planned)
+## Measured (solo, headless benchmark)
 
-- Save/Load (currently stubbed — restarted game forgets state).
-- Multi-train per route.
-- Road / aircraft / ship support.
-- Smarter station orientation (currently tries two cardinal layouts).
-- Parallel double-track that hugs the first track (currently both
-  tracks pathfind independently).
+Aircraft was the biggest lever: solo company value **1.09M → 2.77M (+154%)**
+on the 5-seed × {128,256} suite. See `PLAN.md` and `tools/run_bench.ps1`.
+
+## Not yet
+
+- Save/Load (stubbed — a restarted game forgets state).
+- Ships / water gaps.
+- Junction-template corridor sharing wired into live routing (Phase 6, deferred).
+- Refit-aware multi-cargo backhaul; demand-driven supply chains.
 
 ---
 
