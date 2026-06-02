@@ -91,43 +91,57 @@ function MvBAI::Start() {
 
     Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan/build loop.");
 
-    while (true) {
-        // 0. Health pass: check existing lines + trains before building more.
-        //    Reports cargo waiting + station ratings, flags stuck trains, and
-        //    tops up busy routes with another train.
-        Maintenance.Tick(this.state, this.railtype);
+    // Persisted across iterations so the loop spends its ticks BUILDING from a
+    // cached ranking rather than re-scanning the whole map every tick. AAHOG
+    // works continuously and uses its full opcode budget each tick; long Sleep()
+    // idles waste game-time we should spend expanding. We therefore: (a) run the
+    // health pass on its own spaced cadence, (b) re-scan only periodically and
+    // reuse the ranking between scans, (c) build with a tiny sleep so routes go
+    // up back-to-back.
+    local ranked     = [];
+    local last_scan  = -1000000;
+    local last_maint = -1000000;
+    local SCAN_INTERVAL  = 250;   // ticks between full map re-scans
+    local MAINT_INTERVAL = 900;   // ticks between health passes (stuck/probation
+                                  // heuristics compare positions across calls -
+                                  // must stay spaced, else a train paused at a
+                                  // signal reads as "stuck")
 
-        // 1. Scan + rank. The scan runs each candidate through the estimator,
-        //    which simulates the real fleet on this railtype to score it.
-        local cands  = CargoScan.Scan(this.railtype);
-        // MULTI-MODAL: air (Phase 2) town<->town passenger candidates rank
-        // ALONGSIDE rail pairs on the shared value surface. Air = fast early
-        // cash, no track to misbuild, no terminus deadlock.
-        foreach (ac in Air.ScanCandidates(this.railtype)) cands.append(ac);
-        // Road (Phase 3): short-haul bus/truck candidates - cheap infra wins for
-        // short, low-volume hauls air/rail won't bother with.
-        foreach (rc in Road.ScanCandidates(this.railtype)) cands.append(rc);
-        // INDUSTRY-CHAIN BIAS: if a candidate's producer is an industry we ALREADY
-        // supply (it's the accepter of one of our routes), boost it - hauling the
-        // product onward to the next chain stage (raw -> processed -> goods) is
-        // where the big money is. This makes the AI complete chains it started.
-        // ADAPTIVE PROFIT MODEL: pick the objective for this tick (grow capital
-        // / grow throughput / squeeze each vehicle) from the company's state,
-        // then re-score every candidate by that objective before ranking.
-        local mode = Strategy.DecideFromGame();
-        Strategy.Apply(cands, mode);
-        // GAME-PHASE DOCTRINE: EARLY (land-grab) builds cheap single-track
-        // one-train lines; MID/LATE build full double track. Decided from how
-        // many lines we've proven so far.
-        local phase = Strategy.GamePhaseFromGame(this.state);
-        foreach (c in cands) {
-            if (this.state.SuppliesIndustry(c.producer)) {
-                c.score = Scoring.ChainBoost(c.score);
-            }
+    while (true) {
+        local now = AIController.GetTick();
+
+        // 0. Health pass on its OWN cadence (decoupled from the fast build loop).
+        if (now - last_maint >= MAINT_INTERVAL) {
+            Maintenance.Tick(this.state, this.railtype);
+            last_maint = now;
         }
-        local ranked = Candidates.Rank(cands, this.state.blacklist);
-        CargoScan.LogPerCargoBest(ranked);
-        CargoScan.LogTop(ranked, 5);
+
+        // 1. Scan + rank periodically; REUSE the ranking between scans so ticks
+        //    go to building, not rescanning an unchanged map. The scan runs each
+        //    candidate (rail/air/road) through the estimator value surface.
+        if (now - last_scan >= SCAN_INTERVAL || ranked.len() == 0) {
+            local cands = CargoScan.Scan(this.railtype);
+            // MULTI-MODAL: air + road candidates rank ALONGSIDE rail on the
+            // shared value surface (best mode per cargo/distance falls out).
+            foreach (ac in Air.ScanCandidates(this.railtype)) cands.append(ac);
+            foreach (rc in Road.ScanCandidates(this.railtype)) cands.append(rc);
+            // ADAPTIVE PROFIT MODEL: pick the objective from company state, then
+            // re-score by it. INDUSTRY-CHAIN BIAS: boost hauling the output of an
+            // industry we already supply (complete the chain we started).
+            local mode = Strategy.DecideFromGame();
+            Strategy.Apply(cands, mode);
+            foreach (c in cands) {
+                if (this.state.SuppliesIndustry(c.producer)) c.score = Scoring.ChainBoost(c.score);
+            }
+            ranked = Candidates.Rank(cands, this.state.blacklist);
+            CargoScan.LogPerCargoBest(ranked);
+            CargoScan.LogTop(ranked, 5);
+            last_scan = now;
+        }
+
+        // GAME-PHASE DOCTRINE: EARLY land-grab builds cheap single-track lines;
+        // MID/LATE build double track. Cheap to recompute each tick.
+        local phase = Strategy.GamePhaseFromGame(this.state);
 
         // 2. Try to build the best candidate we haven't already built.
         //    But DON'T start a new line while another is still on probation -
@@ -258,10 +272,12 @@ function MvBAI::Start() {
             "Tick done. Routes=" + this.state.CountRoutes()
             + " Blacklist=" + this.state.blacklist.Size()
             + " Cash=" + Money.Cash());
-        // Sleep: short after a build (keep momentum); short while HOLDING so
-        // scaling + probation checks + planning iterate quickly (no long idle
-        // pause); longer only when genuinely idle with nothing to do.
-        this.Sleep(built_one ? 500 : (holding ? 300 : 2220));
+        // Tiny sleep: keep working every tick (build itself suspends the AI per
+        // command, so we don't burn a whole tick). After a build, immediately try
+        // the next (Sleep 1) so routes go up back-to-back; while HOLDING, a short
+        // wait; when idle (nothing affordable/buildable), wait toward the next
+        // re-scan rather than a long dead idle.
+        this.Sleep(built_one ? 1 : (holding ? 20 : 50));
     }
 }
 
