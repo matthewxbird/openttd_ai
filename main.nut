@@ -10,6 +10,7 @@ require("src/railtype.nut");
 require("src/scoring.nut");
 require("src/build_diag.nut");
 require("src/estimator.nut");
+require("src/air.nut");
 require("src/strategy.nut");
 require("src/candidates.nut");
 require("src/cargo_scan.nut");
@@ -97,6 +98,10 @@ function MvBAI::Start() {
         // 1. Scan + rank. The scan runs each candidate through the estimator,
         //    which simulates the real fleet on this railtype to score it.
         local cands  = CargoScan.Scan(this.railtype);
+        // MULTI-MODAL: air (Phase 2) town<->town passenger candidates rank
+        // ALONGSIDE rail pairs on the shared value surface. Air = fast early
+        // cash, no track to misbuild, no terminus deadlock.
+        foreach (ac in Air.ScanCandidates(this.railtype)) cands.append(ac);
         // INDUSTRY-CHAIN BIAS: if a candidate's producer is an industry we ALREADY
         // supply (it's the accepter of one of our routes), boost it - hauling the
         // product onward to the next chain stage (raw -> processed -> goods) is
@@ -148,16 +153,32 @@ function MvBAI::Start() {
         } else
         foreach (c in ranked) {
             if (this.state.HasRoute(c.cargo, c.producer, c.accepter)) continue;
+            if (c.score <= 0) {
+                Log.Info(Log.PHASE_RANK, "Top remaining candidate has non-positive ROI; idle.");
+                break;
+            }
+            // AIR candidate (Phase 2): own affordability + builder, then continue
+            // to the next candidate on success/failure (no rail path).
+            if (("air" in c) && c.air) {
+                if (this.state.ProducerServed(c.producer)) continue;  // one air route per source town
+                local plane = Air.PlaneSet(c.cargo);
+                local need  = 2 * Air.AIRPORT_COST_EST
+                            + (plane != null ? plane.price : 50000);
+                need += need / 3;
+                if (!Money.HasFunds(need)) {
+                    Log.Info(Log.PHASE_MONEY, "Skip AIR (need ~" + need + ", have " + Money.Cash() + ")");
+                    continue;
+                }
+                Money.EnsureFunds(need);
+                if (Air.TryBuild(this.state, c)) { built_one = true; break; }
+                continue;
+            }
             // One route per producer (ANY industry - mine, forest, oil well,
             // farm, factory...): if this producer already feeds a line, don't
             // start a second (less profitable) one from it - scale the existing
             // route instead. Bringing OTHER producers to the same accepter is
             // still allowed (different producer => not skipped here).
             if (this.state.ProducerServed(c.producer)) continue;
-            if (c.score <= 0) {
-                Log.Info(Log.PHASE_RANK, "Top remaining candidate has non-positive ROI; idle.");
-                break;
-            }
             // Affordability: require the FULL estimate plus a margin for
             // overruns the estimate under-counts (terraforming, bridges) and
             // an operating buffer. Don't sink the whole bank into one

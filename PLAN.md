@@ -307,17 +307,32 @@ turns guaranteed losses into live games.)*
 **Done when:** the scan ranks dozens of cross-mode candidates by value in one
 pass; logged top-N shows the chosen mode per candidate.
 
-### Phase 2 — Aircraft (early-cash engine) *(explosive ROI, low rail-risk)*
+### Phase 2 — Aircraft (early-cash engine) *(IMPLEMENTED — commits d66a8db, e49b778)*
 
 Air sidesteps our fragile track builder entirely — 2 airports + planes + orders.
 
-- `src/air.nut`: airport siting (town pax/mail), plane selection, orders; reuse
-  `Estimator.Compute` for the economics (it's mode-agnostic).
-- Add `VT_AIR` candidates to the value surface; an air route lifecycle that
-  skips rail-only maintenance.
+DONE: `src/air.nut` — airport siting (search near town centre, noise-aware,
+test-build before commit), plane selection (cap×speed/runcost, big-plane gated
+to big-airport availability), town↔town **passenger** candidate generation,
+and a THIN air lifecycle (`Air.MaintainRoute` / `Air.CheckCondemning`: prune
+dead planes, add on backlog, condemn a dud — no track/stuck/deadlock logic).
+`Estimator.UnitEconomics(VT_AIR,…)` prices air on the shared value surface;
+air candidates rank ALONGSIDE rail in the main loop; rail `Maintenance` /
+`NeedsMoreCapacity` / `State.FindExistingStation` skip `air=true` routes.
 
-**Done when:** in the opening years the AI seeds a few high-ROI air routes that
-fund rapid expansion; `run_bench` company value in year ~5 jumps materially.
+**BIGGEST LEVER SO FAR. Measured solo, 5 seeds × {128,256}, 12y:**
+```
+                     128         256          overall
+main baseline        901,937     1,283,232    1,092,584
++ air (shuttle)      1,399,792   4,148,650    2,774,221   (+154%)
+```
+Key tuning: **continuous-shuttle orders** (AppendOrder flag = literal `0`, NOT
+OF_FULL_LOAD_ANY) beat full-load by +75% — full-load idled planes topping off
+on thin pairs (few trips/yr); shuttle = many trips/yr, revenue scales with
+trips. Native backhaul (both towns produce pax). 256 gains most (long hops).
+Untested levers: MAIL cargo, MAX_PLANES (5), MAX_TOWNS (12), distance window.
+
+**Done when:** ✅ company value jumps materially (achieved: +154% solo).
 
 ### Phase 3 — Road mode + feeders *(unlocks short hauls + network density)*
 
@@ -355,7 +370,22 @@ instead of laying redundant parallel track. Station templates for clean throats.
 Sharpen `maintenance.nut`: overflow-trend detection → +trains / longer trains /
 split routes; periodic rebalance. (Route retirement already in.)
 
-### Phase 8 — Foreign-track-aware building & track-build debuggability *(NEW — competition-critical)*
+### Phase 8 — Foreign-track-aware building & track-build debuggability *(IMPLEMENTED — commit 4fee1a9 + follow-ups)*
+
+DONE: ownership-aware pathfinding (`rail_pf.nut`: foreign rail priced as a
+near-wall `_cost_foreign_rail`, neighbour guard skips flat joins onto non-own
+tiles so paths detour or grade-separate), graceful avoid-set **detour/reroute**
+(`track_builder._RunPathfinder`, MAX_REBUILD attempts) + repair-pass terraform,
+structured **build-failure reports** wired into the builder (`build_diag.nut`,
+classifies ERR_UNKNOWN from tile facts — owner/rail/water/station/buildable),
+owner-annotated ASCII map dump, and foreign-safe cleanup (`_FailRoute` never
+demolishes non-owned rail). Classifier + cross-cost are unit-tested.
+Remaining (optional debug polish, not built): PF trace-mode, scripted 1v1
+foreign-corridor regression scenario.
+
+Original spec below.
+
+
 
 **Problem (measured behaviour):** our pathfinder (`src/rail_pf.nut`) costs and
 *joins* any tile where `AIRail.IsRailTile()` is true, but it does **not** check

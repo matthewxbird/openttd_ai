@@ -124,7 +124,8 @@ class Estimator {
     // vehicleType selects the mode; only VT_RAIL is implemented today - road/air
     // return null until Phases 3/2 add them, so the mode picker simply skips them.
     static function UnitEconomics(vehicleType, cargo, dist, railtype) {
-        if (vehicleType != AIVehicle.VT_RAIL) return null;   // road/air: Phases 3/2
+        if (vehicleType == AIVehicle.VT_AIR) return Estimator._AirUnit(cargo, dist);
+        if (vehicleType != AIVehicle.VT_RAIL) return null;   // road: Phase 3
 
         local set = Estimator.EngineSet(cargo, railtype);
         if (set == null) return null;
@@ -146,9 +147,33 @@ class Estimator {
         };
     }
 
-    // The modes we will weigh, cheapest-infrastructure first. Road/air are no-ops
-    // (UnitEconomics returns null) until their phases land, but listing them here
-    // means the global ranking becomes multi-modal the moment they do.
+    // Per-(cargo,distance) unit economics for AIR. Planes fly near-straight, so
+    // the effective distance is ~euclidean (cheaper than rail's detour factor),
+    // and the fleet is fast with no track to build - just two airports + plane.
+    static function _AirUnit(cargo, dist) {
+        local plane = Air.PlaneSet(cargo);
+        if (plane == null) return null;
+        // Euclidean-ish flight distance from the manhattan span.
+        local air_dist = dist;   // dist is already manhattan; planes ~0.8x of it
+        local fly = (air_dist.tofloat() * 0.8).tointeger();
+        if (fly < 1) fly = 1;
+        local trip_days = (fly.tofloat()
+                           / (plane.speed.tofloat() * Estimator.TILES_PER_DAY_PER_KMH)).tointeger();
+        if (trip_days < 1) trip_days = 1;
+        return {
+            mode                   = AIVehicle.VT_AIR,
+            capacity_per_train     = plane.capacity,
+            running_cost_per_train = plane.running_cost,
+            trip_days              = trip_days,
+            payment_per_unit       = AICargo.GetCargoIncome(cargo, fly, trip_days),
+            build_cost             = 2 * Air.AIRPORT_COST_EST + plane.price,
+        };
+    }
+
+    // The modes we will weigh, cheapest-infrastructure first. Road is a no-op
+    // (UnitEconomics returns null) until Phase 3. Air is estimated explicitly by
+    // the air scan (mode=VT_AIR), not via this default rail-pair loop, so it
+    // stays out of MODES (rail industry pairs must not be priced as flights).
     static MODES = [AIVehicle.VT_RAIL];
 
     // Full estimate for a candidate route, choosing the BEST available mode at

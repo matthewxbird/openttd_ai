@@ -78,6 +78,16 @@ class Maintenance {
         // Collect routes to delete after the loop (don't mutate while iterating).
         local condemned_done = [];
         foreach (key, r in state.routes) {
+            // AIR routes (Phase 2) have a thin, separate lifecycle - no track,
+            // no stuck/deadlock logic. Hand them to Air and skip the rail passes.
+            if (("air" in r) && r.air) {
+                if (r.status == "condemning") {
+                    if (Air.CheckCondemning(state, r)) condemned_done.push(r);
+                } else {
+                    Air.MaintainRoute(state, r);
+                }
+                continue;
+            }
             if (r.status == "built") {
                 Maintenance._CheckRoute(state, railtype, r);
             } else if (r.status == "probation") {
@@ -96,6 +106,7 @@ class Maintenance {
     // does NOT block - we can't scale it further.
     static function NeedsMoreCapacity(state) {
         foreach (_, r in state.routes) {
+            if (("air" in r) && r.air) continue;   // air scales itself (Air.MaintainRoute)
             if (r.status != "built" || r.depot_tile == null) continue;
             local waiting = AIStation.GetCargoWaiting(r.src_station.station_id, r.cargo);
             if (waiting < Maintenance.WAITING_FOR_EXTRA) continue;
