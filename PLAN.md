@@ -334,7 +334,17 @@ Untested levers: MAIL cargo, MAX_PLANES (5), MAX_TOWNS (12), distance window.
 
 **Done when:** ✅ company value jumps materially (achieved: +154% solo).
 
-### Phase 3 — Road mode + feeders *(unlocks short hauls + network density)*
+### Phase 3 — Road mode + feeders *(IMPLEMENTED — commit 9f1bea4)*
+
+DONE: `src/road.nut` — compact road A* (reuses AyStar; routes over flat/dry
+land + existing road, avoids water, never builds on foreign property),
+drive-through stops, road depot, road vehicles with continuous-shuttle orders,
+thin lifecycle (`Road.MaintainRoute`/`CheckCondemning`). `Estimator` VT_ROAD
+unit economics (cheap infra) so road wins SHORT, low-volume hauls. Town↔town
+short-hop bus candidates rank on the shared value surface with rail + air.
+Feeders into trunks = Phase 9. Original spec below.
+
+### Phase 3 (orig) — Road mode + feeders *(unlocks short hauls + network density)*
 
 - `src/road/`: road pathfinder, drive-through stops, depots; `VT_ROAD` in the
   value surface; choose road when it beats rail for short/low-volume cargo.
@@ -343,7 +353,16 @@ Untested levers: MAIL cargo, MAX_PLANES (5), MAX_TOWNS (12), distance window.
 **Done when:** the AI builds profitable road routes and road→rail feeders, and
 picks road when it's the cheaper profitable mode.
 
-### Phase 4 — Network effects: backhaul + demand-driven chains *(high gain)*
+### Phase 4 — Network effects: backhaul + demand-driven chains *(IMPLEMENTED (backhaul) — commit ed0a36d)*
+
+DONE: rail same-cargo **backhaul** (`src/backhaul.nut`) — when both endpoints
+mutually produce+accept the cargo, the train loads the return leg too
+(`DispatchTrain backhaul` -> dst order OF_UNLOAD|OF_FULL_LOAD_ANY), ~doubling
+revenue for the same track. Air/road already shuttle loaded both ways.
+TODO: refit-aware multi-cargo backhaul; demand-driven feeder/supply chains.
+Original spec below.
+
+### Phase 4 (orig) — Network effects: backhaul + demand-driven chains *(high gain)*
 
 - **Backhaul:** detect endpoints that mutually produce+accept a cargo; load both
   legs. Start with same-cargo (no refit), then refit-aware where wagons allow.
@@ -359,16 +378,20 @@ output (hence our income) grows over a match.
 Statues implemented. TODO: fund growth actions where it lifts accepted cargo;
 avoid low-rating towns.
 
-### Phase 6 — Junction integration & corridor sharing *(late-game space)*
+### Phase 6 — Junction integration & corridor sharing *(LATE — DEFERRED, low EV)*
 
-Wire `junction_builder` templates into routing (test-mode validated, fall back
-to grade-separated crossing; banned near stations) so routes share trunks
-instead of laying redundant parallel track. Station templates for clean throats.
+`junction_builder.nut` exists (scan/stamp/rotate templates) but is NOT yet
+wired into live routing. Deferred: high-risk to wire blind (could break the
+rail builder that still carries value) and LOW EV now that AIR is the dominant
+earner — corridor sharing matters only once rail trunks are dense. Revisit with
+bench data after the multi-modal stack is tuned.
 
-### Phase 7 — Continuous capacity / overflow tuning
+### Phase 7 — Continuous capacity / overflow tuning *(SUBSTANTIALLY DONE)*
 
-Sharpen `maintenance.nut`: overflow-trend detection → +trains / longer trains /
-split routes; periodic rebalance. (Route retirement already in.)
+`maintenance.nut` already: adds a train on source backlog, lengthens
+under-length trains, retires chronic losers; air/road scale vehicles on
+waiting cargo (own lifecycles). Remaining (optional): overflow-TREND detection
+(vs instantaneous), periodic rebalance, route splitting — tune with bench data.
 
 ### Phase 8 — Foreign-track-aware building & track-build debuggability *(IMPLEMENTED — commit 4fee1a9 + follow-ups)*
 
@@ -443,7 +466,16 @@ now complete (detour or grade-separated crossing) or fail *cleanly* to single
 -track salvage; every build abort produces a structured, owner-annotated
 diagnostic; the foreign-track classifier and cost function are unit-tested.
 
-### Phase 9 — Passenger network & town growth (bus/truck feeders) *(NEW — MID-game growth engine)*
+### Phase 9 — Passenger network & town growth *(IMPLEMENTED — commit 79f0cc3)*
+
+DONE: PAX + MAIL as first-class **air** cargo (a town may hub one pax + one
+mail air route, reusing its airport); intra-town **bus feeders**
+(`Road.BuildFeeder`) that TRANSFER town-centre pax into a proven airport
+station (joined drive-through stop), extending the trunk catchment — feeders
+are never profit-retired (fare credits the trunk). Short-haul road bus rule
+lands via Phase 3. Town growth = Phase 5 statues. Original spec below.
+
+### Phase 9 (orig) — Passenger network & town growth (bus/truck feeders) *(NEW — MID-game growth engine)*
 
 **Why:** towns grow when a nearby station has a good rating and we *transport*
 their passengers/mail and *deliver* accepted cargo (goods, food) — see the
