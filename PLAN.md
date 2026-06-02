@@ -355,12 +355,15 @@ picks road when it's the cheaper profitable mode.
 
 ### Phase 4 — Network effects: backhaul + demand-driven chains *(IMPLEMENTED (backhaul) — commit ed0a36d)*
 
-DONE: rail same-cargo **backhaul** (`src/backhaul.nut`) — when both endpoints
-mutually produce+accept the cargo, the train loads the return leg too
-(`DispatchTrain backhaul` -> dst order OF_UNLOAD|OF_FULL_LOAD_ANY), ~doubling
-revenue for the same track. Air/road already shuttle loaded both ways.
-TODO: refit-aware multi-cargo backhaul; demand-driven feeder/supply chains.
-Original spec below.
+DONE (both halves): (1) rail same-cargo **backhaul** (`src/backhaul.nut`) — when
+both endpoints mutually produce+accept the cargo, the train loads the return leg
+too (~doubling revenue); air/road already shuttle loaded both ways. (2)
+**demand-driven supply chains** — `State.HaulsFrom` + `Scoring.SupplyBoost` (×3)
+boost any candidate delivering the INPUT cargo INTO an industry whose OUTPUT we
+already haul; supplying its inputs grows its production, so our line out of it
+carries more (the mirror of the forward ChainBoost; AAHOG's
+SearchAndBuildToMeetSrcDemand mechanism). TODO (minor): refit-aware multi-cargo
+backhaul. Original spec below.
 
 ### Phase 4 (orig) — Network effects: backhaul + demand-driven chains *(high gain)*
 
