@@ -252,9 +252,13 @@ class Air {
                 && AIEngine.CanRefitCargo(plane.engine, cargo)) {
             AIVehicle.RefitVehicle(v, cargo);
         }
-        // Both legs full-load: both towns produce the cargo (native backhaul).
-        local ok1 = AIOrder.AppendOrder(v, src_st.tile, AIOrder.OF_FULL_LOAD_ANY);
-        local ok2 = AIOrder.AppendOrder(v, dst_st.tile, AIOrder.OF_FULL_LOAD_ANY);
+        // CONTINUOUS SHUTTLE: load whatever pax are waiting and leave at once
+        // (no full-load wait). Both towns produce pax, so both legs load (native
+        // backhaul); not waiting to fill keeps the plane making many trips/year -
+        // far more revenue for the same running cost than idling to top off, and
+        // it avoids the money-losing routes a full-load wait created on thin pairs.
+        local ok1 = AIOrder.AppendOrder(v, src_st.tile, 0);   // no flags: load+leave
+        local ok2 = AIOrder.AppendOrder(v, dst_st.tile, 0);
         if (!ok1 || !ok2 || !AIVehicle.StartStopVehicle(v)) {
             Log.Err(Log.PHASE_TRAIN, "AIR: order/start failed: " + AIError.GetLastErrorString());
             AIVehicle.SellVehicle(v);
