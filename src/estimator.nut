@@ -107,9 +107,25 @@ class Estimator {
         return set;
     }
 
-    // Full estimate for a candidate route. Returns a table of metrics, or null
-    // if no fleet can serve the cargo. AI* glue around the pure Compute().
-    static function Estimate(cargo, dist, production, railtype, max_trains) {
+    // VALUE SURFACE (Phase 1). The economics of a route split cleanly into:
+    //   - UNIT economics: payment per unit, per-train capacity, running cost,
+    //     trip days, build cost - these depend only on (mode, cargo, DISTANCE),
+    //     NOT on how much the producer makes. This is the per-(mode,cargo,dist)
+    //     "value surface" AAAHogEx precomputes and reuses across every place.
+    //   - PRODUCTION scaling: given a producer's output, Compute() sizes the
+    //     fleet and the serviced volume from the unit economics.
+    // Factoring it this way (a) lets us compare MODES at a given cargo/distance
+    // and pick the best (rail today; road/air slot in here in Phases 2/3), and
+    // (b) keeps Compute() - the tested pure core - unchanged.
+
+    // Per-(mode,cargo,distance) unit economics, production-independent. Returns
+    // a params table ready for Compute (minus production/max_trains), with the
+    // chosen `mode`, or null if this mode can't serve the cargo. AI* glue.
+    // vehicleType selects the mode; only VT_RAIL is implemented today - road/air
+    // return null until Phases 3/2 add them, so the mode picker simply skips them.
+    static function UnitEconomics(vehicleType, cargo, dist, railtype) {
+        if (vehicleType != AIVehicle.VT_RAIL) return null;   // road/air: Phases 3/2
+
         local set = Estimator.EngineSet(cargo, railtype);
         if (set == null) return null;
 
@@ -120,19 +136,77 @@ class Estimator {
                            / (set.speed.tofloat() * Estimator.TILES_PER_DAY_PER_KMH)).tointeger();
         if (trip_days < 1) trip_days = 1;
 
-        local payment    = AICargo.GetCargoIncome(cargo, rail_dist, trip_days);
-        local build_cost = Scoring.BuildCostEstimate(dist);
-
-        return Estimator.Compute({
+        return {
+            mode                   = vehicleType,
             capacity_per_train     = set.capacity_per_train,
             running_cost_per_train = set.running_cost_per_train,
             trip_days              = trip_days,
-            production_per_month   = production,
-            payment_per_unit       = payment,
-            build_cost             = build_cost,
-            dist                   = dist,
-            max_trains             = max_trains,
-        });
+            payment_per_unit       = AICargo.GetCargoIncome(cargo, rail_dist, trip_days),
+            build_cost             = Scoring.BuildCostEstimate(dist),
+        };
+    }
+
+    // The modes we will weigh, cheapest-infrastructure first. Road/air are no-ops
+    // (UnitEconomics returns null) until their phases land, but listing them here
+    // means the global ranking becomes multi-modal the moment they do.
+    static MODES = [AIVehicle.VT_RAIL];
+
+    // Full estimate for a candidate route, choosing the BEST available mode at
+    // this cargo/distance. Returns a metrics table (with `mode`), or null if no
+    // mode can serve the cargo. AI* glue around the pure Compute().
+    // `mode` may be forced (a specific AIVehicle.VT_*); default = pick the best.
+    static function Estimate(cargo, dist, production, railtype, max_trains, mode = null) {
+        local modes = (mode != null) ? [mode] : Estimator.MODES;
+        local best = null;
+        foreach (vt in modes) {
+            local ue = Estimator.UnitEconomics(vt, cargo, dist, railtype);
+            if (ue == null) continue;
+            local m = Estimator.Compute({
+                capacity_per_train     = ue.capacity_per_train,
+                running_cost_per_train = ue.running_cost_per_train,
+                trip_days              = ue.trip_days,
+                production_per_month   = production,
+                payment_per_unit       = ue.payment_per_unit,
+                build_cost             = ue.build_cost,
+                dist                   = dist,
+                max_trains             = max_trains,
+            });
+            m.mode <- vt;
+            // Rank modes by annual profit at this place's production (the same
+            // figure the scan ranks pairs on), so the cheaper-infra mode only
+            // wins when it actually earns more here.
+            if (best == null || m.annual_profit > best.annual_profit) best = m;
+        }
+        return best;
+    }
+
+    // Distance buckets for the precomputed value surface: Fibonacci-spaced from
+    // 10 up to `max_dist` (10,20,30,50,80,130,210,...). Dense at short range
+    // where a tile or two changes the economics a lot, sparse at long range
+    // where it doesn't - the same spacing AAAHogEx samples. PURE (unit-tested).
+    static function DistanceBuckets(max_dist) {
+        local out = [];
+        local pred = 10;
+        local d = 10;
+        while (d < max_dist) {
+            out.append(d);
+            local nd = d + pred;
+            pred = d;
+            d = nd;
+        }
+        return out;
+    }
+
+    // Index of the bucket nearest `dist` in a bucket array. PURE (unit-tested).
+    static function NearestBucket(buckets, dist) {
+        if (buckets.len() == 0) return -1;
+        local best = 0;
+        local bestd = abs(buckets[0] - dist);
+        for (local i = 1; i < buckets.len(); i++) {
+            local dd = abs(buckets[i] - dist);
+            if (dd < bestd) { bestd = dd; best = i; }
+        }
+        return best;
     }
 
     // PURE arithmetic - no AI* calls, unit-tested. Takes a params table:

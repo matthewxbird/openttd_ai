@@ -158,12 +158,29 @@ class TrackBuilder {
         }
 
         // --- Pass 2: back track (right platform -> right platform) ---
-        // The out-track tiles are passed as the guide: they (a) seed the
-        // parallel side-bias so the back track hugs ONE side (left-hand
-        // running) and (b) are used as hard ignored_tiles so the back track
-        // can never sit on an out-track tile - guaranteeing the two tracks
-        // never cross.
-        Log.Info(Log.PHASE_TRACK, "Pass 2 (back): straight lead-ins + pathfind dstâ†’src");
+        local back_tiles = TrackBuilder.BuildBackTrack(src, dst, out_tiles);
+
+        // Return a COPY so the caller's list survives the next build's clear().
+        local touched = [];
+        foreach (t in TrackBuilder._touched) touched.push(t);
+        return { out = out_tiles, back = back_tiles, touched = touched };
+    }
+
+    // Build the BACK track of a route whose out track already exists, parallel
+    // to it. Used both by the double-track first build (pass 2) and by the
+    // demand-driven single->double UPGRADE. The out-track tiles guide it: they
+    // (a) seed the parallel side-bias so the back track hugs ONE side (left-hand
+    // running) and (b) are hard ignored_tiles so the back track can never sit on
+    // an out-track tile - guaranteeing the two never cross. Returns the back
+    // tiles or null. Appends to TrackBuilder._touched (caller collects/clears it).
+    static function BuildBackTrack(src, dst, out_tiles) {
+        local src_h = AITile.GetMaxHeight(src.enter_tile);
+        local dst_h = AITile.GetMaxHeight(dst.enter_tile);
+        local global_dir = TrackBuilder._DominantStep(src.enter_tile, dst.enter_tile);
+        local s_pf = TrackBuilder._PickPlatforms(src, global_dir);
+        local d_pf = TrackBuilder._PickPlatforms(dst, global_dir);
+
+        Log.Info(Log.PHASE_TRACK, "Back track: straight lead-ins + pathfind dstâ†’src");
         local s_back = TrackBuilder._BuildLeadIn(s_pf.back.enter, s_pf.back.front, src_h);
         local d_back = TrackBuilder._BuildLeadIn(d_pf.back.enter, d_pf.back.front, dst_h);
         local back_tiles = TrackBuilder._RunPathfinder(
@@ -172,17 +189,13 @@ class TrackBuilder {
             out_tiles,  // guide + no-cross set
             "back");
         if (back_tiles == null) {
-            Log.Warn(Log.PHASE_TRACK, "Back track: pathfinding failed; single track only.");
+            Log.Warn(Log.PHASE_TRACK, "Back track: pathfinding failed.");
             if (TrackBuilder.DEBUG_DUMP) {
                 MapDump.Region(src.enter_tile, dst.enter_tile,
                     [s_back.tip, d_back.tip], "back-fail");
             }
         }
-
-        // Return a COPY so the caller's list survives the next build's clear().
-        local touched = [];
-        foreach (t in TrackBuilder._touched) touched.push(t);
-        return { out = out_tiles, back = back_tiles, touched = touched };
+        return back_tiles;
     }
 
     // Decide which of a station's two platforms the OUT track uses so the out
@@ -368,7 +381,14 @@ class TrackBuilder {
     // Physically lay rail/bridges/tunnels along a tile list.
     // Returns the tile list on success (with warnings for any per-tile errors),
     // or null if the path is too short to be useful.
-    static function _BuildPath(tiles, label) {
+    // `repair`: LAST-RESORT mode (the post-build repair pass). Only then do we
+    // aggressively terraform a failed tile flat / bridge a failed tunnel - on the
+    // FIRST pass we leave failures as gaps for the reroute to detour, because
+    // forcing rail onto terraformed/bridged tiles undoes the pathfinder's
+    // deliberate slope/water avoidance and SLOWS the line (measured: eager
+    // terraform regressed solo ~25%). In repair the alternative is abandoning the
+    // route, so terraforming is pure upside.
+    static function _BuildPath(tiles, label, repair = false) {
         if (tiles == null || tiles.len() < 3) {
             Log.Err(Log.PHASE_TRACK, "[" + label + "] path too short (" +
                 (tiles != null ? tiles.len() : 0) + " tiles)");
@@ -419,10 +439,13 @@ class TrackBuilder {
                         TrackBuilder._Touch(prev);   // we built this; track for cleanup
                     } else if (TrackBuilder._GroundCross(prev, cur, label)) {
                         built++;   // terraformed across instead of tunnelling
+                    } else if (repair && TrackBuilder._BridgeSpan(prev, cur)) {
+                        // Tunnel refused (often ERR_TUNNEL_CANNOT_BUILD_ON_WATER)
+                        // and the span can't be ground-crossed (water). LAST-RESORT
+                        // only: bridge it rather than abandon the route.
+                        bridges++;
                     } else {
-                        Log.Warn(Log.PHASE_TRACK,
-                            "[" + label + "] tunnel build failed at " + prev
-                            + ": " + AIError.GetLastErrorString());
+                        BuildDiag.Report(prev, label, "tunnel span");
                     }
                 } else {
                     local bl = AIBridgeList_Length(step + 1);
@@ -433,9 +456,7 @@ class TrackBuilder {
                     } else if (TrackBuilder._GroundCross(prev, cur, label)) {
                         built++;   // bridge failed (area not clear) - terraform + lay ground rail
                     } else {
-                        Log.Warn(Log.PHASE_TRACK,
-                            "[" + label + "] bridge build failed at " + prev
-                            + ": " + AIError.GetLastErrorString());
+                        BuildDiag.Report(prev, label, "bridge span");
                     }
                 }
                 continue;
@@ -453,20 +474,19 @@ class TrackBuilder {
                 // so a failed-route cleanup never demolishes another route's rail
             } else if (!near_station && !AIRail.IsRailTile(cur)
                     && !AIRail.IsRailStationTile(cur)
-                    && AITile.DemolishTile(cur)
-                    && AIRail.BuildRail(prev, cur, next)) {
-                // Something was in the way (e.g. a stray road tile). Clearing it
-                // and laying rail beats a long detour. NEVER demolish existing
-                // rail/stations (we now route through junctions). Demolish can be
-                // refused by the local authority - then this falls through to the
-                // warn below and the reroute logic handles it.
-                Log.Info(Log.PHASE_TRACK, "[" + label + "] cleared obstacle at " + cur + " to lay rail.");
+                    && TrackBuilder._ClearAndLay(prev, cur, next, repair)) {
+                // Something was in the way (stray road, trees, or - in repair mode
+                // - a slope worth terraforming). Clear it and lay rail - beats a
+                // long detour. NEVER touch existing rail/stations or rival property
+                // (those can't be cleared); _ClearAndLay then fails and we fall
+                // through to the classified report, leaving the gap for the reroute.
+                Log.Info(Log.PHASE_TRACK, "[" + label + "] cleared/terraformed " + cur + " to lay rail.");
                 built++;
                 TrackBuilder._Touch(cur);
             } else {
-                Log.Warn(Log.PHASE_TRACK,
-                    "[" + label + "] rail fail at tile " + cur
-                    + ": " + AIError.GetLastErrorString());
+                // Unbuildable. Emit ONE classified line (owner + tile state, so
+                // "ERR_UNKNOWN" becomes meaningful); the reroute pass detours.
+                BuildDiag.Report(cur, label, "rail step");
             }
         }
 
@@ -475,6 +495,37 @@ class TrackBuilder {
             + bridges + " bridges, " + tunnels + " tunnels, "
             + leveled + " tiles leveled.");
         return tiles;
+    }
+
+    // Recover a single failed flat-rail step on `cur` (between prev and next):
+    // first try CLEARING a clearable obstacle (trees / object / stray road),
+    // then try TERRAFORMING the tile flat (a slope or rough ground that gave
+    // ERR_LAND_SLOPED_WRONG / ERR_AREA_NOT_CLEAR). Both no-op safely on rival
+    // property (DemolishTile / Raise/LowerTile just fail), so this never touches
+    // what isn't ours. Returns true if rail now sits on the tile. (Phase 8)
+    static function _ClearAndLay(prev, cur, next, allow_terraform = false) {
+        // Always try clearing a clearable obstacle (trees / object / stray road).
+        if (AITile.DemolishTile(cur) && AIRail.BuildRail(prev, cur, next)) return true;
+        // Terraforming a slope flat is LAST-RESORT only (repair pass): doing it on
+        // the first pass fights the pathfinder's slope avoidance and slows lines.
+        if (!allow_terraform) return false;
+        TrackBuilder._FlattenToHeight(cur, AITile.GetMaxHeight(cur));
+        return AIRail.BuildRail(prev, cur, next);
+    }
+
+    // Build a rail bridge spanning prev->cur (collinear, distance>=2). Used as a
+    // fallback when a tunnel is refused over water. Returns true on success and
+    // records the near end for cleanup. (Phase 8)
+    static function _BridgeSpan(prev, cur) {
+        local step = AIMap.DistanceManhattan(prev, cur);
+        if (step < 2) return false;
+        local bl = AIBridgeList_Length(step + 1);
+        if (bl.IsEmpty()) return false;
+        if (AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), prev, cur)) {
+            TrackBuilder._Touch(prev);
+            return true;
+        }
+        return false;
     }
 
     // Fallback for a failed bridge/tunnel span: terraform the gap FLAT and lay
@@ -595,7 +646,7 @@ class TrackBuilder {
         Log.Warn(Log.PHASE_TRACK,
             "[" + label + "] track gap at segment " + gap
             + " (tile " + tiles[gap] + ") - attempting repair.");
-        TrackBuilder._BuildPath(tiles, label + ":repair");
+        TrackBuilder._BuildPath(tiles, label + ":repair", true);   // last-resort terraform allowed
         gap = TrackBuilder.FindGap(tiles);
         if (gap == -1) {
             Log.Info(Log.PHASE_TRACK, "[" + label + "] repair succeeded; track now continuous.");

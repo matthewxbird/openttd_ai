@@ -96,18 +96,32 @@ class Strategy {
     // Exit EARLY once this many routes are proven (promoted past probation).
     static EARLY_BUILT_EXIT = 6;
 
-    // EARLY single-track is a CRAMPED-MAP play, not a universal one. Measured:
-    // blanket single-track lifted 128x128 (+19%: cheap, collision-free, dodges the
-    // reversing-terminus deadlock that bites in tight space) but sank 256x256
-    // (-13%: long hauls starve at one train). The discriminator is map congestion,
-    // so we single-track only on small maps; spacious maps build double track for
-    // throughput. Map DIMENSION (tiles per side). TUNE.
-    static EARLY_SINGLE_MAX_MAPDIM = 128;
+    // EARLY single-track is now a PER-ROUTE "simplest that works" decision, not a
+    // blanket map-size switch (AAAHogEx-style: build the cheapest layout the route
+    // actually needs, on any map). The old blanket single-track sank 256x256 (-13%)
+    // because LONG, high-output lines starve on one reversing train; but that's a
+    // throughput problem, not a map-size one. The estimator already sizes the fleet
+    // a route's production justifies (est_num_trains, capped at MAX_TRAINS). So:
+    //   - production a single reversing train can service  -> single-track
+    //     (cheap, fast, collision-free land-grab; claims space) ON ANY MAP.
+    //   - production that needs >=2 trains                  -> double-track
+    //     (the only layout that can run a 2nd train without head-on collision).
+    // This single-tracks the many low/medium-output land-grab lines everywhere
+    // (the speed + footprint the early game wants) while still double-tracking the
+    // few genuinely high-throughput routes that would otherwise starve.
+    static EARLY_SINGLE_MAX_TRAINS = 1;
 
-    // PURE: should an EARLY route on a map of this dimension be built single-track?
-    static function EarlySingleTrack(phase, map_dim) {
-        return phase == "early" && map_dim <= Strategy.EARLY_SINGLE_MAX_MAPDIM;
+    // PURE: should an EARLY route be built single-track? `trains_needed` is the
+    // fleet the estimator says the route's production justifies.
+    static function EarlySingleTrack(phase, trains_needed) {
+        return phase == "early" && trains_needed <= Strategy.EARLY_SINGLE_MAX_TRAINS;
     }
+
+    // NOTE: a MID/LATE build-pacing value bar (skip new routes below an
+    // annual-profit floor) was tried and MEASURED HARMFUL: an 8000/yr floor sank
+    // solo 256 ~20% (it throttled the best-expanding seeds). Low-but-positive
+    // routes still add company value over a match and claim map space; the real
+    // value loss is DEADLOCK churn (condemn/rebuild), not modest earners. Dropped.
 
     // PURE: pick the build-style phase from the count of proven (built) routes.
     static function GamePhase(built_routes) {

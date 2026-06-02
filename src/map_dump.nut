@@ -111,8 +111,10 @@ class MapDump {
         if (t in mset) return "*";
         if (!AIMap.IsValidTile(t)) return " ";
         if (AITile.IsWaterTile(t)) return "~";
-        if (AIRail.IsRailStationTile(t)) return "S";
-        if (AIRail.IsRailTile(t)) return "=";
+        // Phase 8: distinguish OUR rail/stations from a RIVAL's so the ASCII dump
+        // shows where foreign track blocked a build. Upper = ours, lower = rival.
+        if (AIRail.IsRailStationTile(t)) return AICompany.IsMine(AITile.GetOwner(t)) ? "S" : "s";
+        if (AIRail.IsRailTile(t))        return AICompany.IsMine(AITile.GetOwner(t)) ? "=" : "x";
         if (AIRoad.IsRoadTile(t)) return "r";
         local slope = AITile.GetSlope(t);
         if (slope != AITile.SLOPE_FLAT && AITile.IsSteepSlope(slope)) return "^";

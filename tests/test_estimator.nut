@@ -65,4 +65,32 @@
         assert_true(m.annual_profit < 0.0, "unprofitable route has negative profit");
         assert_true(m.roi < 0.0, "unprofitable route has negative roi");
     }
+
+    // ---- DistanceBuckets: Fibonacci-spaced value-surface distance axis ----
+    {
+        local b = Estimator.DistanceBuckets(250);
+        assert_eq(b[0], 10, "first bucket is 10");
+        assert_eq(b[1], 20, "second bucket is 20");
+        assert_eq(b[2], 30, "third bucket is 30");
+        assert_eq(b[3], 50, "fourth bucket is 50");
+        assert_eq(b[4], 80, "fifth bucket is 80");
+        assert_eq(b[5], 130, "sixth bucket is 130");
+        assert_eq(b[6], 210, "seventh bucket is 210");
+        assert_true(b[b.len() - 1] < 250, "all buckets below max_dist");
+        // Buckets strictly increase (spacing widens with distance).
+        local mono = true;
+        for (local i = 1; i < b.len(); i++) if (b[i] <= b[i - 1]) mono = false;
+        assert_true(mono, "buckets strictly increasing");
+    }
+
+    // ---- NearestBucket: snap a distance to the closest bucket --------------
+    {
+        local b = Estimator.DistanceBuckets(250);   // [10,20,30,50,80,130,210]
+        assert_eq(Estimator.NearestBucket(b, 10), 0, "exact 10 -> bucket 0");
+        assert_eq(Estimator.NearestBucket(b, 12), 0, "12 -> nearest 10");
+        assert_eq(Estimator.NearestBucket(b, 100), 4, "100 -> nearest 80");
+        assert_eq(Estimator.NearestBucket(b, 1000), b.len() - 1, "beyond max -> last bucket");
+        assert_eq(Estimator.NearestBucket([], 50), -1, "empty buckets -> -1");
+    }
+
 })();

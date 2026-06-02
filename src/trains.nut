@@ -280,6 +280,21 @@ class Trains {
         return added;
     }
 
+    // Verify a train has exactly the 2 orders (full-load at src, unload at dst)
+    // and rebuild them if not, then send it out if it's parked. Used after the
+    // single->double upgrade: the recalled trains' orders are re-checked and the
+    // trains re-dispatched onto the converted line. Idempotent.
+    static function EnsureOrders(vehicle, src_station_tile, dst_station_tile) {
+        if (AIOrder.GetOrderCount(vehicle) != 2) {
+            while (AIOrder.GetOrderCount(vehicle) > 0) AIOrder.RemoveOrder(vehicle, 0);
+            AIOrder.AppendOrder(vehicle, src_station_tile, AIOrder.OF_FULL_LOAD_ANY);
+            AIOrder.AppendOrder(vehicle, dst_station_tile, AIOrder.OF_UNLOAD | AIOrder.OF_NO_LOAD);
+        }
+        if (AIVehicle.GetState(vehicle) == AIVehicle.VS_IN_DEPOT) {
+            AIVehicle.StartStopVehicle(vehicle);
+        }
+    }
+
     // Set load/unload orders + start vehicle.
     // src_station_tile: a station tile at the source (full load any)
     // dst_station_tile: a station tile at the destination (unload + no-load)

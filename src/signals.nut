@@ -47,4 +47,23 @@ class Signals {
         Log.Info(Log.PHASE_SIGNAL, "[" + label + "] placed " + placed + " PBS one-way signals");
         return placed;
     }
+
+    // Strip every signal along a path (both facings per tile). The single->double
+    // UPGRADE clears the route's two-way PBS before laying one-way PBS, because
+    // BuildSignal won't overwrite an existing signal. Returns count removed.
+    static function RemoveAlong(path, label) {
+        if (path == null) return 0;
+        local removed = 0;
+        for (local i = 1; i < path.len() - 1; i++) {
+            local tile = path[i];
+            foreach (j in [i + 1, i - 1]) {
+                if (j < 0 || j >= path.len()) continue;
+                if (AIRail.GetSignalType(tile, path[j]) != AIRail.SIGNALTYPE_NONE) {
+                    if (AIRail.RemoveSignal(tile, path[j])) removed++;
+                }
+            }
+        }
+        Log.Info(Log.PHASE_SIGNAL, "[" + label + "] removed " + removed + " signals for upgrade");
+        return removed;
+    }
 }
