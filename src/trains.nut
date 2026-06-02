@@ -298,9 +298,15 @@ class Trains {
     // Set load/unload orders + start vehicle.
     // src_station_tile: a station tile at the source (full load any)
     // dst_station_tile: a station tile at the destination (unload + no-load)
-    static function DispatchTrain(vehicle, src_station_tile, dst_station_tile) {
+    // backhaul (Phase 4): when both endpoints mutually produce+accept the SAME
+    //   cargo, load the RETURN leg too - deliver inbound AND load outbound at
+    //   each end (loaded both ways = ~double the revenue for the same track).
+    static function DispatchTrain(vehicle, src_station_tile, dst_station_tile, backhaul = false) {
+        local dst_flags = backhaul
+            ? (AIOrder.OF_UNLOAD | AIOrder.OF_FULL_LOAD_ANY)   // deliver inbound, load return
+            : (AIOrder.OF_UNLOAD | AIOrder.OF_NO_LOAD);
         local ok1 = AIOrder.AppendOrder(vehicle, src_station_tile, AIOrder.OF_FULL_LOAD_ANY);
-        local ok2 = AIOrder.AppendOrder(vehicle, dst_station_tile, AIOrder.OF_UNLOAD | AIOrder.OF_NO_LOAD);
+        local ok2 = AIOrder.AppendOrder(vehicle, dst_station_tile, dst_flags);
         if (!ok1 || !ok2) {
             Log.Err(Log.PHASE_TRAIN, "Order append failed: " + AIError.GetLastErrorString());
             return false;

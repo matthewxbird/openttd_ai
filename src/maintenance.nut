@@ -665,7 +665,8 @@ class Maintenance {
         local id = Trains.BuildTrain(r.depot_tile, engine, wagon, r.cargo, n);
         if (id == -1) return;
 
-        if (!Trains.DispatchTrain(id, r.src_station.tile, r.dst_station.tile)) return;
+        local bh = ("backhaul" in r) ? r.backhaul : false;
+        if (!Trains.DispatchTrain(id, r.src_station.tile, r.dst_station.tile, bh)) return;
 
         r.trains.push(id);
         Log.Info(Log.PHASE_LOOP,

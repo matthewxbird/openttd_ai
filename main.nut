@@ -12,6 +12,7 @@ require("src/build_diag.nut");
 require("src/estimator.nut");
 require("src/air.nut");
 require("src/road.nut");
+require("src/backhaul.nut");
 require("src/strategy.nut");
 require("src/candidates.nut");
 require("src/cargo_scan.nut");
@@ -415,11 +416,17 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
     local num_trains = route.single_track
         ? 1
         : Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS);
+    // BACKHAUL (Phase 4): if both endpoints mutually produce+accept this cargo,
+    // load the return leg too. Stored on the route so added trains inherit it.
+    route.backhaul <- Backhaul.Mutual(c.cargo, c.producer, c.accepter, acc_is_town);
+    if (route.backhaul) {
+        Log.Info(Log.PHASE_TRAIN, "Backhaul: both ends mutual; loading return leg.");
+    }
     route.trains = [];
     for (local k = 0; k < num_trains; k++) {
         local id = Trains.BuildTrain(route.depot_tile, engine, wagon, c.cargo, n);
         if (id == -1) break;   // out of cash / depot - stop here
-        if (!Trains.DispatchTrain(id, route.src_station.tile, route.dst_station.tile)) break;
+        if (!Trains.DispatchTrain(id, route.src_station.tile, route.dst_station.tile, route.backhaul)) break;
         route.trains.push(id);
     }
     if (route.trains.len() == 0) {
