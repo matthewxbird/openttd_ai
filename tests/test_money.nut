@@ -41,3 +41,11 @@ assert_eq(Money.BorrowTarget(100000, 50000, 80000, 10000, 500000), 50000, "cash 
 assert_eq(Money.BorrowTarget(20000, 0, 55000, 10000, 500000), 40000, "borrow 35k shortfall -> 40k (whole steps)");
 // Clamped to max loan.
 assert_eq(Money.BorrowTarget(0, 0, 999999, 10000, 300000), 300000, "borrow clamped to max loan");
+
+// ---- IsStressed: usable (cash + borrowable) below the operating buffer -----
+// cash, loan, maxloan, buffer.  usable = cash + (maxloan - loan).
+assert_true(!Money.IsStressed(100000, 0, 300000, 80000), "plenty of headroom -> not stressed");
+assert_true(!Money.IsStressed(0, 220000, 300000, 80000), "can still borrow 80k -> not stressed (==buffer not <)");
+assert_true(Money.IsStressed(10000, 290000, 300000, 80000), "loan near max + low cash -> stressed");
+assert_true(Money.IsStressed(0, 300000, 300000, 80000), "maxed loan, no cash -> stressed");
+assert_true(!Money.IsStressed(80000, 300000, 300000, 80000), "maxed loan but cash==buffer -> not stressed");

@@ -139,6 +139,17 @@ function MvBAI::Start() {
             last_scan = now;
         }
 
+        // SOLVENCY FIRST (Phase 0): if cash-stressed, shed the worst bleeder and
+        // DON'T build this tick. A bankrupt company scores zero - the dominant
+        // 1v1 loss. The aggressive continuous-build loop can over-commit under
+        // competition, so this is the safety valve.
+        if (Money.Stressed()) {
+            Maintenance.EmergencyContraction(this.state);
+            Money.RepayDownToBuffer();
+            this.Sleep(20);
+            continue;
+        }
+
         // GAME-PHASE DOCTRINE: EARLY land-grab builds cheap single-track lines;
         // MID/LATE build double track. Cheap to recompute each tick.
         local phase = Strategy.GamePhaseFromGame(this.state);

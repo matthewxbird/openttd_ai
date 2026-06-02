@@ -108,6 +108,39 @@ class Maintenance {
         foreach (r in condemned_done) state.RemoveRoute(r);
     }
 
+    // EMERGENCY CONTRACTION (Phase 0 solvency). When cash-stressed (usable money
+    // can't even cover the operating buffer), running costs are about to spiral us
+    // into bankruptcy - a bankrupt company scores ZERO and is the dominant 1v1
+    // loss. Shed the worst bleeder: condemn the BUILT route whose vehicles lost
+    // the most last year (recovers its capital + stops its running-cost drain).
+    // One per call; called every loop while stressed until solvent. Returns true
+    // if it condemned something.
+    static function EmergencyContraction(state) {
+        if (!Money.Stressed()) return false;
+        local worst = null;
+        local worst_profit = 0;   // only condemn genuine LOSERS (profit < 0)
+        foreach (_, r in state.routes) {
+            if (r.status != "built") continue;
+            if (r.trains == null) continue;
+            local p = 0;
+            foreach (v in r.trains) {
+                if (AIVehicle.IsValidVehicle(v)) p += AIVehicle.GetProfitLastYear(v);
+            }
+            if (p < worst_profit) { worst_profit = p; worst = r; }
+        }
+        if (worst == null) return false;   // nothing losing money to shed
+        local name = (("air" in worst) && worst.air) || (("road" in worst) && worst.road)
+            ? (AITown.GetName(worst.producer) + "->" + Route.AccepterName(worst))
+            : (AIIndustry.GetName(worst.producer) + "->" + Route.AccepterName(worst));
+        Log.Err(Log.PHASE_MONEY,
+            "[contraction] cash-stressed (usable=" + Money.Usable()
+            + "); condemning worst bleeder " + name + " (lost " + worst_profit + " last yr).");
+        if (("air" in worst) && worst.air)        Air._Condemn(state, worst);
+        else if (("road" in worst) && worst.road) Road._Condemn(state, worst);
+        else                                       Maintenance._Condemn(state, worst);
+        return true;
+    }
+
     // True if any BUILT route still has a cargo backlog AND room to grow (more
     // trains, or a train shorter than the platform). Used to hold off building
     // NEW routes until existing ones are scaled up to carry all their cargo.

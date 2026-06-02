@@ -53,6 +53,14 @@ class Money {
         return new_loan;
     }
 
+    // PURE: are we cash-STRESSED - i.e. total spending power can't even cover
+    // the operating buffer? When true we must STOP spending and SHED losers
+    // (emergency contraction) before running costs spiral us into bankruptcy.
+    // usable = cash + (maxloan - loan).
+    static function IsStressed(cash, loan, maxloan, buffer) {
+        return (cash + (maxloan - loan)) < buffer;
+    }
+
     // -- AI* wrappers below -----------------------------------------------
 
     // Take the maximum loan the bank will offer.
@@ -126,5 +134,11 @@ class Money {
     // could marshal via a just-in-time loan), NOT merely cash in hand.
     static function HasFunds(estimate) {
         return Money.Usable() >= estimate;
+    }
+
+    // AI* wrapper: are we cash-stressed right now? (Usable below the buffer.)
+    static function Stressed() {
+        return Money.IsStressed(Money.Cash(), Money.Loan(),
+                                AICompany.GetMaxLoanAmount(), Money.OPERATING_BUFFER);
     }
 }
