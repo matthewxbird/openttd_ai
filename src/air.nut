@@ -340,6 +340,15 @@ class Air {
             if (profit) {
                 r.status = "built";
                 Log.Info(Log.PHASE_LOOP, "[air] " + name + ": earning -> built.");
+                // Phase 9: feed the dense town centres into these proven airports
+                // with bus feeders (extends catchment -> more pax for the plane).
+                if (Money.Cash() > 60000) {
+                    foreach (pair in [[r.producer, r.src_station], [r.accepter, r.dst_station]]) {
+                        if (AITown.GetPopulation(pair[0]) >= 1500) {
+                            Road.BuildFeeder(state, pair[0], pair[1], r.cargo);
+                        }
+                    }
+                }
             } else if (elapsed >= deadline) {
                 Log.Err(Log.PHASE_LOOP, "[air] " + name + ": unprofitable in "
                     + deadline + "d; condemning.");
@@ -442,10 +451,7 @@ class Air {
         if (Air.AvailableTraits().len() == 0) return out;   // no airports yet
         Air.ClearCache();
 
-        local pax = Air._PaxCargo();
-        if (pax == -1) return out;
-
-        // Biggest MAX_TOWNS towns (most passengers, best airport types).
+        // Biggest MAX_TOWNS towns (most pax/mail, best airport types).
         local tl = AITownList();
         tl.Valuate(AITown.GetPopulation);
         tl.KeepTop(Air.MAX_TOWNS);
@@ -454,41 +460,54 @@ class Air {
             if (AITown.GetPopulation(t) >= Air.MIN_TOWN_POP) towns.push(t);
         }
 
-        for (local i = 0; i < towns.len(); i++) {
-            for (local j = i + 1; j < towns.len(); j++) {
-                local a = towns[i], b = towns[j];
-                local la = AITown.GetLocation(a), lb = AITown.GetLocation(b);
-                local dist = AIMap.DistanceManhattan(la, lb);
-                if (dist < Air.MIN_DISTANCE || dist > Air.MAX_DISTANCE) continue;
-
-                // Production = combined town pax estimate (both ends load).
-                local prod = Air._PaxEstimate(a) + Air._PaxEstimate(b);
-                local est = Estimator.Estimate(pax, dist, prod, railtype,
-                                               Air.MAX_PLANES, AIVehicle.VT_AIR);
-                if (est == null) continue;
-
-                local score = Scoring.DistanceWeighted(est.annual_profit, dist);
-                out.append({
-                    cargo       = pax,
-                    producer    = a,
-                    accepter    = b,
-                    acc_is_town = true,
-                    air         = true,
-                    distance    = dist,
-                    production  = prod,
-                    score       = score,
-                    cluster     = 2,
-                    est_profit              = est.annual_profit,
-                    est_roi                 = est.roi,
-                    est_income_per_vehicle  = est.income_per_vehicle,
-                    est_income_per_btime    = est.income_per_building_time,
-                    est_num_trains          = est.num_trains,
-                    est_mode                = AIVehicle.VT_AIR,
-                });
+        // PAX and MAIL are both town-produced (first-class air cargo, Phase 9).
+        // A mail route between two towns reuses their pax airports + adds a mail
+        // plane - cheap incremental revenue on infrastructure we already built.
+        foreach (cargo in [Air._PaxCargo(), Air._MailCargo()]) {
+            if (cargo == -1 || Air.PlaneSet(cargo) == null) continue;
+            local is_pax = (AICargo.GetTownEffect(cargo) == AICargo.TE_PASSENGERS);
+            for (local i = 0; i < towns.len(); i++) {
+                for (local j = i + 1; j < towns.len(); j++) {
+                    local a = towns[i], b = towns[j];
+                    local dist = AIMap.DistanceManhattan(AITown.GetLocation(a), AITown.GetLocation(b));
+                    if (dist < Air.MIN_DISTANCE || dist > Air.MAX_DISTANCE) continue;
+                    // mail volume ~ 1/3 of pax.
+                    local prod = Air._PaxEstimate(a) + Air._PaxEstimate(b);
+                    if (!is_pax) prod = prod / 3 + 1;
+                    local est = Estimator.Estimate(cargo, dist, prod, railtype,
+                                                   Air.MAX_PLANES, AIVehicle.VT_AIR);
+                    if (est == null) continue;
+                    out.append({
+                        cargo       = cargo,
+                        producer    = a,
+                        accepter    = b,
+                        acc_is_town = true,
+                        air         = true,
+                        distance    = dist,
+                        production  = prod,
+                        score       = Scoring.DistanceWeighted(est.annual_profit, dist),
+                        cluster     = 2,
+                        est_profit              = est.annual_profit,
+                        est_roi                 = est.roi,
+                        est_income_per_vehicle  = est.income_per_vehicle,
+                        est_income_per_btime    = est.income_per_building_time,
+                        est_num_trains          = est.num_trains,
+                        est_mode                = AIVehicle.VT_AIR,
+                    });
+                }
             }
         }
         Log.Info(Log.PHASE_SCAN, "Air candidates: " + out.len());
         return out;
+    }
+
+    // The mail cargo id (town-effect mail), or -1.
+    static function _MailCargo() {
+        local cl = AICargoList();
+        foreach (cargo, _ in cl) {
+            if (AICargo.GetTownEffect(cargo) == AICargo.TE_MAIL) return cargo;
+        }
+        return -1;
     }
 
     // The passenger cargo id (town-effect passengers), or -1.

@@ -165,7 +165,14 @@ function MvBAI::Start() {
             // AIR candidate (Phase 2): own affordability + builder, then continue
             // to the next candidate on success/failure (no rail path).
             if (("air" in c) && c.air) {
-                if (this.state.ProducerServed(c.producer)) continue;  // one air route per source town
+                // One air route per (source town, cargo): a town may hub BOTH a
+                // pax and a mail route (reusing its airport), but not duplicate
+                // the same cargo (bounds airport terminal congestion).
+                local dup = false;
+                foreach (_, r in this.state.routes) {
+                    if (("air" in r) && r.air && r.producer == c.producer && r.cargo == c.cargo) { dup = true; break; }
+                }
+                if (dup) continue;
                 local plane = Air.PlaneSet(c.cargo);
                 local need  = 2 * Air.AIRPORT_COST_EST
                             + (plane != null ? plane.price : 50000);

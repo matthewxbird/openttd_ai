@@ -304,6 +304,81 @@ class Road {
         return v;
     }
 
+    // ---- Phase 9: intra-town bus FEEDER into a trunk (airport/rail) ------
+
+    // Build a bus feeder for `town`: pick up pax at the town centre and TRANSFER
+    // them into `trunk_st` (a trunk station - e.g. an airport - already serving
+    // the town), so the trunk vehicle hauls them the long, high-paying leg. This
+    // extends the trunk's catchment to the dense town centre. Adds a road route
+    // with feeder=true. Fully defensive: any failure cleans up and returns false.
+    static function BuildFeeder(state, town, trunk_st, cargo) {
+        if (!Road.EnsureRoadType()) return false;
+        local veh = Road.VehicleSet(cargo);
+        if (veh == null) return false;
+        // One feeder per (town, cargo).
+        foreach (_, r in state.routes) {
+            if (("feeder" in r) && r.feeder && r.producer == town && r.cargo == cargo) return false;
+        }
+
+        local center = AITown.GetLocation(town);
+        local src_pair = Road._FindStopTile(center);
+        if (src_pair == null) return false;
+
+        // A bus stop ADJACENT to the trunk station, JOINED to its station id, so
+        // transferred pax sit at the trunk for the trunk vehicle to collect.
+        local trunk_pair = Road._FindStopTile(trunk_st.tile);
+        if (trunk_pair == null) return false;
+        if (AIMap.DistanceManhattan(src_pair.tile, trunk_pair.tile) < 3) return false;  // already covered
+
+        local path = Road.FindPath(src_pair.tile, trunk_pair.tile);
+        if (path == null || path.len() < 2 || !Road.BuildAlong(path)) return false;
+
+        // Town-centre stop (own station) + trunk-side stop joined to the trunk.
+        local src_st = Road.BuildStop(src_pair.tile, src_pair.front, cargo, true);
+        if (src_st == null) return false;
+        if (!AIRoad.AreRoadTilesConnected(trunk_pair.tile, trunk_pair.front)
+                && !AIRoad.BuildRoad(trunk_pair.tile, trunk_pair.front)
+                && !AIRoad.AreRoadTilesConnected(trunk_pair.tile, trunk_pair.front)) {
+            return false;
+        }
+        if (!AIRoad.BuildDriveThroughRoadStation(trunk_pair.tile, trunk_pair.front,
+                AIRoad.ROADVEHTYPE_BUS, trunk_st.station_id)
+                && !AIRoad.IsRoadStationTile(trunk_pair.tile)) {
+            Log.Warn(Log.PHASE_STATION, "[feeder] trunk-side stop/join failed: " + AIError.GetLastErrorString());
+            return false;
+        }
+        local trunk_bus = { station_id = trunk_st.station_id, tile = trunk_pair.tile, road = true };
+
+        local depot = Road._BuildDepot(src_pair.tile);
+        if (depot == -1) return false;
+
+        local v = AIVehicle.BuildVehicle(depot, veh.engine);
+        if (!AIVehicle.IsValidVehicle(v)) return false;
+        if (AIEngine.GetCargoType(veh.engine) != cargo && AIEngine.CanRefitCargo(veh.engine, cargo)) {
+            AIVehicle.RefitVehicle(v, cargo);
+        }
+        // Load pax at the centre; TRANSFER (no payment yet) at the trunk so the
+        // trunk vehicle carries them onward for the big payment.
+        local ok1 = AIOrder.AppendOrder(v, src_st.tile, AIOrder.OF_FULL_LOAD_ANY);
+        local ok2 = AIOrder.AppendOrder(v, trunk_bus.tile, AIOrder.OF_TRANSFER | AIOrder.OF_NO_LOAD);
+        if (!ok1 || !ok2 || !AIVehicle.StartStopVehicle(v)) { AIVehicle.SellVehicle(v); return false; }
+
+        local route = Route.New(cargo, town, town, AIMap.DistanceManhattan(src_pair.tile, trunk_pair.tile), 0, true);
+        route.road        <- true;
+        route.feeder      <- true;
+        route.src_station = src_st;
+        route.dst_station = trunk_bus;
+        route.depot_tile  = depot;
+        route.trains      = [v];
+        route.train_id    = v;
+        route.status      = "built";   // feeders prove via the trunk; no probation
+        route.road_path   <- path;
+        state.AddRoute(route);
+        Log.Info(Log.PHASE_RANK, "[feeder] bus feeder for " + AITown.GetName(town)
+            + " -> trunk station " + trunk_st.station_id);
+        return true;
+    }
+
     // ---- Thin road lifecycle --------------------------------------------
 
     static function MaintainRoute(state, r) {
@@ -328,8 +403,12 @@ class Road {
             return;
         }
 
+        // FEEDERS pay nothing at the transfer (the fare credits the TRUNK
+        // vehicle), so a feeder bus always shows a "loss" in isolation - never
+        // retire it on profit. Its value is the extra pax it hands the trunk.
+        local is_feeder = ("feeder" in r) && r.feeder;
         local year = AIDate.GetYear(AIDate.GetCurrentDate());
-        if (year > r.last_profit_year) {
+        if (!is_feeder && year > r.last_profit_year) {
             r.last_profit_year = year;
             local py = 0;
             foreach (v in alive) py += AIVehicle.GetProfitLastYear(v);
