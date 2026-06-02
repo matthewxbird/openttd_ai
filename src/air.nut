@@ -20,17 +20,20 @@
 class Air {
     // Airport types small->large with the town population each suits and whether
     // it takes big planes. (Costs/maintenance are read live from the API.)
+    // `planes` = how many planes the type's terminals/runways can usefully serve
+    // before they queue/circle (small airport = 1 runway; the big ones have 2-4).
     static TRAITS = [
-        { type = AIAirport.AT_SMALL,         pop = 0,     big = false },
-        { type = AIAirport.AT_COMMUTER,      pop = 1000,  big = false },
-        { type = AIAirport.AT_LARGE,         pop = 2000,  big = true  },
-        { type = AIAirport.AT_METROPOLITAN,  pop = 4000,  big = true  },
-        { type = AIAirport.AT_INTERNATIONAL, pop = 10000, big = true  },
-        { type = AIAirport.AT_INTERCON,      pop = 20000, big = true  },
+        { type = AIAirport.AT_SMALL,         pop = 0,     big = false, planes = 3  },
+        { type = AIAirport.AT_COMMUTER,      pop = 1000,  big = false, planes = 4  },
+        { type = AIAirport.AT_LARGE,         pop = 2000,  big = true,  planes = 6  },
+        { type = AIAirport.AT_METROPOLITAN,  pop = 4000,  big = true,  planes = 10 },
+        { type = AIAirport.AT_INTERNATIONAL, pop = 10000, big = true,  planes = 14 },
+        { type = AIAirport.AT_INTERCON,      pop = 20000, big = true,  planes = 20 },
     ];
 
     static AIRPORT_COST_EST = 30000;  // rough per-airport build cost for ranking
-    static MAX_PLANES       = 5;      // cap planes per route (airport throughput)
+    static MAX_PLANES       = 20;     // hard ceiling; the per-route cap from
+                                      // airport size (PlaneCap) is the real limit
     static SEARCH_R         = 12;     // tiles around town centre to site an airport
     static MIN_TOWN_POP     = 500;    // don't bother with tiny towns
     static MAX_TOWNS        = 12;     // only pair the biggest N towns (keeps scan cheap)
@@ -55,22 +58,41 @@ class Air {
         return out;
     }
 
+    // How many planes a route can usefully run = the smaller airport's capacity
+    // (the bottleneck). Scales the fleet with the infrastructure, like hog does,
+    // instead of one tiny global cap that throttles big-town trunks.
+    static function PlaneCap(src_st, dst_st) {
+        local cap = Air.MAX_PLANES;
+        foreach (st in [src_st, dst_st]) {
+            if (st == null || !("airport_type" in st)) continue;
+            foreach (t in Air.TRAITS) {
+                if (t.type == st.airport_type && t.planes < cap) cap = t.planes;
+            }
+        }
+        return cap;
+    }
+
     // Can we build any airport that accepts big planes? (Cheap; ~6 traits.)
     static function BigAvailable() {
         foreach (t in Air.AvailableTraits()) if (t.big) return true;
         return false;
     }
 
-    // Best airport TYPE for a town: the largest available type whose population
-    // threshold the town meets; fall back to the smallest available.
-    static function PickType(town_pop) {
+    // Build an airport near `town`: try the LARGEST type that FITS, falling back
+    // to smaller ones. Big airports have more terminals (throughput = revenue),
+    // so we want the biggest that the site allows - but a rival-grown town is
+    // densely built up, so a large footprint (INTERNATIONAL/INTERCON 7x7+) often
+    // won't fit. The OLD code picked one size by population and GAVE UP on failure
+    // (54 site-fails, 0 airports in 1v1); pure smallest-first builds but starves
+    // throughput. Largest-that-fits dominates both. Traits are small->large, so
+    // iterate in reverse.
+    static function BuildBestAirportNear(town) {
         local avail = Air.AvailableTraits();
-        if (avail.len() == 0) return null;
-        local chosen = avail[0].type;
-        foreach (t in avail) {
-            if (town_pop >= t.pop) chosen = t.type;
+        for (local i = avail.len() - 1; i >= 0; i--) {
+            local st = Air.BuildAirportNear(town, avail[i].type);
+            if (st != null) return st;
         }
-        return chosen;
+        return null;
     }
 
     // Best plane engine for a cargo: maximise capacity*speed / running cost.
@@ -203,14 +225,14 @@ class Air {
         local new_src = false, new_dst = false;
         local src_st = Air._FindAirport(state, src_t);
         if (src_st == null) {
-            src_st = Air.BuildAirportNear(src_t, Air.PickType(AITown.GetPopulation(src_t)));
+            src_st = Air.BuildBestAirportNear(src_t);
             new_src = true;
         }
         if (src_st == null) { Log.Warn(Log.PHASE_STATION, "AIR: no src airport site."); return false; }
 
         local dst_st = Air._FindAirport(state, dst_t);
         if (dst_st == null) {
-            dst_st = Air.BuildAirportNear(dst_t, Air.PickType(AITown.GetPopulation(dst_t)));
+            dst_st = Air.BuildBestAirportNear(dst_t);
             new_dst = true;
         }
         if (dst_st == null) {
@@ -341,11 +363,12 @@ class Air {
             }
         }
 
+        local cap = Air.PlaneCap(r.src_station, r.dst_station);
         Log.Info(Log.PHASE_LOOP,
             "[air] " + label + " " + name + " planes=" + alive.len()
-            + "/" + Air.MAX_PLANES + " waiting=" + waiting);
+            + "/" + cap + " waiting=" + waiting);
 
-        if (waiting >= 100 && alive.len() < Air.MAX_PLANES
+        if (waiting >= 80 && alive.len() < cap
                 && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN) {
             local plane = Air.PlaneSet(r.cargo);
             if (plane != null && Money.Cash() > plane.price) {
