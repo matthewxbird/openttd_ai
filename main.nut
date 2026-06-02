@@ -8,6 +8,7 @@ require("src/map_dump.nut");
 require("src/money.nut");
 require("src/railtype.nut");
 require("src/scoring.nut");
+require("src/build_diag.nut");
 require("src/estimator.nut");
 require("src/strategy.nut");
 require("src/candidates.nut");
@@ -429,6 +430,10 @@ function MvBAI::_FailRoute(c, route, new_src, new_dst) {
         if (!AIMap.IsValidTile(t)) return;
         if (AIRail.IsRailStationTile(t)) return;          // never a station
         if (t in prot_tiles) return;                      // shared/other-route area
+        // NEVER touch a rival's property (Phase 8): a foreign rail/station tile
+        // isn't ours to demolish (the call would fail anyway), and we must not
+        // count it as cleaned. Only demolish rail that is ours / unowned ground.
+        if (AIRail.IsRailTile(t) && !AICompany.IsMine(AITile.GetOwner(t))) return;
         AITile.DemolishTile(t);
     };
 

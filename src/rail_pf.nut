@@ -62,6 +62,7 @@ class RailPathFinder {
     _cost_tunnel_per_tile = null;
     _cost_coast          = null;
     _cost_crossing_rail  = null;
+    _cost_foreign_rail   = null;  // flat join onto a RIVAL's rail: forbidden (Phase 8)
     _cost_level_crossing = null;
     _cost_guide          = null;  // per-level reverse-separation penalty
     _cost_curve_spacing  = null;  // penalty when 2+ corners fall within a train length
@@ -102,9 +103,16 @@ class RailPathFinder {
         this._cost_bridge_fixed   = 500;   // trivial dip-bridges lose to terraformed ground
         this._cost_tunnel_per_tile = 0;    // tunnels preferred over climbing
         this._cost_coast          = 20;
-        this._cost_crossing_rail  = 3000;  // building onto existing rail: discouraged
+        this._cost_crossing_rail  = 3000;  // building onto existing OWN rail: discouraged
                                            // (prefer a bridge for a pure crossing) but
                                            // allowed so real JUNCTIONS can be laid
+        // Flat join onto a RIVAL company's rail FAILS to build
+        // (ERR_OWNED_BY_ANOTHER_COMPANY) and we can't demolish it. Price it just
+        // below the budget ceiling so A* treats it as a near-wall: it detours
+        // around foreign track, or jumps OVER it grade-separated (the bridge/
+        // tunnel neighbour, which never builds on the foreign tile), and only
+        // ever flat-crosses if there is genuinely no other route at all. (Phase 8)
+        this._cost_foreign_rail   = 100000000;
         this._cost_level_crossing = 200;  // crossing/clearing a road is cheap vs
                                           // a long detour around it
         this._cost_guide          = 900;   // per level of reverse-tile distance
@@ -216,6 +224,13 @@ class RailPathFinder {
         for (local i = tiles.len() - 1; i >= 0; i--) ordered.append(tiles[i]);
         Log.Info(Log.PHASE_TRACK, "Path length = " + ordered.len() + " tiles.");
         return ordered;
+    }
+
+    // PURE (unit-tested): cost of stepping onto a tile that already carries rail.
+    // is_mine: does COMPANY_SELF own that rail? Own rail is a legal (discouraged)
+    // junction; a rival's is an unbuildable near-wall. (Phase 8)
+    static function RailCrossCost(is_mine, own_cost, foreign_cost) {
+        return is_mine ? own_cost : foreign_cost;
     }
 
     // -----------------------------------------------------------------------
@@ -385,12 +400,18 @@ class RailPathFinder {
             }
 
             // ---- CROSSING EXISTING RAIL --------------------------------
-            // Building rail on a tile that already carries rail (another
-            // route's line, or our own out-track) means the tracks cross.
-            // Penalise hard so A* routes AROUND other lines; it will only pay
-            // this if there is genuinely no alternative. (The back track is
-            // additionally blocked from out-track tiles via ignored_tiles.)
-            if (AIRail.IsRailTile(t[0])) cost += self._cost_crossing_rail;
+            // Building rail on a tile that already carries rail means the tracks
+            // cross. OUR OWN rail (another route's line / our out-track) is a
+            // legal junction, penalised so A* prefers to route around it. A
+            // RIVAL's rail can't be built on at all (ERR_OWNED_BY_ANOTHER_COMPANY)
+            // - price it as a near-wall so the search detours or jumps over it
+            // grade-separated. (The back track is additionally blocked from
+            // out-track tiles via ignored_tiles.)
+            if (AIRail.IsRailTile(t[0])) {
+                cost += RailPathFinder.RailCrossCost(
+                    AICompany.IsMine(AITile.GetOwner(t[0])),
+                    self._cost_crossing_rail, self._cost_foreign_rail);
+            }
 
             // ---- WATER: can't lay ground rail on it --------------------
             // A normal rail tile on water fails to build. Water must be
@@ -558,11 +579,16 @@ class RailPathFinder {
             //   - Joining where the connecting rail ALREADY exists is fine -
             //     that just runs the train along a shared corridor.
             if (AIRail.IsRailTile(next) && !(next in self._goals_map)) {
+                // A RIVAL's rail: never join or build on it (we can't, and the
+                // builder would fail ERR_OWNED_BY_ANOTHER_COMPANY). Skip the flat
+                // move entirely; a grade-separated bridge/tunnel jump OVER it is
+                // offered separately below and never touches the foreign tile.
+                if (!AICompany.IsMine(AITile.GetOwner(next))) continue;
                 if (RailPathFinder._NearStationTile(next, RailPathFinder.JUNCTION_STATION_GUARD)) {
                     continue;
                 }
                 if (buildable) continue;   // no flat crossing - bridge over instead
-                // joinable: run along the existing shared track.
+                // joinable: run along the existing shared OWN track.
             }
 
             tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
