@@ -370,7 +370,22 @@ instead of laying redundant parallel track. Station templates for clean throats.
 Sharpen `maintenance.nut`: overflow-trend detection → +trains / longer trains /
 split routes; periodic rebalance. (Route retirement already in.)
 
-### Phase 8 — Foreign-track-aware building & track-build debuggability *(NEW — competition-critical)*
+### Phase 8 — Foreign-track-aware building & track-build debuggability *(IMPLEMENTED — commit 4fee1a9 + follow-ups)*
+
+DONE: ownership-aware pathfinding (`rail_pf.nut`: foreign rail priced as a
+near-wall `_cost_foreign_rail`, neighbour guard skips flat joins onto non-own
+tiles so paths detour or grade-separate), graceful avoid-set **detour/reroute**
+(`track_builder._RunPathfinder`, MAX_REBUILD attempts) + repair-pass terraform,
+structured **build-failure reports** wired into the builder (`build_diag.nut`,
+classifies ERR_UNKNOWN from tile facts — owner/rail/water/station/buildable),
+owner-annotated ASCII map dump, and foreign-safe cleanup (`_FailRoute` never
+demolishes non-owned rail). Classifier + cross-cost are unit-tested.
+Remaining (optional debug polish, not built): PF trace-mode, scripted 1v1
+foreign-corridor regression scenario.
+
+Original spec below.
+
+
 
 **Problem (measured behaviour):** our pathfinder (`src/rail_pf.nut`) costs and
 *joins* any tile where `AIRail.IsRailTile()` is true, but it does **not** check
