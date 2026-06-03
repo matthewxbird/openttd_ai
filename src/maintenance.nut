@@ -81,8 +81,22 @@ class Maintenance {
     static FIRST_DELIVERY_BASE     = 200;
     static FIRST_DELIVERY_PER_TILE = 4;
 
+    static REVIEW_EVERY_MONTHS = 2;     // comprehensive capacity sweep cadence
+
     // Run the health pass over every route, dispatching by lifecycle status.
     static function Tick(state, railtype) {
+        // EVERY 2 MONTHS: a comprehensive capacity sweep over EVERY route - scale
+        // the fleet (trains/planes/trucks) and widen stations to the CURRENT
+        // production, so routes keep up as industries grow over the game (the
+        // per-pass review only nudges one step at a time off backlog). The
+        // last-run month lives on `state` (persists; a static can't be reassigned).
+        local d = AIDate.GetCurrentDate();
+        local month_idx = AIDate.GetYear(d) * 12 + AIDate.GetMonth(d);
+        if (month_idx >= state.last_review_month + Maintenance.REVIEW_EVERY_MONTHS) {
+            state.last_review_month = month_idx;
+            Maintenance.CapacityReview(state, railtype);
+        }
+
         // Collect routes to delete after the loop (don't mutate while iterating).
         local condemned_done = [];
         foreach (key, r in state.routes) {
@@ -114,6 +128,80 @@ class Maintenance {
             }
         }
         foreach (r in condemned_done) state.RemoveRoute(r);
+    }
+
+    // Count this route's still-valid vehicles.
+    static function _AliveCount(r) {
+        local n = 0;
+        if (r.trains != null) foreach (v in r.trains) if (AIVehicle.IsValidVehicle(v)) n++;
+        return n;
+    }
+
+    // COMPREHENSIVE CAPACITY SWEEP (every REVIEW_EVERY_MONTHS months). For every
+    // BUILT route, scale the fleet and station to the CURRENT production so we keep
+    // up as industries grow - proactively, not just reacting to a backlog one step
+    // at a time. Bounded by the per-route cap, station fit, and cash.
+    static function CapacityReview(state, railtype) {
+        local reviewed = 0, added = 0;
+        foreach (_, r in state.routes) {
+            if (r.status != "built") continue;
+            if (Money.Cash() < Maintenance.MIN_CASH_FOR_TRAIN) break;   // out of money
+            reviewed++;
+            local alive = Maintenance._AliveCount(r);
+
+            // --- AIR: scale planes to the airport capacity when cargo is waiting ---
+            if (("air" in r) && r.air) {
+                local cap = Air.PlaneCap(r.src_station, r.dst_station);
+                local waiting = AIStation.GetCargoWaiting(r.src_station.station_id, r.cargo)
+                              + AIStation.GetCargoWaiting(r.dst_station.station_id, r.cargo);
+                if (waiting >= 80 && alive < cap) {
+                    local cs = Air.RouteUsesSmallAirport(r.src_station, r.dst_station)
+                        ? Air.SMALL_AIRPORT_SPEED_CAP : 0;
+                    local plane = Air.PlaneSet(r.cargo, cs);
+                    if (plane != null && Money.Cash() > plane.price) {
+                        local v = Air._BuildPlane(r.src_station.hangar, plane, r.cargo,
+                                                  r.src_station, r.dst_station);
+                        if (v != -1) { r.trains.push(v); added++; }
+                    }
+                }
+                continue;
+            }
+
+            // --- ROAD: scale trucks to current production ---
+            if (("road" in r) && r.road) {
+                if (("feeder" in r) && r.feeder) continue;   // feeders sized to the trunk
+                local veh = Road.VehicleSet(r.cargo);
+                if (veh == null) continue;
+                local output = (r.acc_is_town || !AIIndustry.IsValidIndustry(r.producer))
+                    ? r.production : AIIndustry.GetLastMonthProduction(r.producer, r.cargo);
+                local target = Road.InitialFleet(output, veh.capacity);
+                if (alive < target && Money.Cash() > veh.price) {
+                    local is_pax = (AICargo.GetTownEffect(r.cargo) == AICargo.TE_PASSENGERS);
+                    local v = Road._BuildVehicle(r.depot_tile, veh, r.cargo,
+                                                 r.src_station, r.dst_station, is_pax);
+                    if (v != -1) { r.trains.push(v); added++; }
+                }
+                continue;
+            }
+
+            // --- RAIL: widen the station + scale trains to current production ---
+            if (!AIIndustry.IsValidIndustry(r.producer)) continue;
+            local output = AIIndustry.GetLastMonthProduction(r.producer, r.cargo);
+            if (output <= 0) continue;
+            if (output > r.production) r.production = output;
+            if (r.src_station != null) StationBuilder.GrowToMatch(r.src_station, output);
+            local single = ("single_track" in r) && r.single_track;
+            if (single) continue;                              // one-train cap
+            local target = Trains.PickNumTrains(output, Maintenance.CapFor(r));
+            if (alive < target && r.depot_tile != null) {
+                Maintenance._AddTrain(r, railtype);            // one per sweep per route
+                added++;
+            }
+        }
+        if (reviewed > 0) {
+            Log.Info(Log.PHASE_LOOP, "[capacity-review] swept " + reviewed
+                + " routes, +" + added + " vehicles to match demand.");
+        }
     }
 
     // EMERGENCY CONTRACTION (Phase 0 solvency). When cash-stressed (usable money

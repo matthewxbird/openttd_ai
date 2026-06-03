@@ -7,10 +7,15 @@
 class State {
     routes    = null;   // map: route_key -> Route record
     blacklist = null;   // Blacklist instance
+    last_review_month = -100;  // month-index the capacity sweep last ran (mutable
+                               // cross-tick state - lives here because a STATIC
+                               // class slot can't be reassigned at runtime in
+                               // OpenTTD Squirrel; the State instance persists)
 
     constructor() {
         this.routes    = {};
         this.blacklist = Blacklist();
+        this.last_review_month = -100;
     }
 
     function HasRoute(cargo, producer, accepter) {
