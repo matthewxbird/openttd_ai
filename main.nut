@@ -380,16 +380,19 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
         return this._FailRoute(c, route, false, false);
     }
 
-    // Dest station (a town for end-chain cargo, else an industry).
-    route.dst_station = this.state.FindExistingStation(c.accepter, false, acc_is_town);
-    if (route.dst_station == null) {
-        route.dst_station = acc_is_town
-            ? StationBuilder.BuildAtTown(c.accepter, c.cargo, producer_tile, want_roro)
-            : StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile, want_roro);
-        new_dst = true;
-    } else {
-        Log.Info(Log.PHASE_STATION, "Reusing existing dest station id=" + route.dst_station.station_id);
-    }
+    // Dest station. A consumer (power station, factory, town) is correctly fed by
+    // MULTIPLE sources - but our stations are built for ONE route (2 platforms,
+    // out+back, single throat). REUSING one drop station for a 2nd converging line
+    // makes the second source's track collide at the shared throat (it can't
+    // interface - observed in-game). So each source builds its OWN separate drop
+    // station at the accepter: the industry/town accepts cargo from all nearby
+    // stations, each station's throat faces its own source, no throat conflict.
+    // (Same producer->accepter is already deduped by HasRoute above, so an
+    // existing dst station here is ALWAYS a different source - never reuse it.)
+    route.dst_station = acc_is_town
+        ? StationBuilder.BuildAtTown(c.accepter, c.cargo, producer_tile, want_roro)
+        : StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile, want_roro);
+    new_dst = true;
     if (route.dst_station == null) {
         return this._FailRoute(c, route, new_src, new_dst);
     }
