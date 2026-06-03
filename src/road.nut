@@ -16,6 +16,8 @@
 
 class Road {
     static MAX_VEH      = 8;    // road vehicles per route (stop throughput)
+    static ADD_VEH_WAITING = 40;   // backlog (units waiting) that warrants more trucks
+    static MAX_ADD_PER_PASS = 3;   // cap trucks added in one re-eval (don't overspend)
     static MIN_DISTANCE = 8;    // shorter isn't worth a station pair
     static MAX_DISTANCE = 28;   // town-pax bus range
     static TRUCK_MAX_DISTANCE = 55;  // industry-freight TRUCK range. Rail's
@@ -462,15 +464,31 @@ class Road {
             }
         }
 
+        // CAPACITY RE-EVALUATION (logged). One truck per pass couldn't keep up
+        // with demand (manual-test feedback: not enough trucks). Size the ADD to
+        // the backlog: each truck clears ~its capacity per round-trip, so a big
+        // waiting pile needs several trucks at once. Capped by MAX_VEH + cash.
         local waiting = AIStation.GetCargoWaiting(r.src_station.station_id, r.cargo);
-        if (waiting >= 60 && alive.len() < Road.MAX_VEH
-                && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN) {
-            local veh = Road.VehicleSet(r.cargo);
+        local veh = Road.VehicleSet(r.cargo);
+        if (veh != null && waiting >= Road.ADD_VEH_WAITING && alive.len() < Road.MAX_VEH) {
+            local cap = (veh.capacity > 0) ? veh.capacity : 20;
+            local want = waiting / cap;                 // trucks the backlog needs
+            if (want < 1) want = 1;
+            local room = Road.MAX_VEH - alive.len();
+            if (want > room) want = room;
+            if (want > Road.MAX_ADD_PER_PASS) want = Road.MAX_ADD_PER_PASS;
+            Log.Info(Log.PHASE_LOOP, "[road] reval " + name + ": waiting=" + waiting
+                + " trucks=" + alive.len() + "/" + Road.MAX_VEH + " -> want +" + want);
             local is_pax = (AICargo.GetTownEffect(r.cargo) == AICargo.TE_PASSENGERS);
-            if (veh != null && Money.Cash() > veh.price) {
+            local added = 0;
+            while (added < want && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN
+                    && Money.Cash() > veh.price) {
                 local v = Road._BuildVehicle(r.depot_tile, veh, r.cargo, r.src_station, r.dst_station, is_pax);
-                if (v != -1) { r.trains.push(v); Log.Info(Log.PHASE_LOOP, "[road] " + name + " +veh (" + r.trains.len() + ")"); }
+                if (v == -1) break;
+                r.trains.push(v); added++;
             }
+            if (added > 0) Log.Info(Log.PHASE_LOOP, "[road] " + name + " +" + added
+                + " trucks (now " + r.trains.len() + "/" + Road.MAX_VEH + ")");
         }
     }
 
