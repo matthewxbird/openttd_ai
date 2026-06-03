@@ -635,10 +635,43 @@ for the double-track-loop follow-up). MAX_TRAINS stays 2 in effect.
 
 **Net for Phase 10 levers tried this round (all measured, none beat the cap-2
 baseline 2,506,635 solo):** binary-heap PF queue (−2%, tie chaos), own-track reuse
-(−7%, single-track sharing deadlocks), RoRo short-loop (−17%, loop chokepoint).
-The throughput ceiling is more stubborn than a single rework: it needs a capacity
-return loop AND the corridor/junction infra together, not any one piece. Next
-best-EV is profiling (10.5) to target the true ceiling, and the double-track loop.
+(−7%, single-track sharing deadlocks), RoRo short-loop (−17%, loop chokepoint),
+town-growth funding (−28%), per-airport plane cap (−21%), capacity-aware airport
+siting (−25%), builder blacklist-skip (−3%). SEVEN levers across every subsystem,
+all regressed.
+
+### ROOT CAUSE (measured) — the train cap is NOT the bottleneck; CARGO/route is
+
+Why every throughput-rework lever regressed, settled by instrumentation
+(seed4@256, 12y, value 4.69M):
+```
+rail route train counts:  1/2 → 675 samples   2/2 (AT cap) → 80   0/2 → 157
+add-train events in 12y: 12      lengthen-train events: 53
+```
+**The vast majority of rail routes run ONE train (cap 2); they almost never reach
+the cap.** `add_train` fired 12× in a whole game. So routes are **cargo-limited,
+not train-cap-limited** — they don't *want* a 2nd/3rd train. This means the entire
+reversing-terminus → RoRo → double-tracked-return-loop premise chases a
+**NON-bottleneck**: lifting the per-route train cap cannot raise value when routes
+have no cargo for more trains. It only adds infrastructure cost — exactly why RoRo
+ran −17% (cost for unused capacity) and why the double-track loop would regress
+too. **DO NOT build the double-track loop / pursue terminus throughput.** The
+historic "reversing-terminus deadlock = throughput ceiling" framing was about
+*solvency* (a route that *did* scale to 3-4 trains deadlocked and bankrupted us) —
+MAX_TRAINS=2 already fixed that by capping; it was never a value-growth lever.
+
+**Where the real levers are (redirect future work):**
+- **More ROUTES** (breadth) and **more CARGO PER ROUTE** (bigger producers via
+  supply chains; future-production sizing) — raise demand so the trains we already
+  run carry more, and add lines.
+- **AIR remains the dominant earner** (air/road routes carry 3–6 vehicles each vs
+  rail's 1) — invest there, not in rail train-cap topology.
+- **Rail RELIABILITY** (more candidate pairs build successfully) may still help,
+  but it is chaotically coupled to the retry/economics loop (blacklist-skip −3%),
+  so it needs careful, holistic work, not a one-line gate.
+- The ~2.5M multi-modal solo value looks like a **strong local optimum** for this
+  architecture; meaningful gains likely need a different axis (1v1-vs-AAHOG tuning,
+  or a strategy-level change in target selection), not rail-throughput mechanics.
 
 ---
 
