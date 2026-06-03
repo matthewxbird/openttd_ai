@@ -523,6 +523,103 @@ and chooses road over rail for sub-~25-tile / low-volume candidates.
 
 ---
 
+## Phase 10 — Pathfinder & rail-builder reliability + speed *(CURRENT FOCUS)*
+
+All multi-modal phases (0–9) have shipped; air is the dominant earner. The next
+ceiling is the **rail builder + pathfinder**: it is the slowest opcode consumer
+in the AI and the least reliable (back-track failures, abandons on hard terrain).
+A faster, more reliable rail builder lifts *both* solo throughput (more lines laid
+per tick) and the 1v1 fight (we lose corridors to rivals when builds stall). This
+section is grounded in a fresh deep read of AAAHogEx's `pathfinder.nut` /
+`railbuilder.nut` and a profile of our own hot loop.
+
+### Where we differ from AAAHogEx in-game (structural, not just tuning)
+
+1. **Open-set priority queue.** *(FIXED — see 10.1.)* Ours re-sorted an `AIList`
+   on **every** `Pop()` — O(n·log n) per A* expansion, and the open set runs into
+   the thousands of nodes on a 256 haul. AAHOG uses a proper queue; we were
+   burning most of the pathfinder's opcode budget re-sorting. Replaced with a
+   pure-Squirrel binary min-heap (O(log n) push/pop) + packed-integer closed keys
+   (was string concat + `tostring()` per pop).
+2. **Own-track reuse / corridor sharing.** AAHOG's `_Neighbours` *forks onto our
+   own existing rail* (`AreTilesConnectedAndMine`, `RemoveConnectedHead`,
+   `BuildedPath`), so new routes graft onto trunks instead of laying redundant
+   parallel track. **Ours prices own rail as a near-wall and always detours.** On
+   a dense map this is the difference between a shared network and a tangle of
+   isolated single lines — and it costs us money and tiles every new route.
+3. **Reverse-path-aware parallel back-track.** AAHOG threads the double-track
+   *back* leg alongside the out leg with `reverseNears` / `revOkTiles` /
+   `_PermitedDiagonalOffset`, so the second track follows the first at correct
+   spacing. **Our back-track pass is fragile** — when it can't get a parallel
+   crossing it drops to single-track salvage. That salvage saved us from
+   abandoning, but it also caps those lines at one reversing train.
+4. **Terrain/engine-aware costs.** AAHOG sets `_cost_tunnel_per_tile = 0` to
+   *prefer tunnelling through a hill over hill-climbing*, scales `_max_slope` /
+   slope cost by the engine's tractive effort vs. a "slope steepness" knob, and
+   raises tunnel/bridge limits when rich. Ours has fixed limits and a fixed slope
+   model; we climb hills the loco can't pull, then run slow.
+5. **Underground (multi-tile tunnel) chaining in the search.** AAHOG carries an
+   `Underground` path-mode so a single A* expansion can punch a multi-tile tunnel
+   and continue underground. Ours emits bridge/tunnel neighbours but does not
+   chain an underground corridor; long ridges become detours.
+6. **No in-search profiling.** AAHOG has a `PerformanceCounter` around
+   `_Neighbours`/`_Cost`. We log open-set size every 10 chunks but cannot yet
+   attribute opcodes to cost vs. neighbour generation.
+
+### Roadmap (ordered by EV ÷ risk; bench each before the next)
+
+- **10.1 Binary-heap open set + integer closed keys** *(BUILT — PARKED on branch
+  `perf/aystar-heap`, NOT merged: solo-value ~neutral-to-slightly-negative)*.
+  `src/aystar.nut`: `AyStar.Open` is a binary min-heap with a FIFO insertion-order
+  tiebreak `(priority, seq)`; the closed-set key is a packed integer
+  `(tile<<5 | dir)` instead of a string concat. A real pathfinder speed/opcode win
+  (no more O(n·log n) AIList re-sort per pop), but **not bit-neutral on value** —
+  f-cost ties resolve to different (equal-cost) layouts, and on cramped maps that
+  ripples into deadlock/throughput chaos. Measured A/B (solo, 5 seeds × {128,256},
+  12y):
+  ```
+                     128         256          overall
+  HEAD (AIList)      1,363,671   3,649,600    2,506,635
+  bare heap          1,004,216   3,713,729    2,358,973   (-5.9%; 128 -26%)
+  heap + FIFO tie    1,132,248   3,780,566    2,456,407   (-2.0%; 256 +3.6%, 128 -17%)
+  ```
+  The FIFO tiebreak (replay the old AIList stable order: earliest-inserted wins on
+  ties) recovered most of the bare-heap loss and made 256 net-positive, but 128
+  still trails — AIList's exact tie order isn't reproduced bit-for-bit, and 128 is
+  deadlock-sensitive to layout. **Decision:** don't merge a solo regression to main
+  (project discipline). The opcode win is real and matters most in 1v1 / large maps
+  (where pathfinding is opcode-starved), and 256 already gains — so re-land 10.1
+  **together with 10.2** (own-track reuse changes routing anyway, so we re-baseline
+  once), or after exactly matching the AIList tie order. Branch kept for that.
+- **10.2 Own-track reuse (corridor sharing).** Let `_Neighbours` *join* our own
+  rail at a small cost (replacing the near-wall `_cost_foreign_rail`-style block
+  that currently also penalises *own* rail). Start conservative: allow a flat join
+  only at a goal/source tile or onto a known trunk tile, never mid-curve. Pure
+  classifier + cost are unit-testable. **Highest structural EV** — denser network,
+  cheaper routes, fewer tiles.
+- **10.3 Robust parallel back-track.** Port AAHOG's reverse-near logic: thread the
+  back leg as a *side-biased* parallel of the out leg with correct spacing, and on
+  failure retry the side before dropping to single-track. Lifts the per-line train
+  cap that single-track salvage currently pins at 1.
+- **10.4 Terrain/engine-aware costs.** Scale slope cost + `_max_slope` by the
+  chosen loco's tractive effort/power; drop tunnel-per-tile cost so we tunnel hills
+  instead of crawling over them. Pure cost function — unit-test it.
+- **10.5 Pathfinder profiling + trace mode.** Opcode counters around
+  `_Cost`/`_Neighbours` and a top-N expanded-node dump on a failed search (the
+  Phase-8 "trace mode" item), so further tuning is measured, not guessed.
+- **10.6 (stretch) Alternative search.** Only if A*-with-heap still dominates the
+  profile: evaluate a *bidirectional* A* (search from both endpoints, meet in the
+  middle — typically ~2× fewer expanded nodes on long hauls) or a coarse
+  jump-point-style step over flat open terrain. Decide from 10.5 data; don't
+  rewrite the search blind.
+
+**Done when:** the pathfinder no longer dominates the opcode profile; rail lines
+that previously dropped to single-track salvage build as double-track; and solo
+value is ≥ the multi-modal baseline (faster builds should *raise* it, since the
+headless budget caps opcodes/tick).
+
+---
+
 ## Implemented so far (status)
 
 - **Estimator** (Phase-1 fleet sim) — done; feeds ranking.
