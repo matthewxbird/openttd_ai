@@ -49,6 +49,8 @@ class MvBAI extends AIController {
     // build air routes until we have a CASH cushion or a few proven income routes
     // - early air spending is a bankruptcy risk; cheap rail/road build the cashflow
     // first, then air (the biggest earner) scales once we can absorb the up-front.
+    static USE_AIR_DEFERRAL = false;    // defer air until cashflow (OFF: it cost
+                                        // more than it saved - delays the top earner)
     static AIR_MIN_CASHFLOW = 100000;   // cash above which air is affordable to start
     static AIR_MIN_PROVEN   = 1;        // ...or this many proven routes already earning.
                                         // Softened from 200k/3: the affordability
@@ -229,8 +231,12 @@ function MvBAI::Start() {
                 // air is the biggest earner but only once we can absorb the up-front
                 // cost. Until we have a cash cushion OR a few proven income routes,
                 // skip air and let cheap rail/road land-grab build the cashflow.
-                // [isolation test] air-deferral DISABLED to measure the speed win.
-                if (false && Money.Cash() < MvBAI.AIR_MIN_CASHFLOW
+                // Air-deferral: OFF. The affordability check already blocks broke
+                // air-building and the dual-loco/crash fixes handle early bankruptcy,
+                // so deferring the DOMINANT earner only cost value (128 -44%). Flag
+                // kept for tuning / 1v1 where early solvency may matter more.
+                if (MvBAI.USE_AIR_DEFERRAL
+                        && Money.Cash() < MvBAI.AIR_MIN_CASHFLOW
                         && this.state.CountBuilt() < MvBAI.AIR_MIN_PROVEN) {
                     continue;
                 }
