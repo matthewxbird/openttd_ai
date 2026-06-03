@@ -49,7 +49,15 @@ class MvBAI extends AIController {
     // to build far-end return loops (no reversing) so they can run more than the
     // reversing-terminus cap of trains. RORO_MAX_TRAINS is the per-route cap for
     // a route that successfully built loops at both ends.
-    static USE_RORO        = true;
+    //
+    // OFF by default: the SHORT single-track return loop is itself a capacity
+    // bottleneck - measured, the cap never binds (cap 3 and 6 give BIT-IDENTICAL
+    // results) and RoRo runs -17% vs the cap-2 terminus (256 -21%). Trades the
+    // reversing-throat chokepoint for a loop chokepoint + drive-through cycle cost.
+    // The infra is sound (pre-flight, per-station turnaround, loop signalling, 0
+    // loop failures) and stays on main for the real fix: a DOUBLE-TRACKED /
+    // multi-block return loop that can actually hold >2 trains. Flip on with that.
+    static USE_RORO        = false;
     static RORO_MAX_TRAINS = 6;
 
     static DEBUG_JUNCTION = false;

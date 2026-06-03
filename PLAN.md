@@ -596,10 +596,43 @@ issues, in priority order:
 3. **Residual loop failures (3).** Some far ends still can't host a turnaround;
    want a wider/teardrop variant or a cleaner feasibility gate.
 
-**Status: PROTOTYPE PARKED on `feat/roro-terminus` (USE_RORO flag), NOT merged**
-(−36% solo). The geometry approach is validated (90° gone, loops build); landing
-it net-positive needs the three fixes above — primarily a robust fallback so a
-failed loop never leaves a broken gapped terminus. MAX_TRAINS stays 2 on main.
+**v2 — the three fixes landed (commit on branch):** (1) `RoRo.TurnaroundClear`
+pre-flight so a station is only GAPPED when the far-end loop will fit (else built
+adjacent) — a gapped station has no reversing fallback, so this removes the broken
+fallback entirely; (2) per-station turnaround in `main` (RoRo loop on a gapped end,
+reversing crossover on an adjacent end; cap rises only when BOTH ends loop; a
+gapped end whose loop fails clean-fails the route); (3) force entry+exit PBS on
+short loops. Smoke: 10 gapped stations, **0 loop failures, 0 RoRo abandons**. Full
+12y bench:
+```
+                 128         256          overall
+HEAD baseline    1,363,671   3,649,600    2,506,635
+RoRo v1 (broken) 1,112,663   2,099,039    1,605,851   (-36%)
+RoRo v2 (cap 6)  1,304,502   2,879,780    2,092,141   (+30% vs v1; -17% vs base)
+```
+**v2 is much healthier but still −17% vs the cap-2 terminus** (256 −21%). Cap
+sweep settles it: **`RORO_MAX_TRAINS`=3 and =6 give BIT-IDENTICAL results** (same
+value on all 10 seeds) — the cap NEVER BINDS. RoRo routes never scale past ~2
+trains regardless, because a **short single-track return loop is itself a capacity
+bottleneck**: only ~1 train fits in the turnaround block, so the maintenance
+add-train never sustains a 3rd. RoRo merely traded the reversing-throat chokepoint
+for a loop chokepoint, and added the drive-through cycle cost (out to the far end +
+loop vs reversing in place) and the gapped-station cost → a net −17%.
+
+**=> Short-loop RoRo is a DEAD END for lifting throughput.** The cap is not the
+lever; the loop's own capacity is. The real fix is a **double-tracked / multi-block
+return loop** (room for ≥2 trains in the turnaround, properly signalled) — a larger
+build, deferred. **Status: infra MERGED to main but `USE_RORO=false`** (off by
+default — flag-off behaviour is bit-identical to the cap-2 terminus baseline; the
+pre-flight / per-station turnaround / loop-signalling machinery stays in the tree
+for the double-track-loop follow-up). MAX_TRAINS stays 2 in effect.
+
+**Net for Phase 10 levers tried this round (all measured, none beat the cap-2
+baseline 2,506,635 solo):** binary-heap PF queue (−2%, tie chaos), own-track reuse
+(−7%, single-track sharing deadlocks), RoRo short-loop (−17%, loop chokepoint).
+The throughput ceiling is more stubborn than a single rework: it needs a capacity
+return loop AND the corridor/junction infra together, not any one piece. Next
+best-EV is profiling (10.5) to target the true ceiling, and the double-track loop.
 
 ---
 
