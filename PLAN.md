@@ -662,16 +662,39 @@ rail corner, which OpenTTD forbids (no room for the `45°+45°+straight` a ballo
 needs, even with the 3-tile lead-in stubs). The flag falls back cleanly (verified
 non-breaking: seed1@256 4y = 1.86M, healthy), so the scaffold is parked ON.
 
-**=> RoRo needs a station-geometry change, not just a loop builder.** Two ways
-forward (the gating decision): (a) **widen platform spacing to ≥2 tiles** — build
-the two platforms with a free tile between them (two 1-wide platforms joined to
-one station id), giving room for a balloon/teardrop turnaround; ripples through
-`StationBuilder._TryBuild`/`AddPlatform`/`Remove`, `Terminus`, and
-`TrackBuilder._PickPlatforms`. Or (b) **dedicated wide teardrop loop** that swings
-several tiles clear of the station before reversing (more land, fails more on
-cramped maps). (a) is the cleaner long-term shape (it's how real RoRo terminals
-look) but the bigger change. Until one lands, RoRo always falls back and
-MAX_TRAINS stays 2.
+**=> RoRo needs a station-geometry change, not just a loop builder.** Chose (a)
+**widen platform spacing to ≥2 tiles**: `StationBuilder` now builds two 1-wide
+platforms `RORO_GAP=1` tiles apart (joined to one station id) for double-track
+routes. **This removed the 90° blocker** — loops now build (seed1@256 12y: 6
+drive-through loops built). BUT the **full 12y bench REGRESSED −36%** (solo, 5
+seeds × {128,256}):
+```
+                 128         256          overall
+HEAD baseline    1,363,671   3,649,600    2,506,635
+RoRo (cap 6)     1,112,663   2,099,039    1,605,851   (-36%; 256 -42%)
+```
+Diagnosis (seed1@256 12y verbose) — it is NOT train deadlock (`stuck=2`); the loss
+is broken/bottlenecked infrastructure: `condemn=33`, `terminus_fallback_fail=14`,
+`short_loop_unsignalled=13`, `loops_built=6`, `loops_failed=3`. Three fixable
+issues, in priority order:
+1. **Broken gapped-Terminus fallback.** When a loop fails (3×), the route falls
+   back to `Terminus._BuildThroat`, whose crossover assumes ADJACENT platforms and
+   can't span the 2-tile gap (14 build failures) → routes can't swap tracks → 33
+   condemns = most of the loss. Fix: a gap-aware crossover, OR on loop failure
+   rebuild the station adjacent (non-RoRo), OR pre-flight loop feasibility before
+   committing to a gapped station.
+2. **Short-loop signalling.** 13 loops are too short for `Signals.PlaceAlong`
+   (needs ≥8 tiles) → the loop is one unsignalled block → only ONE train at a time
+   → cap-6 trains queue (bottleneck worse than the 2-train terminus). Fix: signal
+   short loops explicitly (place ≥1 PBS per loop regardless of length) and/or grow
+   the loop so trains can hold inside it.
+3. **Residual loop failures (3).** Some far ends still can't host a turnaround;
+   want a wider/teardrop variant or a cleaner feasibility gate.
+
+**Status: PROTOTYPE PARKED on `feat/roro-terminus` (USE_RORO flag), NOT merged**
+(−36% solo). The geometry approach is validated (90° gone, loops build); landing
+it net-positive needs the three fixes above — primarily a robust fallback so a
+failed loop never leaves a broken gapped terminus. MAX_TRAINS stays 2 on main.
 
 ---
 
