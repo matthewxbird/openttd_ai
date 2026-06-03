@@ -62,6 +62,17 @@ class State {
         return false;
     }
 
+    // True if a ROAD route already starts at this producer. Road bus routes use
+    // a town as producer; that town usually ALSO has an air pax route, so the
+    // general ProducerServed (any mode) wrongly blocked every road route. Road is
+    // gated on its OWN mode only - a town may run air pax AND local buses.
+    function RoadServes(producer) {
+        foreach (_, r in this.routes) {
+            if (r.producer == producer && ("road" in r) && r.road) return true;
+        }
+        return false;
+    }
+
     // True if any route is still on probation (built but not yet proven to
     // earn). Used to hold off starting new lines until the current one works.
     function HasProbation() {

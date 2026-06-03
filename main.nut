@@ -237,7 +237,9 @@ function MvBAI::Start() {
             }
             // ROAD candidate (Phase 3): own affordability + builder.
             if (("road" in c) && c.road) {
-                if (this.state.ProducerServed(c.producer)) continue;
+                // Gate on ROAD only - the town usually has an air pax route too,
+                // and the general ProducerServed wrongly skipped every road route.
+                if (this.state.RoadServes(c.producer)) continue;
                 local rveh = Road.VehicleSet(c.cargo);
                 local rneed = c.distance * 400 + 2 * 4000 + 2000
                             + (rveh != null ? rveh.price : 20000);

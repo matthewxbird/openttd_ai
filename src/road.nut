@@ -162,39 +162,50 @@ class Road {
         for (local i = 0; i + 1 < tiles.len(); i++) {
             local a = tiles[i], b = tiles[i + 1];
             if (AIRoad.AreRoadTilesConnected(a, b)) continue;
-            if (!AIRoad.BuildRoad(a, b)) {
-                local e = AIError.GetLastError();
-                if (e != AIError.ERR_ALREADY_BUILT
-                        && !AIRoad.AreRoadTilesConnected(a, b)) {
-                    Log.Warn(Log.PHASE_TRACK,
-                        "[road] BuildRoad failed " + a + "->" + b + ": "
-                        + AIError.GetLastErrorString());
-                    return false;
-                }
-            }
+            if (AIRoad.BuildRoad(a, b)) continue;
+            local e = AIError.GetLastError();
+            if (e == AIError.ERR_ALREADY_BUILT || AIRoad.AreRoadTilesConnected(a, b)) continue;
+            // SLOPE failure is the dominant road-build error: the path crossed a
+            // slope BuildRoad won't accept. Flatten both tiles to a common height
+            // and retry (the rail builder does the same). This is why road routes
+            // weren't building - the pathfinder routes over slopes that the bare
+            // BuildRoad rejects, with no terraform fallback.
+            local h = AITile.GetMaxHeight(a);
+            TrackBuilder._FlattenToHeight(a, h);
+            TrackBuilder._FlattenToHeight(b, h);
+            if (AIRoad.BuildRoad(a, b) || AIRoad.AreRoadTilesConnected(a, b)) continue;
+            Log.Warn(Log.PHASE_TRACK,
+                "[road] BuildRoad failed " + a + "->" + b + ": "
+                + AIError.GetLastErrorString());
+            return false;
         }
         return true;
     }
 
-    // Build a drive-through stop at `tile` oriented along the road toward
-    // `toward` (an adjacent path tile). Returns station record or null.
-    static function BuildStop(tile, toward, cargo, is_pax) {
-        local front = toward;
+    // Build a drive-through stop from a { tile, front, back } config (collinear
+    // flat tiles from _FindStopTile). Lays the through-road back->tile->front so
+    // the stop is a clean straight drive-through, then the stop itself. `sid` =
+    // AIStation.STATION_NEW for an own stop, or a trunk station id to JOIN it.
+    // Returns station record or null.
+    static function BuildStop(pair, cargo, is_pax, sid_join = null) {
+        local tile = pair.tile, front = pair.front;
+        local back = ("back" in pair) ? pair.back : (tile - (front - tile));
         local veh_type = is_pax ? AIRoad.ROADVEHTYPE_BUS : AIRoad.ROADVEHTYPE_TRUCK;
-        // Ensure the stop tile has road to its front so it's drive-through.
-        if (!AIRoad.AreRoadTilesConnected(tile, front)) {
-            if (!AIRoad.BuildRoad(tile, front) && !AIRoad.AreRoadTilesConnected(tile, front)) {
-                return null;
-            }
+        local join = (sid_join == null) ? AIStation.STATION_NEW : sid_join;
+
+        // Through-road both sides so it's a real drive-through (road enters one
+        // end, leaves the other). Best-effort; the stop test below is the gate.
+        foreach (nb in [front, back]) {
+            if (!AIRoad.AreRoadTilesConnected(tile, nb)) AIRoad.BuildRoad(tile, nb);
         }
-        if (!AIRoad.BuildDriveThroughRoadStation(tile, front, veh_type, AIStation.STATION_NEW)
+        if (!AIRoad.BuildDriveThroughRoadStation(tile, front, veh_type, join)
                 && !AIRoad.IsRoadStationTile(tile)) {
             // LOCAL AUTHORITY refused? Lift rating with trees, retry once.
             if (TownAuthority.WasRefused()) {
                 local town = AITile.GetTownAuthority(tile);
                 if (AITown.IsValidTown(town)) TownAuthority.PlantTrees(town);
             }
-            if (!AIRoad.BuildDriveThroughRoadStation(tile, front, veh_type, AIStation.STATION_NEW)
+            if (!AIRoad.BuildDriveThroughRoadStation(tile, front, veh_type, join)
                     && !AIRoad.IsRoadStationTile(tile)) {
                 Log.Warn(Log.PHASE_STATION,
                     "[road] stop build failed at " + tile + ": " + AIError.GetLastErrorString());
@@ -227,15 +238,17 @@ class Road {
         local dst_pair = Road._FindStopTile(dst_loc);
         if (src_pair == null || dst_pair == null) return false;
 
-        // Pathfind between the two stop tiles and lay the road.
-        local path = Road.FindPath(src_pair.tile, dst_pair.tile);
-        if (path == null || path.len() < 2) return false;
-        if (!Road.BuildAlong(path)) return false;
-
-        local src_st = Road.BuildStop(src_pair.tile, src_pair.front, c.cargo, is_pax);
+        // Build each stop's collinear drive-through first (back-tile-front), THEN
+        // pathfind FRONT to FRONT and lay the connecting road. Pathfinding between
+        // the fronts keeps each stop's straight through-axis intact (the stop no
+        // longer depends on the arbitrary path direction).
+        local src_st = Road.BuildStop(src_pair, c.cargo, is_pax);
         if (src_st == null) return false;
-        local dst_st = Road.BuildStop(dst_pair.tile, dst_pair.front, c.cargo, is_pax);
+        local dst_st = Road.BuildStop(dst_pair, c.cargo, is_pax);
         if (dst_st == null) return false;
+
+        local path = Road.FindPath(src_pair.front, dst_pair.front);
+        if (path == null || path.len() < 2 || !Road.BuildAlong(path)) return false;
 
         // Depot beside the source stop.
         local depot = Road._BuildDepot(src_pair.tile);
@@ -260,23 +273,44 @@ class Road {
         return true;
     }
 
-    // A drive-through stop needs a tile + an adjacent tile both usable. Search a
-    // small ring around `near`. Returns { tile, front } or null.
+    // A tile we can put a drive-through stop (or its through-road) on: on-map,
+    // dry, FLAT, not a station/foreign tile, and either clear buildable land or
+    // our-own flat road. Flatness + a collinear flat pair is what the drive-
+    // through stop needs - a sloped/dense-town-centre tile fails ERR_UNKNOWN.
+    static function _StopBuildable(t) {
+        if (!AIMap.IsValidTile(t)) return false;
+        if (AITile.IsWaterTile(t) || AITile.IsStationTile(t)) return false;
+        if (AITile.GetSlope(t) != AITile.SLOPE_FLAT) return false;
+        if (AIRoad.IsRoadTile(t)) {
+            local o = AITile.GetOwner(t);
+            return AICompany.IsMine(o) || o == AICompany.COMPANY_INVALID || o == -1
+                || AITown.IsValidTown(AITile.GetTownAuthority(t));   // town road ok to drive on
+        }
+        return AITile.IsBuildable(t);
+    }
+
+    // A drive-through stop needs a COLLINEAR run of flat tiles (back-tile-front)
+    // at one height, so road passes straight THROUGH the stop. Search a ring
+    // around `near` (prefer just outside the dense centre). Returns
+    // { tile, front, back } - all flat, same height, on one axis - or null.
     static function _FindStopTile(near) {
         local cx = AIMap.GetTileX(near), cy = AIMap.GetTileY(near);
         local mx = AIMap.GetMapSizeX(), my = AIMap.GetMapSizeY();
+        local axes = [ [1, -1], [mx, -mx] ];   // x-axis (front,back) / y-axis
         for (local r = 1; r <= Road.STATION_RADIUS; r++) {
             for (local dy = -r; dy <= r; dy++) {
                 for (local dx = -r; dx <= r; dx++) {
                     if (abs(dx) != r && abs(dy) != r) continue;   // ring only
                     local x = cx + dx, y = cy + dy;
-                    if (x < 1 || y < 1 || x >= mx - 1 || y >= my - 1) continue;
+                    if (x < 2 || y < 2 || x >= mx - 2 || y >= my - 2) continue;
                     local t = AIMap.GetTileIndex(x, y);
-                    if (!Road._Usable(t) || AITile.IsStationTile(t)) continue;
-                    foreach (o in Road._Offsets()) {
-                        local f = t + o[0];
-                        if (Road._Usable(f) && !AITile.IsStationTile(f)) {
-                            return { tile = t, front = f };
+                    if (!Road._StopBuildable(t)) continue;
+                    local h = AITile.GetMaxHeight(t);
+                    foreach (a in axes) {
+                        local f = t + a[0], b = t + a[1];
+                        if (Road._StopBuildable(f) && Road._StopBuildable(b)
+                                && AITile.GetMaxHeight(f) == h && AITile.GetMaxHeight(b) == h) {
+                            return { tile = t, front = f, back = b };
                         }
                     }
                 }
@@ -338,24 +372,18 @@ class Road {
         if (trunk_pair == null) return false;
         if (AIMap.DistanceManhattan(src_pair.tile, trunk_pair.tile) < 3) return false;  // already covered
 
-        local path = Road.FindPath(src_pair.tile, trunk_pair.tile);
-        if (path == null || path.len() < 2 || !Road.BuildAlong(path)) return false;
-
-        // Town-centre stop (own station) + trunk-side stop joined to the trunk.
-        local src_st = Road.BuildStop(src_pair.tile, src_pair.front, cargo, true);
+        // Town-centre stop (own station) + trunk-side stop JOINED to the trunk
+        // station id, then connect the two with road (front to front).
+        local src_st = Road.BuildStop(src_pair, cargo, true);
         if (src_st == null) return false;
-        if (!AIRoad.AreRoadTilesConnected(trunk_pair.tile, trunk_pair.front)
-                && !AIRoad.BuildRoad(trunk_pair.tile, trunk_pair.front)
-                && !AIRoad.AreRoadTilesConnected(trunk_pair.tile, trunk_pair.front)) {
+        local trunk_bus = Road.BuildStop(trunk_pair, cargo, true, trunk_st.station_id);
+        if (trunk_bus == null) {
+            Log.Warn(Log.PHASE_STATION, "[feeder] trunk-side stop/join failed.");
             return false;
         }
-        if (!AIRoad.BuildDriveThroughRoadStation(trunk_pair.tile, trunk_pair.front,
-                AIRoad.ROADVEHTYPE_BUS, trunk_st.station_id)
-                && !AIRoad.IsRoadStationTile(trunk_pair.tile)) {
-            Log.Warn(Log.PHASE_STATION, "[feeder] trunk-side stop/join failed: " + AIError.GetLastErrorString());
-            return false;
-        }
-        local trunk_bus = { station_id = trunk_st.station_id, tile = trunk_pair.tile, road = true };
+
+        local path = Road.FindPath(src_pair.front, trunk_pair.front);
+        if (path == null || path.len() < 2 || !Road.BuildAlong(path)) return false;
 
         local depot = Road._BuildDepot(src_pair.tile);
         if (depot == -1) return false;

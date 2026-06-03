@@ -410,7 +410,10 @@ class Air {
                 // with bus feeders (extends catchment -> more pax for the plane).
                 if (Money.Cash() > 60000) {
                     foreach (pair in [[r.producer, r.src_station], [r.accepter, r.dst_station]]) {
-                        if (AITown.GetPopulation(pair[0]) >= 1500) {
+                        // pop>=800 (was 1500): smaller towns still have a dense
+                        // centre worth feeding into the airport; 1500 excluded most
+                        // towns on cramped maps, so feeders never fired.
+                        if (AITown.GetPopulation(pair[0]) >= 800) {
                             Road.BuildFeeder(state, pair[0], pair[1], r.cargo);
                         }
                     }
