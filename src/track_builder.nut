@@ -25,12 +25,11 @@ class TrackBuilder {
     static DEBUG_DUMP = true;   // on a track-build failure, log an ASCII map of
                                 // the region so we can see WHY the path failed
                                 // (water/steep/blocked). Turn off once robust.
-    static MAX_CHUNKS = 300;    // pathfinder chunks per attempt. Capped low
-                                // (manual-test feedback): a route needing >300
-                                // chunks (open set in the thousands) is too complex
-                                // for us to build well - GIVE UP fast and move to a
-                                // simpler, profitable route instead of grinding the
-                                // opcode budget on one hard line.
+    static MAX_CHUNKS = 600;    // pathfinder chunks per attempt. 300 was too tight
+                                // (only short routes survived -> "too short to be
+                                // profitable", 128 -23%); 600 lets longer/medium
+                                // routes build while still giving up on the truly
+                                // complex ones fast (vs the old 2000+6000 grind).
     static RETRY_CHUNKS = 600;  // relaxed-cost retry - also capped (was 6000, which
                                 // would just grind on after the 300 cap failed)
     static MAX_REBUILD = 2;     // reroute attempts around un-buildable segments.
