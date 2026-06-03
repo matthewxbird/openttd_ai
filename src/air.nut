@@ -95,11 +95,35 @@ class Air {
         return null;
     }
 
+    // OpenTTD: fast aircraft CRASH at SMALL airports (AT_SMALL/AT_COMMUTER,
+    // short-strip). A crash wrecks the station rating -> cargo stops -> on a thin
+    // economy we go BANKRUPT (observed in manual testing: 2 plane crashes ->
+    // rating damage -> bankrupt). So on a route whose smaller airport is small,
+    // we cap the plane's max speed to a crash-safe value (early props/turboprops
+    // are safe; jets crash). Tunable.
+    static SMALL_AIRPORT_SPEED_CAP = 350;   // km/h; planes faster than this crash
+                                            // at short-strip airports
+
+    // True if EITHER endpoint is a small (short-strip) airport, where fast planes
+    // crash. Such routes must use a speed-capped plane.
+    static function RouteUsesSmallAirport(src_st, dst_st) {
+        foreach (st in [src_st, dst_st]) {
+            if (st == null || !("airport_type" in st)) continue;
+            foreach (t in Air.TRAITS) {
+                if (t.type == st.airport_type && !t.big) return true;
+            }
+        }
+        return false;
+    }
+
     // Best plane engine for a cargo: maximise capacity*speed / running cost.
-    // Big planes are skipped unless a big-plane airport is available.
-    // Returns { engine, capacity, running_cost, speed, price } or null. Cached.
-    static function PlaneSet(cargo) {
-        if (cargo in Air._plane_cache) return Air._plane_cache[cargo];
+    // Big planes are skipped unless a big-plane airport is available. When
+    // speed_cap > 0, planes faster than it are excluded (crash-safe for small
+    // airports). Returns { engine, capacity, running_cost, speed, price } or null.
+    // Cached per (cargo, speed_cap).
+    static function PlaneSet(cargo, speed_cap = 0) {
+        local ckey = cargo + ":" + speed_cap;
+        if (ckey in Air._plane_cache) return Air._plane_cache[ckey];
 
         local big_ok = Air.BigAvailable();
         local list = AIEngineList(AIVehicle.VT_AIR);
@@ -109,6 +133,8 @@ class Air {
             if (!AIEngine.IsBuildable(eng)) continue;
             local pt = AIEngine.GetPlaneType(eng);
             if (!big_ok && pt == AIAirport.PT_BIG_PLANE) continue;
+            local spd0 = AIEngine.GetMaxSpeed(eng);
+            if (speed_cap > 0 && spd0 > speed_cap) continue;   // crashes at small airports
             local cap = AIEngine.GetCapacity(eng);   // capacity in the engine's default cargo
             if (AIEngine.GetCargoType(eng) != cargo) {
                 if (!AIEngine.CanRefitCargo(eng, cargo)) continue;
@@ -133,7 +159,7 @@ class Air {
                 };
             }
         }
-        Air._plane_cache[cargo] <- best;
+        Air._plane_cache[ckey] <- best;
         return best;
     }
 
@@ -229,8 +255,9 @@ class Air {
             "AIR " + label + " " + AITown.GetName(src_t) + " <-> "
             + AITown.GetName(dst_t) + " (dist=" + c.distance + ", profit/yr=" + c.score + ")");
 
-        local plane = Air.PlaneSet(cargo);
-        if (plane == null) {
+        // Feasibility: is there ANY usable plane for this cargo? (The crash-safe,
+        // airport-aware pick is made AFTER the airports are known, below.)
+        if (Air.PlaneSet(cargo) == null) {
             Log.Err(Log.PHASE_TRAIN, "AIR: no usable plane for " + label);
             return false;
         }
@@ -261,6 +288,22 @@ class Air {
                 + " (town too built-up / no flat clear WxH area / noise budget). Dump:");
             MapDump.Around(AITown.GetLocation(dst_t), 12, [], "airfail-dst");
             if (new_src) Air._RemoveAirport(src_st);
+            return false;
+        }
+
+        // CRASH-SAFE plane pick: now that both airports exist, cap the plane
+        // speed if either is a small (short-strip) airport, so a fast plane never
+        // crashes there and wrecks the rating.
+        local cap_speed = Air.RouteUsesSmallAirport(src_st, dst_st)
+            ? Air.SMALL_AIRPORT_SPEED_CAP : 0;
+        local plane = Air.PlaneSet(cargo, cap_speed);
+        if (plane == null) {
+            // Only fast planes exist and both airports are small -> can't run this
+            // route safely. Abandon cleanly (don't build a plane that will crash).
+            Log.Warn(Log.PHASE_TRAIN, "AIR: no crash-safe plane for small airport on "
+                + label + "; skipping route.");
+            if (new_src) Air._RemoveAirport(src_st);
+            if (new_dst) Air._RemoveAirport(dst_st);
             return false;
         }
 
@@ -402,7 +445,10 @@ class Air {
 
         if (waiting >= 80 && alive.len() < cap
                 && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN) {
-            local plane = Air.PlaneSet(r.cargo);
+            // Same crash-safe pick as the initial build: speed-cap on small airports.
+            local cap_speed = Air.RouteUsesSmallAirport(r.src_station, r.dst_station)
+                ? Air.SMALL_AIRPORT_SPEED_CAP : 0;
+            local plane = Air.PlaneSet(r.cargo, cap_speed);
             if (plane != null && Money.Cash() > plane.price) {
                 local v = Air._BuildPlane(r.src_station.hangar, plane, r.cargo,
                                           r.src_station, r.dst_station);

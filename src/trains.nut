@@ -229,15 +229,21 @@ class Trains {
     static function ConfigureServicing() {
         try {
             local pkey = "vehicle.servint_ispercent";
-            local tkey = "vehicle.servint_trains";
             local pct = false;
             if (AIGameSettings.IsValid(pkey)) pct = AIGameSettings.SetValue(pkey, 1);
-            if (AIGameSettings.IsValid(tkey)) {
-                AIGameSettings.SetValue(tkey, Trains.SERVICE_RELIABILITY_DROP);
-                Log.Info(Log.PHASE_BOOT,
-                    "Train servicing set to " + Trains.SERVICE_RELIABILITY_DROP
-                    + (pct ? "% reliability drop." : " (days)."));
+            // Service ALL modes frequently, not just trains. A low-reliability
+            // AIRCRAFT breaks down and can CRASH - and a crash wrecks the station
+            // rating (cargo stops flowing), which on a thin economy bankrupts us.
+            // Keeping planes serviced (and autoreplaced) holds reliability high.
+            foreach (key in ["vehicle.servint_trains", "vehicle.servint_aircraft",
+                             "vehicle.servint_roadveh"]) {
+                if (AIGameSettings.IsValid(key)) {
+                    AIGameSettings.SetValue(key, Trains.SERVICE_RELIABILITY_DROP);
+                }
             }
+            Log.Info(Log.PHASE_BOOT,
+                "Servicing (trains/aircraft/road) set to " + Trains.SERVICE_RELIABILITY_DROP
+                + (pct ? "% reliability drop." : " (days)."));
         } catch (e) {
             Log.Warn(Log.PHASE_BOOT,
                 "Service interval not settable by AI; using game default servicing.");
