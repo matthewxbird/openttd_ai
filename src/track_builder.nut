@@ -33,8 +33,13 @@ class TrackBuilder {
                                 // opcode budget on one hard line.
     static RETRY_CHUNKS = 600;  // relaxed-cost retry - also capped (was 6000, which
                                 // would just grind on after the 300 cap failed)
-    static MAX_REBUILD = 5;     // reroute attempts around un-buildable segments
-                                // (kept: the reroutes ARE load-bearing - measured)
+    static MAX_REBUILD = 2;     // reroute attempts around un-buildable segments.
+                                // Cut 5 -> 2 (manual-test insight): if the route
+                                // didn't build first time, the reroutes around the
+                                // bad tile usually fail too - give up fast and pick
+                                // another route. (Speed doctrine; re-benched on the
+                                // fast 300-chunk base, not the old slow config where
+                                // 5->2 looked load-bearing.)
     static MAX_SMOOTH  = 3;    // flatten isolated bumps/dips up to this height diff
     static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
     static LEAD_IN     = 3;    // straight tiles out of each platform before any curve
