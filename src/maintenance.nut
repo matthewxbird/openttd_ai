@@ -82,6 +82,12 @@ class Maintenance {
     static FIRST_DELIVERY_PER_TILE = 4;
 
     static REVIEW_EVERY_MONTHS = 2;     // comprehensive capacity sweep cadence
+    static ENABLE_CAPACITY_REVIEW = false;  // proactive every-2-months capacity sweep.
+                                        // OFF: it over-provisions (adds vehicles/
+                                        // platforms beyond what cargo justifies)
+                                        // -> -10% solo. The REACTIVE backlog scaling
+                                        // already handles demand. On for manual play
+                                        // (clears waiting cargo, keeps ratings high).
 
     // Run the health pass over every route, dispatching by lifecycle status.
     static function Tick(state, railtype) {
@@ -90,11 +96,13 @@ class Maintenance {
         // production, so routes keep up as industries grow over the game (the
         // per-pass review only nudges one step at a time off backlog). The
         // last-run month lives on `state` (persists; a static can't be reassigned).
-        local d = AIDate.GetCurrentDate();
-        local month_idx = AIDate.GetYear(d) * 12 + AIDate.GetMonth(d);
-        if (month_idx >= state.last_review_month + Maintenance.REVIEW_EVERY_MONTHS) {
-            state.last_review_month = month_idx;
-            Maintenance.CapacityReview(state, railtype);
+        if (Maintenance.ENABLE_CAPACITY_REVIEW) {
+            local d = AIDate.GetCurrentDate();
+            local month_idx = AIDate.GetYear(d) * 12 + AIDate.GetMonth(d);
+            if (month_idx >= state.last_review_month + Maintenance.REVIEW_EVERY_MONTHS) {
+                state.last_review_month = month_idx;
+                Maintenance.CapacityReview(state, railtype);
+            }
         }
 
         // Collect routes to delete after the loop (don't mutate while iterating).
