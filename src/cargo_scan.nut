@@ -13,6 +13,10 @@ class CargoScan {
     // reasonable expected delivery time for a medium route.
     static INCOME_DAYS = 30;
 
+    // Emit road-truck candidates for short industry freight. OFF: lower-value
+    // solo (regressed the bench); the value is in 1v1/manual play. Flip on there.
+    static ROAD_TRUCK_CANDIDATES = false;
+
     // Minimum route length (tiles). Cargo payment scales with distance, so very
     // short hauls earn little per trip and aren't worth a whole double-track
     // line + station overhead - skip them.
@@ -126,7 +130,12 @@ class CargoScan {
         // the value surface pick per pair (same pair is deduped by HasRoute, so only
         // the winning mode actually builds). This is the short-haul mode rule -
         // without it, short coal->power hauls had ONLY a (marginal) rail option.
-        if (!acc_is_town && dist >= Road.MIN_DISTANCE && dist <= Road.TRUCK_MAX_DISTANCE
+        // Road-truck candidates: OFF by default. They're the correct short-haul
+        // mode (a truck beats a marginal short rail line), but road is lower-value
+        // SOLO, so emitting them regressed the solo bench. Kept behind a flag for
+        // 1v1 / manual play where board presence + serving short hauls matters.
+        if (CargoScan.ROAD_TRUCK_CANDIDATES
+                && !acc_is_town && dist >= Road.MIN_DISTANCE && dist <= Road.TRUCK_MAX_DISTANCE
                 && Road.VehicleSet(cargo) != null) {
             local rest = Estimator.Estimate(cargo, dist, prod_amt, railtype, Road.MAX_VEH, AIVehicle.VT_ROAD);
             if (rest != null) {
