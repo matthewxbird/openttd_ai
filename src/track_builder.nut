@@ -453,10 +453,25 @@ class TrackBuilder {
                             && AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), prev, cur)) {
                         bridges++;
                         TrackBuilder._Touch(prev);   // we built this; track for cleanup
-                    } else if (TrackBuilder._GroundCross(prev, cur, label)) {
-                        built++;   // bridge failed (area not clear) - terraform + lay ground rail
                     } else {
-                        BuildDiag.Report(prev, label, "bridge span");
+                        // The pathfinder's bridge endpoint was BLOCKED at build time
+                        // (e.g. it must clear an existing rail and land BEYOND it -
+                        // the correct grade-separated crossing - or a rival took the
+                        // tile). EXTEND the bridge to the next CLEAR collinear path
+                        // tile so it spans the obstacle and lands solid. Returns the
+                        // new landing index; we splice out the spanned tiles so the
+                        // continuity check sees one clean bridge.
+                        local land_idx = TrackBuilder._BuildBridgeExtend(tiles, i);
+                        if (land_idx > i) {
+                            bridges++;
+                            for (local k = land_idx - 1; k >= i; k--) tiles.remove(k);
+                            // tiles[i] is now the bridge far end; loop i++ continues
+                            // from there (prev = far end on the next iteration).
+                        } else if (TrackBuilder._GroundCross(prev, cur, label)) {
+                            built++;   // terraform + ground rail across (short obstacles)
+                        } else {
+                            BuildDiag.Report(prev, label, "bridge span");
+                        }
                     }
                 }
                 continue;
@@ -526,6 +541,47 @@ class TrackBuilder {
             return true;
         }
         return false;
+    }
+
+    // EXTEND a blocked bridge to the next CLEAR collinear path tile. tiles[i] is
+    // the pathfinder's bridge far end that failed to build (blocked / on an
+    // obstacle); we want to span FURTHER and land on solid clear ground beyond it
+    // (the correct grade-separated crossing - e.g. a bridge over an existing rail,
+    // landing on the clear tile past it). Bridges are axis-aligned, so we only
+    // extend along the straight approach: walk forward over path tiles that stay
+    // collinear with prev->cur, and build the SHORTEST bridge that lands on a clear,
+    // level tile. Returns that landing's path index (> i) on success, else -1.
+    static function _BuildBridgeExtend(tiles, i) {
+        local prev = tiles[i - 1];
+        local px = AIMap.GetTileX(prev), py = AIMap.GetTileY(prev);
+        local cx = AIMap.GetTileX(tiles[i]), cy = AIMap.GetTileY(tiles[i]);
+        local dx = cx - px, dy = cy - py;
+        if (dx != 0 && dy != 0) return -1;     // bridges are axis-aligned only
+        local sx = (dx > 0) ? 1 : (dx < 0 ? -1 : 0);
+        local sy = (dy > 0) ? 1 : (dy < 0 ? -1 : 0);
+        local hprev = AITile.GetMaxHeight(prev);
+        for (local j = i; j < tiles.len() - 1; j++) {
+            local land = tiles[j];
+            local lx = AIMap.GetTileX(land), ly = AIMap.GetTileY(land);
+            // Must stay on the bridge axis, strictly forward of prev.
+            if (sx != 0 && (ly != py || (lx - px) * sx <= 0)) break;
+            if (sy != 0 && (lx != px || (ly - py) * sy <= 0)) break;
+            local blen = AIMap.DistanceManhattan(prev, land);
+            if (blen > 30) break;              // past max bridge length
+            if (blen < 2) continue;
+            if (!AITile.IsBuildable(land)) continue;             // endpoint must be clear
+            if (AITile.GetMaxHeight(land) != hprev) continue;    // level endpoints
+            local bl = AIBridgeList_Length(blen + 1);
+            if (!bl.IsEmpty()
+                    && AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), prev, land)) {
+                TrackBuilder._Touch(prev);
+                Log.Info(Log.PHASE_TRACK,
+                    "[bridge] extended span over obstacle to clear tile " + land
+                    + " (len " + blen + ").");
+                return j;
+            }
+        }
+        return -1;
     }
 
     // Fallback for a failed bridge/tunnel span: terraform the gap FLAT and lay
