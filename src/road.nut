@@ -43,7 +43,10 @@ class Road {
     // station rating; the periodic re-eval then tops up from the backlog.)
     static function InitialFleet(production, capacity) {
         if (capacity <= 0) return 1;
-        local n = (production + capacity - 1) / capacity;   // ceil(prod/cap)
+        // 1.5x headroom (manual-test feedback): trucks spend time travelling, so
+        // sizing to bare production/capacity still leaves cargo waiting; start with
+        // 50% more so the route clears its output from day one.
+        local n = (production * 3 + capacity * 2 - 1) / (capacity * 2);  // ceil(1.5*prod/cap)
         if (n < 1) n = 1;
         if (n > Road.MAX_VEH) n = Road.MAX_VEH;
         return n;
