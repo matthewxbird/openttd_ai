@@ -21,7 +21,7 @@ class StationBuilder {
     // partner_tile = location of the OTHER industry on this route; the
     // station throat is oriented to face it so the main line fans straight
     // out toward the partner instead of wrapping around the back.
-    static function BuildAt(industry_id, cargo, is_source, partner_tile) {
+    static function BuildAt(industry_id, cargo, is_source, partner_tile, roro = false) {
         local label = is_source ? "producer" : "accepter";
         local tiles;
         if (is_source) tiles = AITileList_IndustryProducing(industry_id, StationBuilder.SEARCH_RADIUS);
@@ -56,7 +56,7 @@ class StationBuilder {
         // partner-facing orientation before falling back to the other.
         foreach (dir in dirs) {
             foreach (tile, _ in tiles) {
-                local result = StationBuilder._TryBuild(tile, dir, industry_id, cargo, is_source, partner_tile);
+                local result = StationBuilder._TryBuild(tile, dir, industry_id, cargo, is_source, partner_tile, roro);
                 if (result != null) return result;
             }
         }
@@ -85,7 +85,7 @@ class StationBuilder {
     // centre, keep tiles that actually accept the cargo (so it registers), and
     // build the nearest-to-centre one facing the partner. Returns a station
     // record (same shape as BuildAt) or null.
-    static function BuildAtTown(town_id, cargo, partner_tile) {
+    static function BuildAtTown(town_id, cargo, partner_tile, roro = false) {
         local centre = AITown.GetLocation(town_id);
         local r      = StationBuilder.TOWN_RADIUS;
         local tiles  = AITileList();
@@ -113,7 +113,7 @@ class StationBuilder {
 
         foreach (dir in dirs) {
             foreach (tile, _ in tiles) {
-                local result = StationBuilder._TryBuild(tile, dir, town_id, cargo, false, partner_tile);
+                local result = StationBuilder._TryBuild(tile, dir, town_id, cargo, false, partner_tile, roro);
                 if (result != null) return result;
             }
         }
@@ -150,8 +150,17 @@ class StationBuilder {
 
     static FRONTAGE = 3;   // clear buildable tiles required in front of the throat
 
+    // Free tiles to leave BETWEEN the two platforms when building a RoRo
+    // (drive-through) station. A 1-tile gap puts the platforms 2 tiles apart,
+    // which is the room a far-end return loop needs to reverse with legal 45°
+    // curves (a 0-gap/adjacent station forces a forbidden 90° in the turnaround).
+    static RORO_GAP = 1;
+
     // Internal: attempt one (tile, direction) pair. Returns result or null.
-    static function _TryBuild(tile, direction, industry_id, cargo, is_source, partner_tile) {
+    // roro=true builds two 1-wide platforms separated by RORO_GAP free tiles
+    // (joined to one station id) so a drive-through return loop fits at the far
+    // end; roro=false builds the original adjacent 2-wide terminus.
+    static function _TryBuild(tile, direction, industry_id, cargo, is_source, partner_tile, roro = false) {
         // Quick reject: target tile must be buildable land.
         if (!AITile.IsBuildable(tile)) return null;
 
@@ -174,47 +183,77 @@ class StationBuilder {
         local enter_tile = use_minus ? minus_enter : plus_enter;
         local out_dir    = front_tile - enter_tile;   // points away from station
 
+        // RoRo PRE-FLIGHT: a gapped (drive-through) station only works if the
+        // far-end turnaround loop can be laid - a gapped station has NO valid
+        // reversing fallback (the gap crossover would be a forbidden 90°). So if
+        // the turnaround footprint isn't clear, downgrade to a normal ADJACENT
+        // terminus here (eff_roro=false) rather than build a station that can't run.
+        local eff_roro = roro;
+        if (eff_roro) {
+            local L        = StationBuilder.PLATFORM_LENGTH;
+            local far_out0 = enter_tile - out_dir * L;
+            local far_out1 = far_out0 + perp * (1 + StationBuilder.RORO_GAP);
+            if (!RoRo.TurnaroundClear(far_out0, far_out1, out_dir)) eff_roro = false;
+        }
+        // Sideways offset from platform 0 to platform 1. RoRo spreads them apart
+        // by the gap; the normal terminus keeps them adjacent (offset 1).
+        local perp_b = eff_roro ? perp * (1 + StationBuilder.RORO_GAP) : perp;
+
         // FRONTAGE CHECK: the tiles just outside BOTH platform throats, running
         // toward the partner, must be clear buildable land. Without this the
         // station can land boxed in against water/terrain (like a riverbank)
         // with no room to lay the line - better to skip and pick a spot further
         // back. (Reject early, before we build anything.)
-        if (!StationBuilder._FrontageClear(front_tile, front_tile + perp, out_dir)) {
+        if (!StationBuilder._FrontageClear(front_tile, front_tile + perp_b, out_dir)) {
             return null;
         }
 
-        // Footprint is validated by BuildRailStation.
-        local ok = AIRail.BuildRailStation(
-            tile,
-            direction,
-            StationBuilder.NUM_PLATFORMS,
-            StationBuilder.PLATFORM_LENGTH,
-            AIStation.STATION_NEW
-        );
-        if (!ok) return null;
-
-        local station_id = AIStation.GetStationID(tile);
-
-        // (perp computed above) platform 1's throat tiles are platform 0's
-        // offset sideways by one.
+        local station_id;
+        if (eff_roro) {
+            // Two 1-wide platforms with a free gap column between them, joined to
+            // one station id. The gap gives the far-end loop room to turn around.
+            if (!AIRail.BuildRailStation(tile, direction, 1,
+                    StationBuilder.PLATFORM_LENGTH, AIStation.STATION_NEW)) {
+                return null;
+            }
+            station_id = AIStation.GetStationID(tile);
+            local origin_b = tile + perp_b;
+            if (!AIRail.BuildRailStation(origin_b, direction, 1,
+                    StationBuilder.PLATFORM_LENGTH, station_id)) {
+                // second platform didn't fit - remove the first so we leave no stub
+                AIRail.RemoveRailStationTileRectangle(
+                    tile, tile + axis * (StationBuilder.PLATFORM_LENGTH - 1), false);
+                return null;
+            }
+        } else {
+            // Original adjacent 2-wide terminus. Footprint validated by the call.
+            if (!AIRail.BuildRailStation(tile, direction,
+                    StationBuilder.NUM_PLATFORMS, StationBuilder.PLATFORM_LENGTH,
+                    AIStation.STATION_NEW)) {
+                return null;
+            }
+            station_id = AIStation.GetStationID(tile);
+        }
 
         // Depot is NOT built here; DepotBuilder places spur depots off the
-        // mainline later. The throat crossover is built by Terminus.
+        // mainline later. The throat crossover / loop is built by Terminus/RoRo.
 
         Log.Info(Log.PHASE_STATION,
             "Built " + (is_source ? "source" : "dest") + " station id=" + station_id
             + " at tile=" + tile + " dir=" + direction
+            + (eff_roro ? " RoRo(gap=" + StationBuilder.RORO_GAP + ")" : "")
             + " throat=" + (use_minus ? "minus" : "plus") + " toward partner");
 
         return {
             station_id    = station_id,
             tile          = tile,
-            front_tile    = front_tile,         // platform 0 throat
+            front_tile    = front_tile,           // platform 0 throat
             enter_tile    = enter_tile,
-            front_tile_b  = front_tile + perp,  // platform 1 throat
-            enter_tile_b  = enter_tile + perp,
+            front_tile_b  = front_tile + perp_b,  // platform 1 throat (gapped if roro)
+            enter_tile_b  = enter_tile + perp_b,
             direction     = direction,
             num_platforms = StationBuilder.NUM_PLATFORMS,
+            roro          = eff_roro,
         };
     }
 

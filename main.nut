@@ -18,6 +18,7 @@ require("src/candidates.nut");
 require("src/cargo_scan.nut");
 require("src/station_builder.nut");
 require("src/terminus.nut");
+require("src/roro.nut");
 require("src/depot_builder.nut");
 require("src/aystar.nut");
 require("src/rail_pf.nut");
@@ -43,6 +44,21 @@ class MvBAI extends AIController {
     // How many routes may be on probation at once before we stop starting new
     // ones (lets the company keep expanding instead of freezing on one line).
     static MAX_CONCURRENT_PROBATION = 4;
+
+    // RoRo drive-through terminus (Phase 10). When true, double-track routes try
+    // to build far-end return loops (no reversing) so they can run more than the
+    // reversing-terminus cap of trains. RORO_MAX_TRAINS is the per-route cap for
+    // a route that successfully built loops at both ends.
+    //
+    // OFF by default: the SHORT single-track return loop is itself a capacity
+    // bottleneck - measured, the cap never binds (cap 3 and 6 give BIT-IDENTICAL
+    // results) and RoRo runs -17% vs the cap-2 terminus (256 -21%). Trades the
+    // reversing-throat chokepoint for a loop chokepoint + drive-through cycle cost.
+    // The infra is sound (pre-flight, per-station turnaround, loop signalling, 0
+    // loop failures) and stays on main for the real fix: a DOUBLE-TRACKED /
+    // multi-block return loop that can actually hold >2 trains. Flip on with that.
+    static USE_RORO        = false;
+    static RORO_MAX_TRAINS = 6;
 
     static DEBUG_JUNCTION = false;
 
@@ -344,10 +360,18 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
     local new_src = false;
     local new_dst = false;
 
+    // RoRo (Phase 10): a double-track route wants drive-through stations (two
+    // platforms spread apart so a far-end return loop fits). EARLY single-track
+    // land-grab routes stay adjacent terminuses. Stations are built gapped UP
+    // FRONT (the spacing is structural), then the loop is attempted after the
+    // track is laid; if the loop can't be built we fall back to a reversing
+    // terminus on the same (gapped) station.
+    local want_roro = MvBAI.USE_RORO && !single_only;
+
     // Source station: reuse if we have one at this producer.
     route.src_station = this.state.FindExistingStation(c.producer, true);
     if (route.src_station == null) {
-        route.src_station = StationBuilder.BuildAt(c.producer, c.cargo, true, accepter_tile);
+        route.src_station = StationBuilder.BuildAt(c.producer, c.cargo, true, accepter_tile, want_roro);
         new_src = true;
     } else {
         Log.Info(Log.PHASE_STATION, "Reusing existing source station id=" + route.src_station.station_id);
@@ -360,8 +384,8 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
     route.dst_station = this.state.FindExistingStation(c.accepter, false, acc_is_town);
     if (route.dst_station == null) {
         route.dst_station = acc_is_town
-            ? StationBuilder.BuildAtTown(c.accepter, c.cargo, producer_tile)
-            : StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile);
+            ? StationBuilder.BuildAtTown(c.accepter, c.cargo, producer_tile, want_roro)
+            : StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile, want_roro);
         new_dst = true;
     } else {
         Log.Info(Log.PHASE_STATION, "Reusing existing dest station id=" + route.dst_station.station_id);
@@ -413,9 +437,38 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
             "Back track unavailable; running this route SINGLE-TRACK with one train.");
     }
 
-    // Throat crossover at each terminus so a train can arrive on the out
-    // track and depart on the back track (it reverses in the platform).
-    Terminus.BuildBothEnds(route.src_station, route.dst_station);
+    // TURNAROUND at each station (Phase 10 terminus rework). Each end is built
+    // either as a GAPPED RoRo station (drive-through return loop, no reversing) or
+    // an ADJACENT terminus (reversing crossover) - StationBuilder decided per end
+    // from the far-end room (st.roro). Build the matching turnaround at each end:
+    //   - gapped end  -> RoRo._BuildLoop (a gapped station has NO reversing
+    //                    fallback, so if its loop fails the route is unbuildable
+    //                    and we clean-fail it).
+    //   - adjacent end -> Terminus._BuildThroat (reverse in the platform).
+    // The per-route train cap rises (RORO_MAX_TRAINS) only when BOTH ends loop
+    // (a single reversing end still caps throughput at the terminus default).
+    local src_roro = ("roro" in route.src_station) && route.src_station.roro;
+    local dst_roro = ("roro" in route.dst_station) && route.dst_station.roro;
+    if (route.single_track || route.path_back == null) {
+        // One reversing train on the out track: just the crossover (best-effort).
+        Terminus.BuildBothEnds(route.src_station, route.dst_station);
+    } else {
+        local src_ok = src_roro ? RoRo._BuildLoop(route.src_station)
+                                : Terminus._BuildThroat(route.src_station);
+        local dst_ok = dst_roro ? RoRo._BuildLoop(route.dst_station)
+                                : Terminus._BuildThroat(route.dst_station);
+        // A gapped station whose loop could not be laid has no working turnaround
+        // (the gap crossover would be a forbidden 90°): abandon cleanly.
+        if ((src_roro && !src_ok) || (dst_roro && !dst_ok)) {
+            Log.Err(Log.PHASE_TRACK,
+                "RoRo loop failed on a gapped station; abandoning route.");
+            return this._FailRoute(c, route, new_src, new_dst);
+        }
+        if (src_roro && dst_roro) {
+            route.roro = true;
+            route.max_trains = MvBAI.RORO_MAX_TRAINS;   // loop carries many trains
+        }
+    }
 
     // Spur depots on the OUTER side of BOTH running lines (out and back), so a
     // train can reach one whichever track it is on. Build these BEFORE signals:
@@ -459,7 +512,7 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
     // double-track routes get a fleet sized to the producer's output.
     local num_trains = route.single_track
         ? 1
-        : Trains.PickNumTrains(c.production, Maintenance.MAX_TRAINS);
+        : Trains.PickNumTrains(c.production, Maintenance.CapFor(route));
     // BACKHAUL (Phase 4): if both endpoints mutually produce+accept this cargo,
     // load the return leg too. Stored on the route so added trains inherit it.
     route.backhaul <- Backhaul.Mutual(c.cargo, c.producer, c.accepter, acc_is_town);

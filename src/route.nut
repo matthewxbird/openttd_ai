@@ -19,6 +19,8 @@ class Route {
             path_back   = null,   // array of tiles accepter -> producer
             single_track = false, // back track couldn't be built: run ONE train on
                                   // the out track both ways (reverse at each end)
+            roro        = false,  // drive-through return loops built (no reversing)
+            max_trains  = null,   // per-route train cap (RoRo lifts it); null = default
             depot_tiles = null,   // array of spur depots off the out-track mainline
             depot_tile  = null,   // primary depot (where trains are built)
             train_id    = -1,
