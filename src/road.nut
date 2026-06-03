@@ -36,6 +36,19 @@ class Road {
 
     static function ClearCache() { Road._veh_cache.clear(); }
 
+    // PURE: how many trucks to START a route with, sized to the producer's monthly
+    // output. One truck carries `capacity` tonnes per trip; trucks = ceil(prod /
+    // capacity), so a 100t/month industry with 20t trucks starts with 5. Clamped
+    // to [1, MAX_VEH]. (A lone truck under-serves and lets cargo pile up -> poor
+    // station rating; the periodic re-eval then tops up from the backlog.)
+    static function InitialFleet(production, capacity) {
+        if (capacity <= 0) return 1;
+        local n = (production + capacity - 1) / capacity;   // ceil(prod/cap)
+        if (n < 1) n = 1;
+        if (n > Road.MAX_VEH) n = Road.MAX_VEH;
+        return n;
+    }
+
     // Choose + set the fastest available road type (plain road, not tram). Call
     // once before any road/station/depot build. Returns true if a type was set.
     static function EnsureRoadType() {
@@ -263,17 +276,30 @@ class Road {
         local depot = Road._BuildDepot(src_pair.tile);
         if (depot == -1) return false;
 
-        // Build + dispatch one vehicle.
-        local v = Road._BuildVehicle(depot, veh, c.cargo, src_st, dst_st, is_pax);
-        if (v == -1) return false;
+        // Build an INITIAL FLEET sized to production, not just one truck (a lone
+        // truck leaves cargo piling up = poor rating). One truck carries `capacity`
+        // per trip; size the start fleet to the monthly output so we can actually
+        // clear it (e.g. 100t/month / 20t = 5 trucks). Capped at MAX_VEH + cash.
+        local fleet = [];
+        local target = Road.InitialFleet(c.production, veh.capacity);
+        for (local k = 0; k < target; k++) {
+            if (fleet.len() > 0 && Money.Cash() < veh.price) break;   // keep >=1
+            local v = Road._BuildVehicle(depot, veh, c.cargo, src_st, dst_st, is_pax);
+            if (v == -1) break;
+            fleet.push(v);
+        }
+        if (fleet.len() == 0) return false;
+        Log.Info(Log.PHASE_TRAIN, "[road] " + AIIndustry.GetName(c.producer)
+            + " prod=" + c.production + " -> start fleet " + fleet.len()
+            + " trucks (cap " + veh.capacity + " each)");
 
         local route = Route.New(c.cargo, c.producer, c.accepter, c.distance, c.production, c.acc_is_town);
         route.road        <- true;
         route.src_station = src_st;
         route.dst_station = dst_st;
         route.depot_tile  = depot;
-        route.trains      = [v];
-        route.train_id    = v;
+        route.trains      = fleet;
+        route.train_id    = fleet[0];
         route.status      = "probation";
         route.probation_date = AIDate.GetCurrentDate();
         route.road_path   <- path;

@@ -49,8 +49,13 @@ class MvBAI extends AIController {
     // build air routes until we have a CASH cushion or a few proven income routes
     // - early air spending is a bankruptcy risk; cheap rail/road build the cashflow
     // first, then air (the biggest earner) scales once we can absorb the up-front.
-    static AIR_MIN_CASHFLOW = 200000;   // cash above which air is affordable to start
-    static AIR_MIN_PROVEN   = 3;        // ...or this many proven routes already earning
+    static AIR_MIN_CASHFLOW = 100000;   // cash above which air is affordable to start
+    static AIR_MIN_PROVEN   = 1;        // ...or this many proven routes already earning.
+                                        // Softened from 200k/3: the affordability
+                                        // check already blocks broke air-building, and
+                                        // deferring the DOMINANT earner too long gutted
+                                        // small maps (128 -44%). Defer only the very
+                                        // first build, then let air scale.
 
     // RoRo drive-through terminus (Phase 10). When true, double-track routes try
     // to build far-end return loops (no reversing) so they can run more than the
