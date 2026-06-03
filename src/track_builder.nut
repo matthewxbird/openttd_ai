@@ -25,9 +25,16 @@ class TrackBuilder {
     static DEBUG_DUMP = true;   // on a track-build failure, log an ASCII map of
                                 // the region so we can see WHY the path failed
                                 // (water/steep/blocked). Turn off once robust.
-    static MAX_CHUNKS = 2000;   // pathfinder chunks per attempt
-    static RETRY_CHUNKS = 6000; // chunks for the relaxed-cost retry
+    static MAX_CHUNKS = 300;    // pathfinder chunks per attempt. Capped low
+                                // (manual-test feedback): a route needing >300
+                                // chunks (open set in the thousands) is too complex
+                                // for us to build well - GIVE UP fast and move to a
+                                // simpler, profitable route instead of grinding the
+                                // opcode budget on one hard line.
+    static RETRY_CHUNKS = 600;  // relaxed-cost retry - also capped (was 6000, which
+                                // would just grind on after the 300 cap failed)
     static MAX_REBUILD = 5;     // reroute attempts around un-buildable segments
+                                // (kept: the reroutes ARE load-bearing - measured)
     static MAX_SMOOTH  = 3;    // flatten isolated bumps/dips up to this height diff
     static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
     static LEAD_IN     = 3;    // straight tiles out of each platform before any curve
@@ -274,11 +281,11 @@ class TrackBuilder {
             local tiles = TrackBuilder._FindPath(
                 src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, ignored,
                 TrackBuilder.MAX_CHUNKS, label);
-            if (tiles == null || !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
-                Log.Warn(Log.PHASE_TRACK, "[" + label + "] retry with relaxed budget");
-                tiles = TrackBuilder._FindPathRelaxed(
-                    src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, ignored, label);
-            }
+            // NO relaxed-budget retry (manual-test feedback): if the capped search
+            // can't reach in MAX_CHUNKS, the route is too complex for us - GIVE UP
+            // and let the ranker pick a simpler, profitable route. Grinding more
+            // chunks is why we're slow vs AAHOG; speed (build many cheap routes
+            // fast) beats completeness (one hard route slowly).
             if (tiles == null || !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
                 Log.Warn(Log.PHASE_TRACK,
                     "[" + label + "] no path on attempt " + (attempt + 1)
