@@ -356,10 +356,16 @@ carries more (the mirror of the forward ChainBoost; AAHOG's
 SearchAndBuildToMeetSrcDemand mechanism). TODO (minor): refit-aware multi-cargo
 backhaul. TODO (minor): refit-aware multi-cargo backhaul.
 
-### Phase 5 — Town authority (DONE) & growth
+### Phase 5 — Town authority (DONE); paid growth-funding TESTED NEGATIVE
 
-Statues implemented. TODO: fund growth actions where it lifts accepted cargo;
-avoid low-rating towns.
+Statues implemented (permanent rating boost in served towns) — kept. **Paid
+growth funding (`TOWN_ACTION_FUND_BUILDINGS` in served towns, gated on 250k cash +
+yearly cooldown) was implemented + unit-tested + benched, and REGRESSED −28%
+(128 −52%, 256 −18%)** — the cash it spends has a huge opportunity cost (routes
+not built), catastrophic on cramped maps; the 250k floor isn't nearly enough, and
+organic growth from our own deliveries already grows served towns for free.
+**Reverted.** Don't pay to grow towns; let deliveries do it. (A LATE-only,
+≥~1M-cash variant could be revisited, but EV is low.)
 
 ### Phase 6 — Junction integration & corridor sharing *(LATE — DEFERRED, low EV)*
 
