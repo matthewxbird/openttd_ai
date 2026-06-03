@@ -118,6 +118,23 @@ class CargoScan {
     // along for the adaptive profit model (Phase 2) and fleet sizing.
     static function _Consider(out, cargo, prod_id, prod_amt, prod_loc, acc_id, acc_loc, acc_is_town, cluster, railtype) {
         local dist = AIMap.DistanceManhattan(prod_loc, acc_loc);
+
+        // ROAD-TRUCK candidate for SHORT/medium INDUSTRY freight. Rail's MIN_DISTANCE
+        // is 40 and its 2-station + double-track + depot build needs a long haul to
+        // pay off; for short hauls a truck (cheap drive-through stops, no track) is
+        // cheaper and WINS. We emit a road candidate alongside the rail one and let
+        // the value surface pick per pair (same pair is deduped by HasRoute, so only
+        // the winning mode actually builds). This is the short-haul mode rule -
+        // without it, short coal->power hauls had ONLY a (marginal) rail option.
+        if (!acc_is_town && dist >= Road.MIN_DISTANCE && dist <= Road.TRUCK_MAX_DISTANCE
+                && Road.VehicleSet(cargo) != null) {
+            local rest = Estimator.Estimate(cargo, dist, prod_amt, railtype, Road.MAX_VEH, AIVehicle.VT_ROAD);
+            if (rest != null) {
+                out.append(Road._Cand(cargo, prod_id, acc_id, false, false, dist, prod_amt, rest));
+            }
+        }
+
+        // RAIL candidate: only for hauls long enough to amortise track + stations.
         if (dist < CargoScan.MIN_DISTANCE) return;
 
         local est = Estimator.Estimate(cargo, dist, prod_amt, railtype, Maintenance.MAX_TRAINS);
