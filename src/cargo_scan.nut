@@ -126,7 +126,9 @@ class CargoScan {
         // the value surface pick per pair (same pair is deduped by HasRoute, so only
         // the winning mode actually builds). This is the short-haul mode rule -
         // without it, short coal->power hauls had ONLY a (marginal) rail option.
-        if (!acc_is_town && dist >= Road.MIN_DISTANCE && dist <= Road.TRUCK_MAX_DISTANCE
+        // [isolation test] road-truck emission DISABLED to measure the speed win
+        // without the road drag.
+        if (false && !acc_is_town && dist >= Road.MIN_DISTANCE && dist <= Road.TRUCK_MAX_DISTANCE
                 && Road.VehicleSet(cargo) != null) {
             local rest = Estimator.Estimate(cargo, dist, prod_amt, railtype, Road.MAX_VEH, AIVehicle.VT_ROAD);
             if (rest != null) {

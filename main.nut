@@ -229,7 +229,8 @@ function MvBAI::Start() {
                 // air is the biggest earner but only once we can absorb the up-front
                 // cost. Until we have a cash cushion OR a few proven income routes,
                 // skip air and let cheap rail/road land-grab build the cashflow.
-                if (Money.Cash() < MvBAI.AIR_MIN_CASHFLOW
+                // [isolation test] air-deferral DISABLED to measure the speed win.
+                if (false && Money.Cash() < MvBAI.AIR_MIN_CASHFLOW
                         && this.state.CountBuilt() < MvBAI.AIR_MIN_PROVEN) {
                     continue;
                 }
