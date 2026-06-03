@@ -649,6 +649,30 @@ shared single-line segment it deadlocks and *destroys* value (10.2 reuse@600 cos
 i.e. promote the terminus rework ahead of 10.2/10.3; the pure-speed 10.1 heap can
 ride along once routing is re-baselined by the terminus change.
 
+**RoRo terminus — PROTOTYPED (branch `feat/roro-terminus`), blocked on station
+geometry.** Built `src/roro.nut`: on a double-track route, connect each station's
+two platforms' FAR ends with a one-way return loop (pathfinder-laid balloon +
+two-way PBS) so trains drive through instead of reversing; wired behind
+`MvBAI.USE_RORO` with a per-route train cap (`Maintenance.CapFor`, `route.roro`,
+`RORO_MAX_TRAINS=6`) and a safe fall-back to the reversing `Terminus` when the
+loop can't be laid. **Measured blocker:** the loop NEVER builds — every attempt
+fails *"90-degree turn at segment 2"*. Our two platforms sit **1 tile apart** and
+both point the same way; a 180° turnaround over a 1-tile lateral gap forces a 90°
+rail corner, which OpenTTD forbids (no room for the `45°+45°+straight` a balloon
+needs, even with the 3-tile lead-in stubs). The flag falls back cleanly (verified
+non-breaking: seed1@256 4y = 1.86M, healthy), so the scaffold is parked ON.
+
+**=> RoRo needs a station-geometry change, not just a loop builder.** Two ways
+forward (the gating decision): (a) **widen platform spacing to ≥2 tiles** — build
+the two platforms with a free tile between them (two 1-wide platforms joined to
+one station id), giving room for a balloon/teardrop turnaround; ripples through
+`StationBuilder._TryBuild`/`AddPlatform`/`Remove`, `Terminus`, and
+`TrackBuilder._PickPlatforms`. Or (b) **dedicated wide teardrop loop** that swings
+several tiles clear of the station before reversing (more land, fails more on
+cramped maps). (a) is the cleaner long-term shape (it's how real RoRo terminals
+look) but the bigger change. Until one lands, RoRo always falls back and
+MAX_TRAINS stays 2.
+
 ---
 
 ## Implemented so far (status)

@@ -28,6 +28,14 @@ class Maintenance {
                                      // 658k (cap 3) -> 1.03M (cap 2). TUNE if the
                                      // terminus is ever made deadlock-proof (RoRo).
     static MIN_CASH_FOR_TRAIN = 40000;  // don't add a train if cash is tight
+
+    // Per-route train cap. A RoRo drive-through route (route.max_trains set) is
+    // deadlock-free and can run many trains; everything else uses the reversing-
+    // terminus cap MAX_TRAINS.
+    static function CapFor(r) {
+        return (r != null && ("max_trains" in r) && r.max_trains != null)
+            ? r.max_trains : Maintenance.MAX_TRAINS;
+    }
     static CONDEMN_LIMIT     = 12;   // health passes to recall trains + tear down
     static RETIRE_LOSS_YEARS = 2;    // consecutive losing years before retiring a built route
     static STUCK_RETIRE_LIMIT = 3;   // consecutive built-route passes with a stuck train -> condemn
@@ -166,7 +174,7 @@ class Maintenance {
             // A single-track route is capped at ONE train (a second would meet
             // it head-on), so it can only "scale" by running a longer train.
             local single = ("single_track" in r) && r.single_track;
-            local can_add_train = !single && n < Maintenance.MAX_TRAINS;
+            local can_add_train = !single && n < Maintenance.CapFor(r);
             if (can_add_train || under) return true;  // can still scale
         }
         return false;
@@ -491,7 +499,7 @@ class Maintenance {
         if (waiting >= Maintenance.WAITING_FOR_EXTRA && r.depot_tile != null) {
             // Single-track routes are capped at one train; grow them by length only.
             local single = ("single_track" in r) && r.single_track;
-            if (!single && n < Maintenance.MAX_TRAINS
+            if (!single && n < Maintenance.CapFor(r)
                     && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN) {
                 Log.Info(Log.PHASE_LOOP,
                     "[review] " + name + ": backlog " + waiting + " -> adding a train.");
