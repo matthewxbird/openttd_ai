@@ -85,8 +85,15 @@ class AyStar {
             // dir). Using the full compound dir would treat every distinct
             // 2-step history as a new state, defeating pruning and blowing up
             // the open set. Entry-dir gives at most 4 states per tile.
-            local dir_key = (cur_dir == 0xFF) ? "X" : (cur_dir & 0x0F);
-            local closed_key = cur_tile.tostring() + "_" + dir_key.tostring();
+            //
+            // Key is a packed INTEGER (tile<<5 | dir), not a string: string
+            // concat + tostring() ran on every pop (the hottest loop in the
+            // AI) and were a measurable opcode sink. Dir nibble is 0..15;
+            // the 0xFF start sentinel maps to 16, so 5 bits hold it without
+            // colliding with a real direction. Tile<<5 stays < 2^31 for every
+            // legal map (max 4096^2 tiles -> 16.7M << 5 = 536M).
+            local dir_key = (cur_dir == 0xFF) ? 16 : (cur_dir & 0x0F);
+            local closed_key = (cur_tile << 5) | dir_key;
             if (closed_key in this._closed) continue;
             if (this._check_dir_fn(cur_tile, 0, cur_dir, this._self)) continue;
             this._closed[closed_key] <- true;
@@ -184,46 +191,87 @@ class AyStar.Path {
 // ---------------------------------------------------------------------------
 // AyStar.Open — priority queue for the A* open set.
 //
-// Backed by an AIList (tile-id -> sort-value). We store an integer ID for
-// each inserted path and keep a parallel table mapping id -> Path object.
-// AIList.Sort(SORT_BY_VALUE, true) puts the lowest-cost+estimate entry first.
+// A pure-Squirrel BINARY MIN-HEAP. Insert and Pop are both O(log n).
+//
+// The previous implementation was an AIList that called
+// `Sort(SORT_BY_VALUE)` on EVERY Pop — i.e. an O(n log n) re-sort of the
+// entire open set per expansion step. On a 256-tile haul the open set runs
+// into the thousands of nodes, so the pathfinder spent most of its opcode
+// budget re-sorting. The heap removes that: each push/pop touches only
+// log2(n) entries. Squirrel arrays + integer `/` (floor division) make this
+// cheap and allocation-light (one 2-slot array per node).
+//
+// Each heap slot is a 3-element array [priority, seq, path]; the heap is
+// ordered by (priority, seq) — priority = cost + estimate, and `seq` is a
+// monotonic insertion counter used ONLY to break f-cost ties.
+//
+// Why the seq tiebreak matters (measured): the old AIList re-sort popped the
+// EARLIEST-inserted node among equal-f-cost ties (stable, FIFO-ish — favours
+// shallower / earlier-committed nodes, giving straight A* paths). A bare heap
+// breaks ties by heap structure (~LIFO), which on cramped 128 maps picked
+// different equal-cost layouts and regressed solo value ~26% @128. Replaying
+// the FIFO tiebreak restores the old route choices while keeping O(log n).
 // ---------------------------------------------------------------------------
 class AyStar.Open {
-    _list    = null;  // AIList: id -> (cost + estimate)
-    _paths   = null;  // table:  id -> AyStar.Path
-    _next_id = 0;
+    _heap = null;  // array of [priority, seq, path], min-heap by (priority, seq)
+    _seq  = 0;     // monotonic insertion counter (FIFO tiebreak)
 
     constructor() {
-        this._list    = AIList();
-        this._paths   = {};
-        this._next_id = 0;
+        this._heap = [];
+        this._seq  = 0;
     }
 
-    // Add `path` to the open set; sort priority = cost + estimate.
+    // True if heap slot `a` should sort BEFORE `b`: lower priority first, and
+    // on equal priority the earlier-inserted (lower seq) first.
+    function _Less(a, b) {
+        if (a[0] != b[0]) return a[0] < b[0];
+        return a[1] < b[1];
+    }
+
+    // Add `path` to the open set; priority = cost + estimate. Sift up.
     function Insert(path, cost, estimate) {
-        local id = this._next_id++;
-        this._paths[id] <- path;
-        this._list.AddItem(id, cost + estimate);
+        local h = this._heap;
+        h.push([cost + estimate, this._seq++, path]);
+        local i = h.len() - 1;
+        while (i > 0) {
+            local par = (i - 1) / 2;
+            if (!_Less(h[i], h[par])) break;
+            local tmp = h[i]; h[i] = h[par]; h[par] = tmp;
+            i = par;
+        }
     }
 
-    // Remove and return the lowest-priority (cheapest) path.
+    // Remove and return the lowest-priority (cheapest) path. Sift down.
     function Pop() {
-        if (this._list.IsEmpty()) return null;
-        this._list.Sort(AIList.SORT_BY_VALUE, true);
-        local id   = this._list.Begin();
-        local path = this._paths[id];
-        this._list.RemoveItem(id);
-        delete this._paths[id];
-        return path;
+        local h = this._heap;
+        local n = h.len();
+        if (n == 0) return null;
+        local top = h[0][2];
+        local last = h.pop();
+        n--;
+        if (n > 0) {
+            h[0] = last;
+            local i = 0;
+            while (true) {
+                local l = 2 * i + 1;
+                local r = 2 * i + 2;
+                local small = i;
+                if (l < n && _Less(h[l], h[small])) small = l;
+                if (r < n && _Less(h[r], h[small])) small = r;
+                if (small == i) break;
+                local tmp = h[i]; h[i] = h[small]; h[small] = tmp;
+                i = small;
+            }
+        }
+        return top;
     }
 
     // Peek at the cheapest path without removing it.
     function Peek() {
-        if (this._list.IsEmpty()) return null;
-        this._list.Sort(AIList.SORT_BY_VALUE, true);
-        return this._paths[this._list.Begin()];
+        if (this._heap.len() == 0) return null;
+        return this._heap[0][2];
     }
 
-    function Count()   { return this._list.Count(); }
-    function IsEmpty() { return this._list.IsEmpty(); }
+    function Count()   { return this._heap.len(); }
+    function IsEmpty() { return this._heap.len() == 0; }
 }
