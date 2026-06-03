@@ -429,20 +429,37 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
             "Back track unavailable; running this route SINGLE-TRACK with one train.");
     }
 
-    // RoRo drive-through loops (Phase 10 terminus rework). On a DOUBLE-track
-    // route, try to connect each station's far-end platforms into a one-way
-    // return loop so trains never reverse and the shared near-throat diamond
-    // (the deadlock that pins MAX_TRAINS at 2) disappears. If the loop can't be
-    // laid at both ends (no room for the turnaround), fall back to the reversing
-    // crossover terminus. Single-track routes always use the reversing terminus.
-    if (MvBAI.USE_RORO && !route.single_track && route.path_back != null
-            && RoRo.BuildBothEnds(route.src_station, route.dst_station)) {
-        route.roro = true;
-        route.max_trains = MvBAI.RORO_MAX_TRAINS;   // loop carries many trains
-    } else {
-        // Throat crossover at each terminus so a train can arrive on the out
-        // track and depart on the back track (it reverses in the platform).
+    // TURNAROUND at each station (Phase 10 terminus rework). Each end is built
+    // either as a GAPPED RoRo station (drive-through return loop, no reversing) or
+    // an ADJACENT terminus (reversing crossover) - StationBuilder decided per end
+    // from the far-end room (st.roro). Build the matching turnaround at each end:
+    //   - gapped end  -> RoRo._BuildLoop (a gapped station has NO reversing
+    //                    fallback, so if its loop fails the route is unbuildable
+    //                    and we clean-fail it).
+    //   - adjacent end -> Terminus._BuildThroat (reverse in the platform).
+    // The per-route train cap rises (RORO_MAX_TRAINS) only when BOTH ends loop
+    // (a single reversing end still caps throughput at the terminus default).
+    local src_roro = ("roro" in route.src_station) && route.src_station.roro;
+    local dst_roro = ("roro" in route.dst_station) && route.dst_station.roro;
+    if (route.single_track || route.path_back == null) {
+        // One reversing train on the out track: just the crossover (best-effort).
         Terminus.BuildBothEnds(route.src_station, route.dst_station);
+    } else {
+        local src_ok = src_roro ? RoRo._BuildLoop(route.src_station)
+                                : Terminus._BuildThroat(route.src_station);
+        local dst_ok = dst_roro ? RoRo._BuildLoop(route.dst_station)
+                                : Terminus._BuildThroat(route.dst_station);
+        // A gapped station whose loop could not be laid has no working turnaround
+        // (the gap crossover would be a forbidden 90°): abandon cleanly.
+        if ((src_roro && !src_ok) || (dst_roro && !dst_ok)) {
+            Log.Err(Log.PHASE_TRACK,
+                "RoRo loop failed on a gapped station; abandoning route.");
+            return this._FailRoute(c, route, new_src, new_dst);
+        }
+        if (src_roro && dst_roro) {
+            route.roro = true;
+            route.max_trains = MvBAI.RORO_MAX_TRAINS;   // loop carries many trains
+        }
     }
 
     // Spur depots on the OUTER side of BOTH running lines (out and back), so a

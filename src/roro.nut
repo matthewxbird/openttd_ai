@@ -36,9 +36,46 @@
 
 class RoRo {
 
+    static TURN_DEPTH = 4;   // tiles of clear land the far-end turnaround needs
+
+    // PRE-FLIGHT: is there room for the far-end turnaround loop? A flat crossover
+    // over the platform gap is impossible (it forces a forbidden 90°), so a gapped
+    // station has NO valid reversing fallback — if the loop can't be laid the route
+    // is broken. We therefore only GAP a station (build it RoRo) when this returns
+    // true; otherwise it is built as a normal adjacent terminus. far_out0/far_out1
+    // are the tiles just past each platform's FAR end; out_dir points OUT the near
+    // throat, so the turnaround extends in -out_dir (further from the station).
+    static function TurnaroundClear(far_out0, far_out1, out_dir) {
+        local corners = [
+            far_out0, far_out1,
+            far_out0 - out_dir * RoRo.TURN_DEPTH,
+            far_out1 - out_dir * RoRo.TURN_DEPTH,
+        ];
+        local minx = AIMap.GetTileX(corners[0]); local maxx = minx;
+        local miny = AIMap.GetTileY(corners[0]); local maxy = miny;
+        foreach (c in corners) {
+            local x = AIMap.GetTileX(c); local y = AIMap.GetTileY(c);
+            if (x < minx) minx = x;
+            if (x > maxx) maxx = x;
+            if (y < miny) miny = y;
+            if (y > maxy) maxy = y;
+        }
+        for (local x = minx; x <= maxx; x++) {
+            for (local y = miny; y <= maxy; y++) {
+                local t = AIMap.GetTileIndex(x, y);
+                if (!AIMap.IsValidTile(t)) return false;
+                if (!AITile.IsBuildable(t)) return false;   // water / slope / occupied
+            }
+        }
+        return true;
+    }
+
     // Build the far-end return loops at BOTH stations of a route. Returns true
     // only if BOTH loops built (so the whole route can run as a drive-through
-    // loop); on any failure the caller falls back to a reversing Terminus.
+    // loop). On failure the caller must clean-fail the route: a gapped station has
+    // NO working reversing fallback (the gap crossover would be a forbidden 90°),
+    // so a half-looped route can't run. (We only reach here for stations the
+    // pre-flight TurnaroundClear passed, so failure is rare.)
     static function BuildBothEnds(src, dst) {
         local a = RoRo._BuildLoop(src);
         if (!a) {
@@ -96,7 +133,19 @@ class RoRo {
         // Two-way PBS along the loop: a flat junction that PBS reserves for one
         // train at a time (deadlock-proof), exactly like the old crossover. The
         // mainline one-way signals enforce overall loop direction.
-        Signals.PlaceAlong(loop, true, "roro-loop", false);   // false = two-way PBS
+        local placed = Signals.PlaceAlong(loop, true, "roro-loop", false);  // two-way PBS
+
+        // The turnaround is often SHORTER than PlaceAlong's minimum length, so it
+        // would otherwise get ZERO signals and the whole loop + both platform
+        // mouths collapse into ONE pbs block — only one train could be in the
+        // turnaround region at a time, queuing the rest (the measured bottleneck).
+        // Force an entry and an exit PBS so the loop is its own block and trains
+        // hold in the platforms instead. Two-way: a train passes the loop one way.
+        if (placed == 0 && loop.len() >= 3) {
+            local pbs = AIRail.SIGNALTYPE_PBS;
+            AIRail.BuildSignal(loop[1], loop[2], pbs);                       // entry
+            AIRail.BuildSignal(loop[loop.len() - 2], loop[loop.len() - 3], pbs);  // exit
+        }
 
         return true;
     }

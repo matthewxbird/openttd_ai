@@ -169,9 +169,6 @@ class StationBuilder {
         // "throat" is the end facing the partner industry.
         local axis = StationBuilder._AxisStep(direction);
         local perp = StationBuilder._PerpStep(direction);
-        // Sideways offset from platform 0 to platform 1. RoRo spreads them apart
-        // by the gap; the normal terminus keeps them adjacent (offset 1).
-        local perp_b = roro ? perp * (1 + StationBuilder.RORO_GAP) : perp;
 
         local plus_front  = tile + axis * StationBuilder.PLATFORM_LENGTH;
         local plus_enter  = tile + axis * (StationBuilder.PLATFORM_LENGTH - 1);
@@ -186,6 +183,22 @@ class StationBuilder {
         local enter_tile = use_minus ? minus_enter : plus_enter;
         local out_dir    = front_tile - enter_tile;   // points away from station
 
+        // RoRo PRE-FLIGHT: a gapped (drive-through) station only works if the
+        // far-end turnaround loop can be laid - a gapped station has NO valid
+        // reversing fallback (the gap crossover would be a forbidden 90°). So if
+        // the turnaround footprint isn't clear, downgrade to a normal ADJACENT
+        // terminus here (eff_roro=false) rather than build a station that can't run.
+        local eff_roro = roro;
+        if (eff_roro) {
+            local L        = StationBuilder.PLATFORM_LENGTH;
+            local far_out0 = enter_tile - out_dir * L;
+            local far_out1 = far_out0 + perp * (1 + StationBuilder.RORO_GAP);
+            if (!RoRo.TurnaroundClear(far_out0, far_out1, out_dir)) eff_roro = false;
+        }
+        // Sideways offset from platform 0 to platform 1. RoRo spreads them apart
+        // by the gap; the normal terminus keeps them adjacent (offset 1).
+        local perp_b = eff_roro ? perp * (1 + StationBuilder.RORO_GAP) : perp;
+
         // FRONTAGE CHECK: the tiles just outside BOTH platform throats, running
         // toward the partner, must be clear buildable land. Without this the
         // station can land boxed in against water/terrain (like a riverbank)
@@ -196,7 +209,7 @@ class StationBuilder {
         }
 
         local station_id;
-        if (roro) {
+        if (eff_roro) {
             // Two 1-wide platforms with a free gap column between them, joined to
             // one station id. The gap gives the far-end loop room to turn around.
             if (!AIRail.BuildRailStation(tile, direction, 1,
@@ -228,7 +241,7 @@ class StationBuilder {
         Log.Info(Log.PHASE_STATION,
             "Built " + (is_source ? "source" : "dest") + " station id=" + station_id
             + " at tile=" + tile + " dir=" + direction
-            + (roro ? " RoRo(gap=" + StationBuilder.RORO_GAP + ")" : "")
+            + (eff_roro ? " RoRo(gap=" + StationBuilder.RORO_GAP + ")" : "")
             + " throat=" + (use_minus ? "minus" : "plus") + " toward partner");
 
         return {
@@ -240,7 +253,7 @@ class StationBuilder {
             enter_tile_b  = enter_tile + perp_b,
             direction     = direction,
             num_platforms = StationBuilder.NUM_PLATFORMS,
-            roro          = roro,
+            roro          = eff_roro,
         };
     }
 
