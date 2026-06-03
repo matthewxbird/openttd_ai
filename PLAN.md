@@ -342,16 +342,7 @@ drive-through stops, road depot, road vehicles with continuous-shuttle orders,
 thin lifecycle (`Road.MaintainRoute`/`CheckCondemning`). `Estimator` VT_ROAD
 unit economics (cheap infra) so road wins SHORT, low-volume hauls. Town↔town
 short-hop bus candidates rank on the shared value surface with rail + air.
-Feeders into trunks = Phase 9. Original spec below.
-
-### Phase 3 (orig) — Road mode + feeders *(unlocks short hauls + network density)*
-
-- `src/road/`: road pathfinder, drive-through stops, depots; `VT_ROAD` in the
-  value surface; choose road when it beats rail for short/low-volume cargo.
-- Feeders that transfer into rail/air trunks (`OF_TRANSFER`).
-
-**Done when:** the AI builds profitable road routes and road→rail feeders, and
-picks road when it's the cheaper profitable mode.
+Feeders into trunks = Phase 9.
 
 ### Phase 4 — Network effects: backhaul + demand-driven chains *(IMPLEMENTED (backhaul) — commit ed0a36d)*
 
@@ -363,18 +354,7 @@ boost any candidate delivering the INPUT cargo INTO an industry whose OUTPUT we
 already haul; supplying its inputs grows its production, so our line out of it
 carries more (the mirror of the forward ChainBoost; AAHOG's
 SearchAndBuildToMeetSrcDemand mechanism). TODO (minor): refit-aware multi-cargo
-backhaul. Original spec below.
-
-### Phase 4 (orig) — Network effects: backhaul + demand-driven chains *(high gain)*
-
-- **Backhaul:** detect endpoints that mutually produce+accept a cargo; load both
-  legs. Start with same-cargo (no refit), then refit-aware where wagons allow.
-- **Demand-driven supply routes:** for a processing industry we serve, build
-  feeder routes to meet its *input* demand → grows chain throughput and our
-  delivered volume. Use expected/future production for sizing.
-
-**Done when:** bidirectional routes appear where geography allows and chain
-output (hence our income) grows over a match.
+backhaul. TODO (minor): refit-aware multi-cargo backhaul.
 
 ### Phase 5 — Town authority (DONE) & growth
 
@@ -409,66 +389,6 @@ demolishes non-owned rail). Classifier + cross-cost are unit-tested.
 Remaining (optional debug polish, not built): PF trace-mode, scripted 1v1
 foreign-corridor regression scenario.
 
-Original spec below.
-
-
-
-**Problem (measured behaviour):** our pathfinder (`src/rail_pf.nut`) costs and
-*joins* any tile where `AIRail.IsRailTile()` is true, but it does **not** check
-tile ownership. In a 1v1 / multi-company game a rival's rail is interleaved with
-ours and the map's, so the pathfinder happily routes a path onto/through foreign
-track; the builder (`src/track_builder.nut`) then fails the piece with
-`ERR_OWNED_BY_ANOTHER_COMPANY` (and we cannot demolish or build on it). Today we
-just `Log.Warn` the failed piece and the whole line build stalls or aborts —
-this is a major reason builds break down once an opponent is on the map.
-
-**Robust foreign-track handling:**
-
-- **Ownership-aware pathfinding.** In the neighbour/cost step, classify every
-  rail tile by `AITile.GetOwner` / `AIRail.GetOwner` relative to `COMPANY_SELF`:
-  - *Own* rail → joinable/shareable as today.
-  - *Foreign* rail → **impassable** by default (do not route onto it). Only allow
-    a clean grade-separated crossing (bridge/tunnel over/under) at a heavy cost,
-    never a flat join or a build *on* the foreign tile.
-  - *Town/road* level-crossing rules unchanged.
-- **Foreign-aware crossing cost.** Replace the single `_cost_crossing_rail` with
-  distinct costs: cheap for our own corridor, expensive-but-legal for a
-  grade-separated jump over foreign track, ∞ (forbidden) for a flat join to
-  foreign track. This pushes paths *around* rivals when feasible, *over* them
-  when not.
-- **Builder pre-check + graceful detour.** Before laying each piece, verify the
-  tile is buildable by us (clear / own); if a piece comes back
-  `ERR_OWNED_BY_ANOTHER_COMPANY` / `ERR_AREA_NOT_CLEAR` due to foreign property,
-  trigger a **local re-route** around the offending tile rather than aborting the
-  whole line. Cap retries, then fall back to single-track salvage / abandon
-  cleanly (never orphan, per the condemn rules).
-- **Don't touch what isn't ours.** Cleanup/teardown must never demolish or count
-  foreign tiles (extend the existing `_Touch` discipline to skip non-owned rail).
-
-**Track-build debuggability (we must be able to see *why* a build failed):**
-
-- **Structured build-failure report.** On any build abort, emit a single
-  structured log line: phase, route label, failing tile + coords, the exact
-  `AIError.GetLastErrorString()`, tile owner, and the pathfinder cost class of
-  that tile. (Today the error is logged but not the *ownership/cost context* that
-  explains it.)
-- **Annotated map dump.** Extend `src/map_dump.nut` to colour/mark tiles by
-  owner (self / each rival / town / unowned) and overlay the attempted path and
-  the failing tile, so the ASCII dump on failure shows *where the rival track
-  blocked us*. (Headless can't screenshot — this is our eyes.)
-- **Pathfinder trace mode.** A debug flag that logs the top-N expanded nodes with
-  their cost breakdown (terrain / crossing / foreign penalty) for a failed
-  search, so we can tell "no route" from "route existed but priced wrong".
-- **Regression tests.** Pure-math `sq.exe` tests for the ownership classifier and
-  the foreign-aware cost function; a scripted 1v1 `run_bench` scenario that puts a
-  rival line across our best corridor and asserts we still build (detour or
-  grade-separated) rather than abort.
-
-**Done when:** in 1v1, lines that previously aborted in mixed-ownership terrain
-now complete (detour or grade-separated crossing) or fail *cleanly* to single
--track salvage; every build abort produces a structured, owner-annotated
-diagnostic; the foreign-track classifier and cost function are unit-tested.
-
 ### Phase 9 — Passenger network & town growth *(IMPLEMENTED — commit 79f0cc3)*
 
 DONE: PAX + MAIL as first-class **air** cargo (a town may hub one pax + one
@@ -476,50 +396,8 @@ mail air route, reusing its airport); intra-town **bus feeders**
 (`Road.BuildFeeder`) that TRANSFER town-centre pax into a proven airport
 station (joined drive-through stop), extending the trunk catchment — feeders
 are never profit-retired (fare credits the trunk). Short-haul road bus rule
-lands via Phase 3. Town growth = Phase 5 statues. Original spec below.
-
-### Phase 9 (orig) — Passenger network & town growth (bus/truck feeders) *(NEW — MID-game growth engine)*
-
-**Why:** towns grow when a nearby station has a good rating and we *transport*
-their passengers/mail and *deliver* accepted cargo (goods, food) — see the
-[Towns](https://wiki.openttd.org/en/Manual/Towns) manual. A bigger town produces
-more passengers/mail and accepts more cargo, compounding every line that serves
-it. Passengers are also a large, always-available cargo we currently ignore.
-
-**Feeder pattern (the core mechanic).** A town's passengers sit in its *centre*,
-but a high-capacity train station usually can't go there. So run cheap **bus
-feeders inside the town** that pick up passengers and **transfer**
-(`OF_TRANSFER`, paid on final delivery not at the transfer) them to a train (or
-air) station on the town edge; the trunk vehicle then hauls them the long
-distance for the big payment — see
-[Feeder service](https://wiki.openttd.org/en/Manual/Feeder%20service). Same
-pattern for mail and for moving *goods/food into the town centre* to grow it.
-
-- **Passenger/mail as first-class cargo.** Add town pax/mail pairs to the value
-  surface (Phase 1). Origin = town centre catchment; destination = another town
-  (pax) or anywhere accepting mail.
-- **Intra-town bus feeders.** `src/road/` bus stops in the town centre + a depot;
-  short loop that transfers into the trunk station. Size the feeder fleet to the
-  trunk's throughput, not the other way round.
-- **Trunk leg picks the winning mode.** Bus/air/rail for the long leg falls out of
-  the value-surface estimate per distance bucket.
-- **Grow towns we serve.** Tie into Phase 5: prioritise delivering accepted cargo
-  (goods/food/pax) *into* served towns, keep station rating high, and fund
-  growth/authority actions where they lift accepted cargo — so served towns
-  enlarge over the match.
-
-**Short-haul mode rule (bus/truck instead of train).** For short routes —
-roughly **≤ 20–30 tiles** — a single train + its track/stations is overkill and
-slow to pay back. Make the value surface / mode selector prefer **road (bus for
-pax/mail, truck for freight)** under that distance threshold (and for
-low-volume cargo), reserving rail for longer, higher-volume trunks. The exact
-threshold is a tunable constant, swept with `run_bench`. This also feeds the
-EARLY land-grab: cheap short road lines plant fast and claim space with almost no
-build risk.
-
-**Done when:** the AI runs bus/mail feeders that transfer into longer trunks,
-serves and visibly grows towns over a match (rising population / accepted cargo),
-and chooses road over rail for sub-~25-tile / low-volume candidates.
+lands via Phase 3. Town growth = Phase 5 statues. Short-haul mode rule: road
+preferred for sub-~25-tile / low-volume candidates (tunable, swept with bench).
 
 ---
 
@@ -620,11 +498,38 @@ section is grounded in a fresh deep read of AAAHogEx's `pathfinder.nut` /
 - **10.5 Pathfinder profiling + trace mode.** Opcode counters around
   `_Cost`/`_Neighbours` and a top-N expanded-node dump on a failed search (the
   Phase-8 "trace mode" item), so further tuning is measured, not guessed.
-- **10.6 (stretch) Alternative search.** Only if A*-with-heap still dominates the
-  profile: evaluate a *bidirectional* A* (search from both endpoints, meet in the
-  middle — typically ~2× fewer expanded nodes on long hauls) or a coarse
-  jump-point-style step over flat open terrain. Decide from 10.5 data; don't
-  rewrite the search blind.
+- **10.6 Alternative search algorithms — EVALUATED (keep A*, reason below).**
+  The goal explicitly invited "other pathfinding algorithms... better or faster
+  than aystar." Evaluated against OUR problem (weighted grid: per-tile terrain /
+  water / rail / slope / curve-history costs, plus bridge/tunnel multi-tile jumps
+  and a no-90° constraint). **Key profiling insight:** the dominant pathfinder cost
+  is not the search *structure* but the **per-node AI-API work** in `_Cost` /
+  `_Neighbours` — each expansion runs `AIRail.BuildRail` dry-runs + `AITile`
+  height/buildable/owner queries (native calls). So the win is *fewer nodes
+  expanded* and *cheaper per-node work*, not a fancier search.
+  - **Jump Point Search (JPS): REJECTED.** JPS gets its speed by exploiting
+    *uniform* step cost to skip symmetric paths. Our grid is weighted (every tile
+    has a different cost) and constrained (bridges/tunnels, no-90°, curve spacing),
+    which violates JPS's core assumption. Not applicable.
+  - **Bidirectional A*: DEFERRED (risky).** ~2× fewer nodes on long uniform hauls,
+    but our cost is *direction- and history-dependent* (curve window, reverse-side
+    bias for the double-track back leg, `isOutward`), so the two frontiers have
+    asymmetric cost and the meet-in-the-middle reconciliation is easy to get wrong
+    (suboptimal / invalid joins). High correctness risk for a ~2× node win that the
+    heap (10.1) already partly delivers. Revisit only with 10.5 profiler data.
+  - **Hierarchical / HPA*: DEFERRED (low EV now).** Cluster-abstraction routing
+    helps *many* queries on a *static* map; ours is semi-static but each query's
+    cost depends on the route's engine/terrain, so the abstraction cache keeps
+    invalidating. Heavy precompute, medium EV — after the multi-modal/terminus work.
+  - **CHOSEN higher-EV levers (same A*, fewer/cheaper nodes):** (1) the binary
+    **heap** open set (10.1, done/parked); (2) **weighted A*** — inflate the
+    heuristic (`_estimate_rate` 1 → ~1.1–1.2) for bounded-suboptimal paths that
+    expand far fewer nodes (cheap one-line experiment, bench-gated — risk is the
+    same tie/route chaos that bit the heap, so measure); (3) **memoise per-tile API
+    queries** within a single search (height/buildable/owner per tile) to cut the
+    native-call count that actually dominates the profile. These beat swapping the
+    algorithm. Conclusion: **A* is the right algorithm; speed comes from the queue,
+    the heuristic weight, and per-node call-count — not a different search.**
 
 **Done when:** the pathfinder no longer dominates the opcode profile; rail lines
 that previously dropped to single-track salvage build as double-track; and solo
