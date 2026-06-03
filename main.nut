@@ -352,10 +352,18 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
     local new_src = false;
     local new_dst = false;
 
+    // RoRo (Phase 10): a double-track route wants drive-through stations (two
+    // platforms spread apart so a far-end return loop fits). EARLY single-track
+    // land-grab routes stay adjacent terminuses. Stations are built gapped UP
+    // FRONT (the spacing is structural), then the loop is attempted after the
+    // track is laid; if the loop can't be built we fall back to a reversing
+    // terminus on the same (gapped) station.
+    local want_roro = MvBAI.USE_RORO && !single_only;
+
     // Source station: reuse if we have one at this producer.
     route.src_station = this.state.FindExistingStation(c.producer, true);
     if (route.src_station == null) {
-        route.src_station = StationBuilder.BuildAt(c.producer, c.cargo, true, accepter_tile);
+        route.src_station = StationBuilder.BuildAt(c.producer, c.cargo, true, accepter_tile, want_roro);
         new_src = true;
     } else {
         Log.Info(Log.PHASE_STATION, "Reusing existing source station id=" + route.src_station.station_id);
@@ -368,8 +376,8 @@ function MvBAI::TryBuildRoute(c, single_only = false) {
     route.dst_station = this.state.FindExistingStation(c.accepter, false, acc_is_town);
     if (route.dst_station == null) {
         route.dst_station = acc_is_town
-            ? StationBuilder.BuildAtTown(c.accepter, c.cargo, producer_tile)
-            : StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile);
+            ? StationBuilder.BuildAtTown(c.accepter, c.cargo, producer_tile, want_roro)
+            : StationBuilder.BuildAt(c.accepter, c.cargo, false, producer_tile, want_roro);
         new_dst = true;
     } else {
         Log.Info(Log.PHASE_STATION, "Reusing existing dest station id=" + route.dst_station.station_id);
