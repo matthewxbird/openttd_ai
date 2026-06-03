@@ -184,19 +184,19 @@ class Maintenance {
                 continue;
             }
 
-            // --- RAIL: widen the station + scale trains to current production ---
+            // --- RAIL: widen the station to current production ONLY ---
+            // We deliberately do NOT proactively ADD TRAINS here: rail is
+            // cargo-limited (routes mostly run one train) and a 2nd+ train on our
+            // reversing-terminus stations DEADLOCKS the throat (measured: proactive
+            // train-adding benched 256 -20%). Trains are added only REACTIVELY, off
+            // a real source backlog, by _CheckRoute - which is rare because routes
+            // seldom outgrow one train. Station WIDTH still tracks output (cheap,
+            // no deadlock; readies the platform if demand ever justifies it).
             if (!AIIndustry.IsValidIndustry(r.producer)) continue;
             local output = AIIndustry.GetLastMonthProduction(r.producer, r.cargo);
             if (output <= 0) continue;
             if (output > r.production) r.production = output;
             if (r.src_station != null) StationBuilder.GrowToMatch(r.src_station, output);
-            local single = ("single_track" in r) && r.single_track;
-            if (single) continue;                              // one-train cap
-            local target = Trains.PickNumTrains(output, Maintenance.CapFor(r));
-            if (alive < target && r.depot_tile != null) {
-                Maintenance._AddTrain(r, railtype);            // one per sweep per route
-                added++;
-            }
         }
         if (reviewed > 0) {
             Log.Info(Log.PHASE_LOOP, "[capacity-review] swept " + reviewed
@@ -211,20 +211,36 @@ class Maintenance {
     // the most last year (recovers its capital + stops its running-cost drain).
     // One per call; called every loop while stressed until solvent. Returns true
     // if it condemned something.
+    static CONTRACTION_MIN_AGE = 360;   // a route's vehicles must be at least this
+                                        // old (days) before contraction may condemn
+                                        // it - younger routes haven't had a fair
+                                        // chance and often LOOK like losers (they
+                                        // ramped up partway through last year) while
+                                        // earning NOW (manual-test: contraction was
+                                        // deleting freshly-promoted profitable routes).
+
     static function EmergencyContraction(state) {
         if (!Money.Stressed()) return false;
         local worst = null;
-        local worst_profit = 0;   // only condemn genuine LOSERS (profit < 0)
+        local worst_profit = 0;   // only condemn genuine LOSERS (last-year profit < 0)
         foreach (_, r in state.routes) {
             if (r.status != "built") continue;
             if (r.trains == null) continue;
-            local p = 0;
+            local p_last = 0, p_this = 0, max_age = 0;
             foreach (v in r.trains) {
-                if (AIVehicle.IsValidVehicle(v)) p += AIVehicle.GetProfitLastYear(v);
+                if (!AIVehicle.IsValidVehicle(v)) continue;
+                p_last += AIVehicle.GetProfitLastYear(v);
+                p_this += AIVehicle.GetProfitThisYear(v);
+                local a = AIVehicle.GetAge(v);
+                if (a > max_age) max_age = a;
             }
-            if (p < worst_profit) { worst_profit = p; worst = r; }
+            // Protect routes that are too NEW to judge, or that have RECOVERED
+            // (earning this year) - never shed a profitable/young route.
+            if (max_age < Maintenance.CONTRACTION_MIN_AGE) continue;
+            if (p_this >= 0) continue;
+            if (p_last < worst_profit) { worst_profit = p_last; worst = r; }
         }
-        if (worst == null) return false;   // nothing losing money to shed
+        if (worst == null) return false;   // nothing genuinely + persistently losing
         local name = (("air" in worst) && worst.air) || (("road" in worst) && worst.road)
             ? (AITown.GetName(worst.producer) + "->" + Route.AccepterName(worst))
             : (AIIndustry.GetName(worst.producer) + "->" + Route.AccepterName(worst));
