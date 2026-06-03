@@ -591,12 +591,25 @@ section is grounded in a fresh deep read of AAAHogEx's `pathfinder.nut` /
   (where pathfinding is opcode-starved), and 256 already gains — so re-land 10.1
   **together with 10.2** (own-track reuse changes routing anyway, so we re-baseline
   once), or after exactly matching the AIList tie order. Branch kept for that.
-- **10.2 Own-track reuse (corridor sharing).** Let `_Neighbours` *join* our own
-  rail at a small cost (replacing the near-wall `_cost_foreign_rail`-style block
-  that currently also penalises *own* rail). Start conservative: allow a flat join
-  only at a goal/source tile or onto a known trunk tile, never mid-curve. Pure
-  classifier + cost are unit-testable. **Highest structural EV** — denser network,
-  cheaper routes, fewer tiles.
+- **10.2 Own-track reuse (corridor sharing)** *(TESTED — NEGATIVE by cost-tweak;
+  BLOCKED on trunk/junction infra)*. The pathfinder already *follows* own rail
+  that is already-connected (the `joinable` branch); it only forbids laying a NEW
+  flat fork onto own track. Hypothesis: lowering the own-rail follow cost would
+  make new routes reuse an existing corridor instead of laying parallel track.
+  **Measured the opposite** (solo, 5 seeds × {128,256}, 12y, on top of the heap):
+  ```
+                     128         256          overall
+  heap-alone         1,132,248   3,780,566    2,456,407
+  heap + reuse@600   1,165,981   3,383,157    2,274,569   (-7.4%; 256 -10.5%)
+  ```
+  256 (where there is the MOST own track to reuse) fell hardest — the smoking gun:
+  reusing our **single-track** corridors adds a train to a shared segment that then
+  **deadlocks** (the same reversing-terminus / single-line capacity ceiling).
+  Corridor sharing is net-negative until the shared segments are double-track with
+  junction signalling AND the route lifecycle tracks tile-level capacity/ownership
+  (so it never demolishes a tile another route runs on). **Reverted.** Conclusion:
+  10.2 is GATED on the terminus/junction infrastructure below — do that first, then
+  reuse pays. The cost knob alone cannot unlock it.
 - **10.3 Robust parallel back-track.** Port AAHOG's reverse-near logic: thread the
   back leg as a *side-biased* parallel of the out leg with correct spacing, and on
   failure retry the side before dropping to single-track. Lifts the per-line train
@@ -617,6 +630,24 @@ section is grounded in a fresh deep read of AAAHogEx's `pathfinder.nut` /
 that previously dropped to single-track salvage build as double-track; and solo
 value is ≥ the multi-modal baseline (faster builds should *raise* it, since the
 headless budget caps opcodes/tick).
+
+**Dependency learned from the 10.2 experiment (re-orders Phase 10).** Corridor
+sharing (10.2) and the throughput upgrades all bottom out on the **reversing-
+terminus / single-track capacity ceiling**: any time we put a second train on a
+shared single-line segment it deadlocks and *destroys* value (10.2 reuse@600 cost
+256 −10.5%). So the real unlock order is:
+
+1. **Terminus deadlock → RoRo / drive-through stations** (already flagged as the #1
+   solo throughput lever). This lifts `MAX_TRAINS` past 2 and makes a segment able
+   to carry the traffic that sharing/upgrading would add.
+2. **Junction signalling + tile-level capacity/ownership in the route lifecycle**
+   (so a shared tile is never demolished by another route's teardown). `junction_
+   builder.nut` templates (Phase 6) get wired here.
+3. **THEN 10.2 own-track reuse + 10.3 parallel back-track pay off** — there are now
+   double-track trunks worth sharing and the lifecycle can track the sharing.
+
+i.e. promote the terminus rework ahead of 10.2/10.3; the pure-speed 10.1 heap can
+ride along once routing is re-baselined by the terminus change.
 
 ---
 
