@@ -142,11 +142,23 @@ proper baked merge, like SmartStation, not a tacked-on return loop.
     can't reach the source platform to load; (b) a throat segment / signal is mis-
     rotated so arrival->platform->departure isn't a valid through-path. num==3 (depot
     in throat) sites too rarely (bigger footprint) to test - 0 routes in a 256 smoke.
-  - **NEXT (visual loop):** flip `USE_RAIL2=true`, run a GUI game, find a rail2
-    SmartTerminus, WATCH where the 5 trains jam (leaving source? in the throat? at
-    the depot?). Fix the throat/signal/depot from what you see. Then re-bench. Until
-    then rail2 is OFF on the branch; main is untouched (bit-identical to baseline).
-    This is the documented headless wall (10/10 topology builds failed blind).
+  - TRIED 2 reasoned fixes, trains STILL stall: (1) depot moved from out-main to
+    BACK-main near source (so a fresh train exits toward the source platform, not
+    dst behind one-way PBS) - value recovered (2 routes build, 1.55M ~= air-only
+    baseline) but reachedDst still false, STUCK=2; (2) num=3 (throat depot) sites
+    too rarely. => the stall is the THROAT through-path itself (arrival col0 ->
+    platform -> departure col1 across the grade-sep bridge), not the depot. A
+    segment/signal in the ported GetRails throat is almost certainly mis-rotated or
+    mis-connected for our build, so trains can't complete arrival->platform->depart.
+  - **NEXT (visual loop, REQUIRED):** flip `USE_RAIL2=true`, GUI game, find a rail2
+    SmartTerminus (e.g. a coal mine->power station), WATCH a train: does it leave
+    the source platform at all? reach the throat? jam at the bridge? Compare the
+    built throat tile-for-tile against AAHOG's SmartStation in-game (or capture
+    AAHOG's with the junction-builder skill and diff). The `GetRails` port + bridge
+    + per-platform PBS is the suspect. Fix from what you see, then re-bench.
+    Until then rail2 is OFF on the branch; main is bit-identical to baseline.
+    This is the documented headless wall - 10/10 prior blind topology builds failed;
+    the geometry BUILDS but the train semantics need eyes.
 
 - 2026-06-05: branch + design captured. Read RailStation base + SmartStation:
   drive-through = baked throat template (GetRails) + main-line pathfind. NEXT:

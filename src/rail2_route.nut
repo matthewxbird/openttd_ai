@@ -126,10 +126,15 @@ class Rail2 {
             return false;
         }
 
-        // Depot: use a station depot if present (num==3), else build one on the out-main.
+        // Depot: use a station depot if present (num==3), else build one on the
+        // BACK-main near the source. The back-main flows dst->src (one-way), ending
+        // at src.arrival; a fresh train must exit toward the SOURCE platform to load
+        // first, then run out-main to dst. A depot on the out-main spawns trains
+        // facing dst with no way back to src against one-way PBS -> they stall (the
+        // measured deadlock). Back-main placement enters the route flow correctly.
         local depot = (src.depot != null) ? src.depot : null;
         if (depot == null) {
-            local d = DepotBuilder.New(out_main, "rail2-depot");
+            local d = DepotBuilder.New(back_main, "rail2-depot");
             if (d != null && d.len() > 0) depot = d[0];
         }
         if (depot == null) {
