@@ -21,6 +21,7 @@ require("src/terminus.nut");
 require("src/roro.nut");
 require("src/depot_builder.nut");
 require("src/aystar.nut");
+require("src/tile_model.nut");
 require("src/rail_pf.nut");
 require("src/track_builder.nut");
 require("src/signals.nut");

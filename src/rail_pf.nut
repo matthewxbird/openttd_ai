@@ -564,6 +564,13 @@ class RailPathFinder {
             // track can never weave across and cross the out track.
             if (self._avoidSide != null && (next in self._avoidSide)) continue;
 
+            // TILE MODEL PRUNE: never path ONTO an AVOID tile (town houses,
+            // industry, unclearable objects, map edge). A cheap classification
+            // skips both the expensive test-BuildRail probe AND expanding that
+            // node - the search-space cut. (GROUND/JOIN/BRIDGE fall through to the
+            // normal probe + bridge/tunnel generator.)
+            if (TileModel.Classify(next) == TileModel.AVOID) continue;
+
             // Seed tile (no parent): always allow.
             if (par_tile == null) {
                 tiles.push([next, RailPathFinder._GetDir(par_tile, cur_node, next)]);
