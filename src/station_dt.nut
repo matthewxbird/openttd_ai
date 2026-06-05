@@ -77,6 +77,10 @@ class StationDT {
         local maxh = 0; local minh = 99;
         foreach (t, _ in lo) {
             if (!AIMap.IsValidTile(t) || AITile.IsWaterTile(t)) return false;
+            // Never site the footprint THROUGH an industry (the throat/main was
+            // being built straight through a coal mine). Industry tiles can't be
+            // cleared, so reject any origin whose footprint overlaps one.
+            if (AIIndustry.IsValidIndustry(AIIndustry.GetIndustryID(t))) return false;
             local hh = AITile.GetMaxHeight(t);
             if (hh > maxh) maxh = hh;
             if (hh < minh) minh = hh;
