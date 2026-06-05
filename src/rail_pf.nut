@@ -499,7 +499,9 @@ class RailPathFinder {
             local h = min(dx, dy) * 67 * 2 + abs(dx - dy) * 100;
             if (h < min_cost) min_cost = h;
         }
-        return min_cost * self._estimate_rate;
+        // Keep the estimate an INTEGER (aystar's heap/AIList priority must be int;
+        // a float _estimate_rate like 1.4 makes this a float and crashes Insert).
+        return (min_cost * self._estimate_rate).tointeger();
     }
 
     // -----------------------------------------------------------------------
