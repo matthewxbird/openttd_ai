@@ -101,6 +101,12 @@ class MvBAI extends AIController {
     // terminus. OFF on main until it beats the baseline. See src/rail2_route.nut.
     static USE_RAIL2 = true;
 
+    // PROFIT MARGIN: minimum ROI (annual profit after running + build-amort +
+    // infrastructure maintenance, / build cost) a route must clear to be built.
+    // 0.10 = must return >=10% of its build cost per year on top of paying itself
+    // back. Stops the steady cash bleed from sprawling marginal lines (user). Tune.
+    static MIN_ROI = 0.10;
+
     function Start();
     function Save();
     function Load(version, data);
@@ -270,6 +276,11 @@ function MvBAI::Start() {
                 Log.Info(Log.PHASE_RANK, "Top remaining candidate has non-positive ROI; idle.");
                 break;
             }
+            // PROFIT MARGIN (user directive): a route must not merely break even - it
+            // must clear running + build-amort + MAINTENANCE and still return at least
+            // MIN_ROI on its build cost. Skip thin lines so the company trends UP
+            // instead of bleeding on a sprawl of marginal routes.
+            if (("est_roi" in c) && c.est_roi < MvBAI.MIN_ROI) continue;
             // AIR candidate (Phase 2): own affordability + builder, then continue
             // to the next candidate on success/failure (no rail path).
             if (("air" in c) && c.air) {

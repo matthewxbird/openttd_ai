@@ -13,6 +13,32 @@
 //   - Estimator.EngineSet(...) / Estimate(...)  the AI* glue (engine lookups,
 //     cargo income, build cost). Verified in-game.
 
+// Infrastructure-maintenance cost model (AAHOG-style, empirical). When the game's
+// "infrastructure maintenance" setting is ON, every tile of track costs money every
+// month and the rate RISES super-linearly as you build more - a continuous bleed our
+// ROI used to ignore. We read the company's ACTUAL monthly rail cost and apportion a
+// route's SHARE of it by piece count, so the estimate auto-tracks reality.
+class InfraCost {
+    static function On() {
+        return AIGameSettings.IsValid("economy.infrastructure_maintenance")
+            && AIGameSettings.GetValue("economy.infrastructure_maintenance") == 1;
+    }
+    // Annual maintenance attributable to a NEW rail route of `dist` tiles (double
+    // track => ~dist*2 new pieces). = total annual rail cost x (route pieces / total
+    // pieces). Falls back to a nominal per-tile rate before any rail exists.
+    static function RailAnnual(railtype, dist) {
+        if (!InfraCost.On()) return 0;
+        local route_pieces = dist * 2;   // double track
+        local monthly = AIInfrastructure.GetMonthlyRailCosts(AICompany.COMPANY_SELF, railtype);
+        local pieces  = AIInfrastructure.GetInfrastructurePieceCount(
+                            AICompany.COMPANY_SELF, AIInfrastructure.INFRASTRUCTURE_RAIL);
+        if (monthly > 0 && pieces > 0) {
+            return monthly * 12 * route_pieces / pieces;
+        }
+        return AIRail.GetMaintenanceCostFactor(railtype) * 4 * dist;   // no rail yet: nominal
+    }
+}
+
 class Estimator {
     // ---- Calibratable constants (TUNE in-game against realised profit) -----
 
@@ -145,6 +171,7 @@ class Estimator {
             trip_days              = trip_days,
             payment_per_unit       = AICargo.GetCargoIncome(cargo, rail_dist, trip_days),
             build_cost             = Scoring.BuildCostEstimate(dist),
+            maint_per_year         = InfraCost.RailAnnual(railtype, dist),   // track upkeep (if maintenance on)
         };
     }
 
@@ -287,12 +314,17 @@ class Estimator {
         local income_per_year  = serviced * p.payment_per_unit.tofloat();
         local running_per_year = p.running_cost_per_train.tofloat() * num_trains;
         local amortized        = p.build_cost.tofloat() / Estimator.AMORTIZE_YEARS.tofloat();
+        // Infrastructure maintenance (track upkeep) - a CONTINUOUS bleed our ROI
+        // ignored. Subtract it like a running cost so routes that can't out-earn
+        // their own upkeep score negative and get rejected (the company stops
+        // sprawling track that loses money on maintenance).
+        local maint_per_year = ("maint_per_year" in p) ? p.maint_per_year.tofloat() : 0.0;
 
-        local annual_profit = income_per_year - running_per_year - amortized;
+        local annual_profit = income_per_year - running_per_year - amortized - maint_per_year;
 
         local roi = -1.0;
         if (p.build_cost > 0) {
-            roi = (income_per_year - running_per_year - amortized) / p.build_cost.tofloat();
+            roi = (income_per_year - running_per_year - amortized - maint_per_year) / p.build_cost.tofloat();
         }
 
         // Per-vehicle yield (engines+wagons unknown here; use trains as proxy -
