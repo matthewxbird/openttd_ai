@@ -97,7 +97,7 @@ class MvBAI extends AIController {
     // Phase 11 rail rewrite: build rail routes on AAHOG-style SmartTerminus
     // (StationDT) with distance-scaled fleets instead of the 2-train reversing
     // terminus. OFF on main until it beats the baseline. See src/rail2_route.nut.
-    static USE_RAIL2 = false;
+    static USE_RAIL2 = true;
 
     function Start();
     function Save();
