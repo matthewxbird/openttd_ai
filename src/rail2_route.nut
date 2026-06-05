@@ -24,10 +24,12 @@ class Rail2 {
         local loc = AIIndustry.GetLocation(industry_id);
         local ix = AIMap.GetTileX(loc);
         local iy = AIMap.GetTileY(loc);
-        // Throat faces the partner (rotations verified to stamp clean). This puts
-        // src.throat -> dst and dst.throat -> src so the double main connects short
-        // and the return leg can complete.
-        local k  = StationDT.DirToward(loc, partner_tile);
+        // Throat faces the partner ONLY. The main exits in the throat direction, so a
+        // 90-deg rotation can point the main at WATER / away from the partner and never
+        // connect (measured: 90-deg rotations -> 1 loop + 14 main-fails, faces water).
+        // Keep best-COVERAGE origin scoring (the "other side" win) at the facing k.
+        local base_k = StationDT.DirToward(loc, partner_tile);
+        local ks = [base_k];
         local cands = [];
         for (local dy = -8; dy <= 2; dy++)
             for (local dx = -8; dx <= 2; dx++)
@@ -37,18 +39,30 @@ class Rail2 {
             local db = (b[0] + 2 - ix) * (b[0] + 2 - ix) + (b[1] + 2 - iy) * (b[1] + 2 - iy);
             return da - db;
         });
-        // Pass 1: prefer an origin whose platforms COVER the industry (cargo loads).
-        foreach (c in cands) {
-            if (!StationDT.CanBuild(c[0], c[1], k)) continue;
-            if (!StationDT.Covers(c[0], c[1], k, loc)) continue;
-            local st = StationDT.Build(c[0], c[1], k, cargo, true);
+        // Pass 1: among ALL rotations + origins, pick the one whose platforms COVER
+        // the industry BEST (most platform tiles in coverage). Coverage dominates;
+        // ties prefer the partner-facing rotation (cleanest main connect). This lets
+        // a 90-deg-rotated or other-side placement win when it serves the industry
+        // better (e.g. reaching two adjacent industries).
+        local best = null; local best_val = -1;
+        foreach (k in ks) {
+            foreach (c in cands) {
+                if (!StationDT.CanBuild(c[0], c[1], k)) continue;
+                local cs = StationDT.CoverScore(c[0], c[1], k, loc);
+                if (cs == 0) continue;                       // must serve the industry
+                local val = cs * 2 + (k == base_k ? 1 : 0);  // coverage first, tie->facing
+                if (val > best_val) { best_val = val; best = [c[0], c[1], k]; }
+            }
+        }
+        if (best != null) {
+            local st = StationDT.Build(best[0], best[1], best[2], cargo, true);
             if (st != null) return st;
         }
-        // Pass 2: fall back to nearest buildable (the big footprint can't always
-        // both fit flat AND cover - better a near station than none).
+        // Pass 2: fall back to nearest buildable, partner-facing (the big footprint
+        // can't always both fit flat AND cover - better a near station than none).
         foreach (c in cands) {
-            if (!StationDT.CanBuild(c[0], c[1], k)) continue;
-            local st = StationDT.Build(c[0], c[1], k, cargo, true);
+            if (!StationDT.CanBuild(c[0], c[1], base_k)) continue;
+            local st = StationDT.Build(c[0], c[1], base_k, cargo, true);
             if (st != null) return st;
         }
         return null;
