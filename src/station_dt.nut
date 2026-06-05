@@ -66,7 +66,8 @@ class StationDT {
         return { corner = [cx, cy], dir = dir, num = spec.num, len = spec.len };
     }
 
-    static function CanBuild(ox, oy, k, spec) {
+    static function CanBuild(ox, oy, k, spec, join_id = null) {
+        local jid = (join_id == null) ? AIStation.STATION_NEW : join_id;
         local f = StationDT._Foot(ox, oy, k, spec);
         local lo = AITileList();
         lo.AddRectangle(f[0], f[1]);
@@ -82,7 +83,7 @@ class StationDT {
         if (maxh - minh > 2) return false;
         local pp = StationDT._PlatformParams(k, spec);
         local tm = AITestMode();
-        return AIRail.BuildRailStation(StationDT._Tile(ox, oy, pp.corner), pp.dir, pp.num, pp.len, AIStation.STATION_NEW);
+        return AIRail.BuildRailStation(StationDT._Tile(ox, oy, pp.corner), pp.dir, pp.num, pp.len, jid);
     }
 
     // How well the station serves the cargo (real GetCargoProduction/Acceptance per
@@ -101,16 +102,19 @@ class StationDT {
         return n;
     }
 
-    // Build at origin (ox,oy), rotation k, using `spec`. Returns record or null.
-    static function Build(ox, oy, k, cargo, is_source, spec) {
+    // Build at origin (ox,oy), rotation k, using `spec`. join_id != STATION_NEW
+    // merges this physical station into an existing station id (one logical station,
+    // separate platform-lines). Returns record or null.
+    static function Build(ox, oy, k, cargo, is_source, spec, join_id = null) {
+        local jid = (join_id == null) ? AIStation.STATION_NEW : join_id;
         local f = StationDT._Foot(ox, oy, k, spec);
         AITile.LevelTiles(f[0], f[1]);
 
         local pp = StationDT._PlatformParams(k, spec);
         local corner = StationDT._Tile(ox, oy, pp.corner);
         local built = (cargo == null)
-            ? AIRail.BuildRailStation(corner, pp.dir, pp.num, pp.len, AIStation.STATION_NEW)
-            : AIRail.BuildNewGRFRailStation(corner, pp.dir, pp.num, pp.len, AIStation.STATION_NEW,
+            ? AIRail.BuildRailStation(corner, pp.dir, pp.num, pp.len, jid)
+            : AIRail.BuildNewGRFRailStation(corner, pp.dir, pp.num, pp.len, jid,
                   cargo, AIIndustryType.INDUSTRYTYPE_UNKNOWN, AIIndustryType.INDUSTRYTYPE_UNKNOWN, 500, is_source);
         if (!built) {
             Log.Warn(Log.PHASE_STATION, "[dt] platform build failed: " + AIError.GetLastErrorString());

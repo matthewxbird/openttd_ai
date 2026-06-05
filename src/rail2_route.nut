@@ -26,7 +26,7 @@ class Rail2 {
 
     // Site a station near `industry`, throat/main facing `partner_tile`. Returns rec.
     // is_source: producer station (must PRODUCE the cargo) vs accepter (must ACCEPT).
-    static function SiteStation(industry_id, partner_tile, cargo, is_source) {
+    static function SiteStation(industry_id, partner_tile, cargo, is_source, join_id = null) {
         local spec = Rail2.Spec();
         local loc = AIIndustry.GetLocation(industry_id);
         local ix = AIMap.GetTileX(loc);
@@ -58,7 +58,7 @@ class Rail2 {
         local best = null; local best_val = -1;
         foreach (k in ks) {
             foreach (c in cands) {
-                if (!StationDT.CanBuild(c[0], c[1], k, spec)) continue;
+                if (!StationDT.CanBuild(c[0], c[1], k, spec, join_id)) continue;
                 local cs = StationDT.CoverScore(c[0], c[1], k, cargo, is_source, spec);
                 if (cs == 0) continue;                       // must really serve it
                 local val = cs * 2 + (k == base_k ? 1 : 0);  // coverage first, tie->facing
@@ -66,7 +66,7 @@ class Rail2 {
             }
         }
         if (best != null) {
-            local st = StationDT.Build(best[0], best[1], best[2], cargo, is_source, spec);
+            local st = StationDT.Build(best[0], best[1], best[2], cargo, is_source, spec, join_id);
             if (st != null) return st;
         }
         return null;
@@ -107,7 +107,20 @@ class Rail2 {
             ? AITown.GetLocation(c.accepter) : AIIndustry.GetLocation(c.accepter);
         local src = Rail2.SiteStation(c.producer, acc_tile, c.cargo, true);
         if (src == null) { Log.Warn(Log.PHASE_STATION, "[rail2] no src site"); return false; }
-        local dst = Rail2.SiteStation(c.accepter, prod_tile, c.cargo, false);
+        // If this accepter is ALREADY served by a rail2 station, JOIN the new dst to
+        // it (one logical station id, separate platform-lines) instead of building a
+        // 3rd standalone station crammed at the same consumer. Fall back to a new
+        // station if it can't physically join (too far to merge).
+        local join_id = null;
+        foreach (_, r in state.routes) {
+            if (("rail2" in r) && r.rail2 && r.accepter == c.accepter
+                && r.dst_station != null && ("station_id" in r.dst_station)) {
+                join_id = r.dst_station.station_id; break;
+            }
+        }
+        local dst = (join_id != null)
+            ? Rail2.SiteStation(c.accepter, prod_tile, c.cargo, false, join_id) : null;
+        if (dst == null) dst = Rail2.SiteStation(c.accepter, prod_tile, c.cargo, false);  // new station
         if (dst == null) {
             Log.Warn(Log.PHASE_STATION, "[rail2] no dst site");
             StationDT.Demolish(src);
