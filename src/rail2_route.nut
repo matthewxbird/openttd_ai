@@ -56,6 +56,17 @@ class Rail2 {
     }
 
     static function TryBuild(state, c, railtype) {
+        // PRE-FLIGHT (free, test-mode): confirm a rail path even EXISTS before
+        // building two expensive levelled SmartTerminus stations. Without this an
+        // unreachable route (e.g. across water) builds both stations, then the main
+        // pathfind grinds 600 chunks and fails -> ~half the starting budget wasted.
+        local acc_is_town = ("acc_is_town" in c && c.acc_is_town);
+        if (!acc_is_town && !TrackBuilder.CanReach(c.producer, c.accepter)) {
+            Log.Warn(Log.PHASE_TRACK, "[rail2] preflight: no path "
+                + AIIndustry.GetName(c.producer) + " -> " + Route.AccepterName(c)
+                + "; skipping (nothing built).");
+            return false;
+        }
         Money.EnsureFunds(220000);   // 2 captured stations (level+throat) + main + fleet
         local prod_tile = AIIndustry.GetLocation(c.producer);
         local acc_tile  = ("acc_is_town" in c && c.acc_is_town)
