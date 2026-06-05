@@ -276,15 +276,16 @@ class TrackBuilder {
     // of abandoning at the first bad tile.
     // Returns the built (and verified) tile array, or null if no clean route.
     static function _RunPathfinder(src_f, src_p, dst_f, dst_p,
-                                    is_outward, guide_tiles, label) {
+                                    is_outward, guide_tiles, label, max_chunks = null, repair = false) {
         local avoid = [];   // tiles a previous attempt couldn't build on
+        local mc = (max_chunks == null) ? TrackBuilder.MAX_CHUNKS : max_chunks;
 
         for (local attempt = 0; attempt < TrackBuilder.MAX_REBUILD; attempt++) {
             local ignored = TrackBuilder._MergeIgnored(guide_tiles, avoid);
 
             local tiles = TrackBuilder._FindPath(
                 src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, ignored,
-                TrackBuilder.MAX_CHUNKS, label);
+                mc, label);
             // NO relaxed-budget retry (manual-test feedback): if the capped search
             // can't reach in MAX_CHUNKS, the route is too complex for us - GIVE UP
             // and let the ranker pick a simpler, profitable route. Grinding more
@@ -305,7 +306,7 @@ class TrackBuilder {
                 tiles.push(dst_p);
             }
 
-            TrackBuilder._BuildPath(tiles, label);
+            TrackBuilder._BuildPath(tiles, label, repair);   // repair=true terraforms slope/clear fails
 
             // Accept ONLY a path that is continuous AND has no 90-degree pivot.
             // A 90-degree turn is categorically rejected: we reroute around it
@@ -498,6 +499,13 @@ class TrackBuilder {
             } else if (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT) {
                 // already there (existing line we're joining); do NOT touch it,
                 // so a failed-route cleanup never demolishes another route's rail
+            } else if (TrackBuilder._LayThroughSignals(prev, cur, next)) {
+                // A SIGNAL on the throat-exit tile (existing rail) blocked the join.
+                // _LayThroughSignals removes it, lays the rail, restores it - safe on
+                // existing rail (only touches signals), so it runs BEFORE the
+                // IsRailTile/near_station guards that skip _ClearAndLay for the throat.
+                built++;
+                if (!pre_rail) TrackBuilder._Touch(cur);
             } else if (!near_station && !AIRail.IsRailTile(cur)
                     && !AIRail.IsRailStationTile(cur)
                     && TrackBuilder._ClearAndLay(prev, cur, next, repair)) {
@@ -530,13 +538,52 @@ class TrackBuilder {
     // property (DemolishTile / Raise/LowerTile just fail), so this never touches
     // what isn't ours. Returns true if rail now sits on the tile. (Phase 8)
     static function _ClearAndLay(prev, cur, next, allow_terraform = false) {
+        // A SIGNAL on prev/cur (a station-throat exit signal) can block adding the
+        // connecting track. Remove the signal(s), lay the rail, restore them. Try
+        // this BEFORE demolishing (demolish would destroy the throat rail+signal).
+        if (TrackBuilder._LayThroughSignals(prev, cur, next)) return true;
         // Always try clearing a clearable obstacle (trees / object / stray road).
         if (AITile.DemolishTile(cur) && AIRail.BuildRail(prev, cur, next)) return true;
         // Terraforming a slope flat is LAST-RESORT only (repair pass): doing it on
         // the first pass fights the pathfinder's slope avoidance and slows lines.
         if (!allow_terraform) return false;
+        // Flatten `cur` to the APPROACHING (prev) height so the rail sits LEVEL.
+        // Flattening to the tile's OWN height left a step at prev->cur - the "slope
+        // after the water" gap (a bridge lands at prev's height, the next slope tile
+        // kept its own height -> rail fails). Targeting prev's height fixes slopes
+        // AND reclaims water (raise the seabed to the land height). prev is often a
+        // bridge end here, whose height is exactly where the line should continue.
+        local h = AITile.GetMaxHeight(prev);
+        if (h < 1) h = 1;   // never target sea level (a reclaimed tile must stay land)
+        TrackBuilder._FlattenToHeight(cur, h);
+        if (AIRail.BuildRail(prev, cur, next)) return true;
+        // Last resort: prev may itself be mid-slope - try cur's own height.
         TrackBuilder._FlattenToHeight(cur, AITile.GetMaxHeight(cur));
         return AIRail.BuildRail(prev, cur, next);
+    }
+
+    // Remove any signals on prev/cur (a throat-exit signal that blocks the join),
+    // lay the connecting rail, then RESTORE the signals. Returns true if the rail is
+    // now down. No-op (returns false) if there were no signals to remove.
+    static function _LayThroughSignals(prev, cur, next) {
+        local mx = AIMap.GetMapSizeX();
+        local saved = [];   // [tile, front, type]
+        foreach (base in [prev, cur, next]) {
+            foreach (off in [1, -1, mx, -mx]) {
+                local f = base + off;
+                if (!AIMap.IsValidTile(f)) continue;
+                local st = AIRail.GetSignalType(base, f);
+                if (st != AIRail.SIGNALTYPE_NONE) {
+                    saved.push([base, f, st]);
+                    AIRail.RemoveSignal(base, f);
+                }
+            }
+        }
+        if (saved.len() == 0) return false;   // no signal was in the way
+        local ok = AIRail.BuildRail(prev, cur, next)
+                || AIError.GetLastError() == AIError.ERR_ALREADY_BUILT;
+        foreach (s in saved) AIRail.BuildSignal(s[0], s[1], s[2]);   // restore
+        return ok;
     }
 
     // Build a rail bridge spanning prev->cur (collinear, distance>=2). Used as a

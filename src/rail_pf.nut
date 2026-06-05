@@ -20,11 +20,11 @@
 //
 // COST CATEGORIES (cheapest â†’ most expensive)
 // =============================================
-//  diagonal tile        :  67   (NE/NW/SE/SW move, cheaper than two straights)
+//  diagonal tile        :  30   (NE/NW/SE/SW move, cheaper than two straights)
 //  straight tile        : 100   (baseline)
-//  gentle turn          : 300   (path changes direction over 3-tile window)
+//  gentle turn          : 200   (path changes direction over 3-tile window)
 //  slope penalty        : 100   (height rises or falls 2+ tiles)
-//  bridge per tile      : 100 extra per tile
+//  bridge per tile      : 50 extra per tile
 //  tunnel per tile      :   0   (prefer tunnel over climbing a hill)
 //  tight 180Â° turn      :1500   (immediate reversal - nearly forbidden)
 //  reverse-track penalty: 300â€“3000  (when isOutward=true, keeps room for back track)
@@ -118,18 +118,21 @@ class RailPathFinder {
         this._cost_guide          = 900;   // per level of reverse-tile distance
         this._cost_curve_spacing  = 600;   // corners closer than a train length = 55km/h cap
         this._cost_uphill         = 80;    // each climbing tile drags train speed down
-        this._cost_height_change  = 300;   // prefer routes that stay at one height
+        this._cost_height_change  = 200;   // prefer routes that stay at one height
         this._cost_sawtooth       = 6000;  // discourage humps, but not so hard that
                                            // the line weaves/detours instead of just
                                            // terraforming a small bump flat (the
                                            // builder levels isolated bumps anyway)
-        this._estimate_rate       = 1;     // admissible: heuristic = true flat cost,
-                                           // so A* stays optimal (clean diagonals,
-                                           // not greedy S-curves) yet still fast
+        this._estimate_rate       = 2.0;   // WEIGHTED A* (user-requested): inflate the
+                                           // heuristic so search is greedier toward the
+                                           // goal -> far fewer nodes expanded (kills the
+                                           // 600-chunk grind, saves opcodes). Cost: paths
+                                           // can be slightly curvier/suboptimal. 1.0 =
+                                           // admissible/optimal; 1.4 = moderate weighting.
         this._max_slope           = 2;     // penalise if height changes >= 2 over 4 tiles
         this._curve_window        = 6;     // ~longest-train length; corners within = tight
-        this._max_bridge_length   = 20;
-        this._max_tunnel_length   = 11;
+        this._max_bridge_length   = 5;
+        this._max_tunnel_length   = 5;
 
         this.isOutward   = null;
         this.reversePath = null;
@@ -188,7 +191,7 @@ class RailPathFinder {
             raw = this._pathfinder.FindPath(RailPathFinder.CHUNK);
             counter++;
             // Throttle: log every 10 chunks, not every one (AILog is slow).
-            if (counter % 10 == 0) {
+            if (counter % 50 == 0) {
                 Log.Info(Log.PHASE_TRACK, "  chunk " + counter + "/" + limitCount
                     + " open=" + this._pathfinder._open.Count());
             }
@@ -252,7 +255,7 @@ class RailPathFinder {
         local dirs = [];
         local cur  = path;
         local prev = new_tile;
-        while (cur != null && t.len() < 7) {
+        while (cur != null && t.len() < 4) {
             local tile = cur.GetTile();
             t.push(tile);
             local d = AIMap.DistanceManhattan(prev, tile);
@@ -496,7 +499,9 @@ class RailPathFinder {
             local h = min(dx, dy) * 67 * 2 + abs(dx - dy) * 100;
             if (h < min_cost) min_cost = h;
         }
-        return min_cost * self._estimate_rate;
+        // Keep the estimate an INTEGER (aystar's heap/AIList priority must be int;
+        // a float _estimate_rate like 1.4 makes this a float and crashes Insert).
+        return (min_cost * self._estimate_rate).tointeger();
     }
 
     // -----------------------------------------------------------------------

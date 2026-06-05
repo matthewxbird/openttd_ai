@@ -43,6 +43,15 @@ class BuildDiag {
             return { cause = "area not clear (clearable obstacle / rough ground)",
                      recover = "terraform" };
         }
+        // Slope/land-height: a rail step that fails on an EMPTY, BUILDABLE,
+        // unowned tile (not water/rail/station) is almost always a slope the rail
+        // piece can't sit on (IsBuildable is true for gentle slopes). UNKNOWN(1281).
+        // Minimal terraform flattens it.
+        if (err_name == "ERR_LAND_SLOPED_WRONG"
+            || (is_buildable && owner_none && !is_rail && !is_water && !is_station)) {
+            return { cause = "land slope/height (needs minimal terraform)",
+                     recover = "terraform" };
+        }
         // Genuinely unknown - report the raw facts so a human can see them.
         return { cause = (err_name == "UNKNOWN" || err_name == "ERR_UNKNOWN"
                             ? "unclassified" : err_name)

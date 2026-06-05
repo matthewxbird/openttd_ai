@@ -32,6 +32,9 @@ require("src/maintenance.nut");
 require("src/town_authority.nut");
 require("src/planner.nut");
 require("src/junction_builder.nut");
+require("src/captures.nut");
+require("src/station_dt.nut");
+require("src/rail2_route.nut");
 
 class MvBAI extends AIController {
     state        = null;
@@ -82,10 +85,20 @@ class MvBAI extends AIController {
     // reload - the AI dumps the layout. Paste the [scan] lines back to bake a
     // template. (x1,y1) = top-left (min X, min Y), (x2,y2) = bottom-right.
     static DEBUG_SCAN  = false;
-    static SCAN_X1 = 150;
-    static SCAN_Y1 = 122;
-    static SCAN_X2 = 186;
-    static SCAN_Y2 = 158;
+    static SCAN_X1 = 100;
+    static SCAN_Y1 = 197;
+    static SCAN_X2 = 132;
+    static SCAN_Y2 = 210;
+
+    // DEBUG: at boot, build ONE SmartTerminus (StationDT) at the first flat spot
+    // near map centre and log build ok/fail - headless smoke for the Phase 11
+    // station geometry (no visual needed: fail=0 + station id => geometry valid).
+    static DEBUG_DT = false;
+
+    // Phase 11 rail rewrite: build rail routes on AAHOG-style SmartTerminus
+    // (StationDT) with distance-scaled fleets instead of the 2-train reversing
+    // terminus. OFF on main until it beats the baseline. See src/rail2_route.nut.
+    static USE_RAIL2 = true;
 
     function Start();
     function Save();
@@ -93,6 +106,38 @@ class MvBAI extends AIController {
     function TryBuildRoute(candidate);
     function _FailRoute(candidate, route, new_src, new_dst);
     function _DebugStampJunction();
+    function _DebugStampDT();
+}
+
+// DEBUG smoke: build one SmartTerminus at the first flat 6x12-ish spot near map
+// centre, in each of the 4 directions, logging build result. Headless geometry
+// check for the Phase 11 rail rewrite.
+function MvBAI::_DebugStampDT() {
+    local cx = AIMap.GetMapSizeX() / 2;
+    local cy = AIMap.GetMapSizeY() / 2;
+    local num = 2; local len = 4;
+    local dirs = [StationDT.DIR_SE, StationDT.DIR_SW, StationDT.DIR_NW, StationDT.DIR_NE];
+    local di = 0;
+    local built = 0;
+    // Walk a grid of candidate corners; build one station per direction, spaced out.
+    for (local gy = -40; gy <= 40 && di < dirs.len(); gy += 16) {
+        for (local gx = -40; gx <= 40 && di < dirs.len(); gx += 16) {
+            local pt = AIMap.GetTileIndex(cx + gx, cy + gy);
+            if (!AIMap.IsValidTile(pt)) continue;
+            local dir = dirs[di];
+            if (!StationDT.CanBuild(pt, dir, num, len)) continue;
+            Money.EnsureFunds(60000);
+            local st = StationDT.Build(pt, dir, num, len, null, true);
+            if (st != null) {
+                built++;
+                Log.Info(Log.PHASE_BOOT, "[dt-smoke] OK dir=" + dir
+                    + " at (" + (cx + gx) + "," + (cy + gy) + ") arr0=" + st.arrival_tiles[0]
+                    + " dep0=" + st.departure_tiles[0]);
+            }
+            di++;
+        }
+    }
+    Log.Info(Log.PHASE_BOOT, "[dt-smoke] built " + built + "/" + dirs.len() + " directions.");
 }
 
 function MvBAI::Start() {
@@ -118,6 +163,7 @@ function MvBAI::Start() {
     if (MvBAI.DEBUG_SCAN) {
         JunctionBuilder.ScanToLog(MvBAI.SCAN_X1, MvBAI.SCAN_Y1, MvBAI.SCAN_X2, MvBAI.SCAN_Y2);
     }
+    if (MvBAI.DEBUG_DT) this._DebugStampDT();
 
     Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan/build loop.");
 
@@ -226,6 +272,9 @@ function MvBAI::Start() {
             // AIR candidate (Phase 2): own affordability + builder, then continue
             // to the next candidate on success/failure (no rail path).
             if (("air" in c) && c.air) {
+                // No airports before 1960 (user directive): let rail/road build the
+                // early network first; air comes online from 1960.
+                if (AIDate.GetYear(AIDate.GetCurrentDate()) < 1960) continue;
                 // DEFER AIR until SOLID CASHFLOW. Two airports + a plane (~60k+) is
                 // brutal early game and a bankruptcy risk (manual-test feedback);
                 // air is the biggest earner but only once we can absorb the up-front
@@ -317,6 +366,13 @@ function MvBAI::Start() {
             // Decided to build this one: borrow just enough to cover it now, so
             // incremental spends (stations, track, fleet) never run dry midway.
             Money.EnsureFunds(needed);
+            // Phase 11 rail rewrite: build on AAHOG-style SmartTerminus with a
+            // distance-scaled fleet (no 2-train deadlock cap) when enabled.
+            if (MvBAI.USE_RAIL2) {
+                if (Rail2.TryBuild(this.state, c, this.railtype)) { built_one = true; break; }
+                this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
+                continue;
+            }
             if (this.TryBuildRoute(c, single_only)) {
                 built_one = true;
                 break;
@@ -697,28 +753,39 @@ function _MarkTileZone(set, center, r) {
 // map centre, so its geometry can be inspected. Builds a short double-track
 // main + a branch leg, then stamps JunctionBuilder.BuildFlatDoubleT to tie them.
 function MvBAI::_DebugStampJunction() {
-    local mx = AIMap.GetMapSizeX();
-    local d  = 1;    // main runs along +x
-    local p  = mx;   // tracks/branch separated along +y
-    local base = AIMap.GetTileIndex(AIMap.GetMapSizeX() / 2, AIMap.GetMapSizeY() / 2);
-
-    // Flatten a generous square covering both arms of the cross.
-    local bx = AIMap.GetTileX(base);
-    local by = AIMap.GetTileY(base);
-    AITile.LevelTiles(AIMap.GetTileIndex(bx - 2, by - 2),
-                      AIMap.GetTileIndex(bx + 12, by + 8));
-
-    // Stamp the captured junction at all 4 rotations, spaced apart, to verify
-    // the rotation logic (track bits + offsets + signals).
+    // Stamp the captured AAHOG throat at ALL 4 rotations on separate flat-land
+    // patches, so the rotated track-bits (JunctionBuilder._RotBit) can be
+    // eyeballed: k=0 is the known-good reference; if k=1/k=3 look MIRRORED vs
+    // k=0/k=2, _RotBit's 90/270 corner cycle is wrong. Each [debug] line logs the
+    // stamp origin (fly there in-game); [stamp] logs ok/fail per rotation.
+    local cx = AIMap.GetMapSizeX() / 2;
+    local cy = AIMap.GetMapSizeY() / 2;
     for (local k = 0; k < 4; k++) {
-        local ox = bx + 2 + k * 16;     // 16 tiles apart along x
-        local oy = by + 2;
-        AITile.LevelTiles(AIMap.GetTileIndex(ox - 1, oy - 1),
-                          AIMap.GetTileIndex(ox + 13, oy + 13));
-        local origin = AIMap.GetTileIndex(ox, oy);
-        JunctionBuilder.StampList(origin, JunctionBuilder.Rotate(JunctionBuilder.Template1(), k));
-        Log.Info(Log.PHASE_BOOT,
-            "[debug] junction rot=" + k + " at (" + ox + "," + oy + ")");
+        // Per-rotation seed area, spaced so the 4 don't overlap.
+        local seedx = cx + (k % 2) * 44 - 22;
+        local seedy = cy + (k / 2) * 44 - 22;
+        // Find a 26x26 land patch near the seed (centre is often water).
+        local ox = -1; local oy = -1;
+        for (local gy = 0; gy <= 60 && ox == -1; gy += 4) {
+            for (local gx = 0; gx <= 60 && ox == -1; gx += 4) {
+                local px = seedx + gx - 30; local py = seedy + gy - 30;
+                local ok = true;
+                for (local y = 0; y < 26 && ok; y++)
+                    for (local x = 0; x < 26 && ok; x++) {
+                        local t = AIMap.GetTileIndex(px + x, py + y);
+                        if (!AIMap.IsValidTile(t) || AITile.IsWaterTile(t)) ok = false;
+                    }
+                if (ok) { ox = px; oy = py; }
+            }
+        }
+        if (ox == -1) { Log.Warn(Log.PHASE_BOOT, "[debug] no land patch for k=" + k); continue; }
+        Money.EnsureFunds(150000);   // boot is cash-starved; level+stamp needs funds
+        local fd = StationDT._FootDims(k, StationDT.Spec3());   // tight level box = rotated footprint
+        AITile.LevelTiles(AIMap.GetTileIndex(ox + 2, oy + 2),
+                          AIMap.GetTileIndex(ox + 2 + fd[0] - 1, oy + 2 + fd[1] - 1));
+        local origin = AIMap.GetTileIndex(ox + 2, oy + 2);
+        JunctionBuilder.StampList(origin, JunctionBuilder.Rotate(Captures.WronstonThroat(), k));
+        Log.Info(Log.PHASE_BOOT, "[debug] WronstonThroat k=" + k + " at (" + (ox + 2) + "," + (oy + 2) + ")");
     }
 }
 

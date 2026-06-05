@@ -204,7 +204,9 @@ class Maintenance {
             local output = AIIndustry.GetLastMonthProduction(r.producer, r.cargo);
             if (output <= 0) continue;
             if (output > r.production) r.production = output;
-            if (r.src_station != null) StationBuilder.GrowToMatch(r.src_station, output);
+            if (r.src_station != null && !(("rail2" in r) && r.rail2)) {
+                StationBuilder.GrowToMatch(r.src_station, output);   // skip rail2 StationDT
+            }
         }
         if (reviewed > 0) {
             Log.Info(Log.PHASE_LOOP, "[capacity-review] swept " + reviewed
@@ -590,8 +592,11 @@ class Maintenance {
         // the producer's monthly output (2 base, +1 per 100t over 200). As the
         // industry grows we add platforms to match. (AddPlatform self-reverts if
         // it can't connect, so this never leaves a broken station.)
+        // SKIP rail2 routes: their StationDT terminus is a fixed 3-platform capture
+        // (no `direction`/`num_platforms` fields), so the old GrowToMatch crashes.
         local output = AIIndustry.GetLastMonthProduction(r.producer, r.cargo);
-        local added  = StationBuilder.GrowToMatch(r.src_station, output);
+        local added  = (("rail2" in r) && r.rail2) ? 0
+                     : StationBuilder.GrowToMatch(r.src_station, output);
         if (added > 0) {
             Log.Info(Log.PHASE_LOOP,
                 "[review] " + name + ": output " + output + "t -> grew station to "
