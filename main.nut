@@ -780,7 +780,7 @@ function MvBAI::_DebugStampJunction() {
         }
         if (ox == -1) { Log.Warn(Log.PHASE_BOOT, "[debug] no land patch for k=" + k); continue; }
         Money.EnsureFunds(150000);   // boot is cash-starved; level+stamp needs funds
-        local fd = StationDT._FootDims(k);   // tight level box = the rotated footprint
+        local fd = StationDT._FootDims(k, StationDT.Spec3());   // tight level box = rotated footprint
         AITile.LevelTiles(AIMap.GetTileIndex(ox + 2, oy + 2),
                           AIMap.GetTileIndex(ox + 2 + fd[0] - 1, oy + 2 + fd[1] - 1));
         local origin = AIMap.GetTileIndex(ox + 2, oy + 2);

@@ -19,9 +19,15 @@ class Rail2 {
         return n;
     }
 
+    // Which station SPEC rail2 builds. 2-platform crossover opener (small/cheap) -
+    // the user's "don't build too big too early". Swap to StationDT.Spec3() for the
+    // high-throughput 3-platform bridged terminus.
+    static function Spec() { return StationDT.Spec2(); }
+
     // Site a station near `industry`, throat/main facing `partner_tile`. Returns rec.
     // is_source: producer station (must PRODUCE the cargo) vs accepter (must ACCEPT).
     static function SiteStation(industry_id, partner_tile, cargo, is_source) {
+        local spec = Rail2.Spec();
         local loc = AIIndustry.GetLocation(industry_id);
         local ix = AIMap.GetTileX(loc);
         local iy = AIMap.GetTileY(loc);
@@ -52,15 +58,15 @@ class Rail2 {
         local best = null; local best_val = -1;
         foreach (k in ks) {
             foreach (c in cands) {
-                if (!StationDT.CanBuild(c[0], c[1], k)) continue;
-                local cs = StationDT.CoverScore(c[0], c[1], k, cargo, is_source);
+                if (!StationDT.CanBuild(c[0], c[1], k, spec)) continue;
+                local cs = StationDT.CoverScore(c[0], c[1], k, cargo, is_source, spec);
                 if (cs == 0) continue;                       // must really serve it
                 local val = cs * 2 + (k == base_k ? 1 : 0);  // coverage first, tie->facing
                 if (val > best_val) { best_val = val; best = [c[0], c[1], k]; }
             }
         }
         if (best != null) {
-            local st = StationDT.Build(best[0], best[1], best[2], cargo, is_source);
+            local st = StationDT.Build(best[0], best[1], best[2], cargo, is_source, spec);
             if (st != null) return st;
         }
         return null;
