@@ -73,7 +73,10 @@ class Rail2 {
                                 // that, and 250 starved legit routes needing a water
                                 // bridge - straightforward routes failed to path.)
     static function _BuildMain(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label) {
-        local tiles = TrackBuilder._RunPathfinder(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label, Rail2.MAIN_CHUNKS);
+        // repair=true: terraform slope/clear failures minimally and lay the rail,
+        // instead of leaving a gap. Important for the PARALLEL back-track, which is
+        // side-constrained and often can't reroute around a one-tile slope.
+        local tiles = TrackBuilder._RunPathfinder(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label, Rail2.MAIN_CHUNKS, true);
         if (tiles == null) {
             Log.Warn(Log.PHASE_TRACK, "[rail2] " + label + " build failed.");
             return null;

@@ -276,7 +276,7 @@ class TrackBuilder {
     // of abandoning at the first bad tile.
     // Returns the built (and verified) tile array, or null if no clean route.
     static function _RunPathfinder(src_f, src_p, dst_f, dst_p,
-                                    is_outward, guide_tiles, label, max_chunks = null) {
+                                    is_outward, guide_tiles, label, max_chunks = null, repair = false) {
         local avoid = [];   // tiles a previous attempt couldn't build on
         local mc = (max_chunks == null) ? TrackBuilder.MAX_CHUNKS : max_chunks;
 
@@ -306,7 +306,7 @@ class TrackBuilder {
                 tiles.push(dst_p);
             }
 
-            TrackBuilder._BuildPath(tiles, label);
+            TrackBuilder._BuildPath(tiles, label, repair);   // repair=true terraforms slope/clear fails
 
             // Accept ONLY a path that is continuous AND has no 90-degree pivot.
             // A 90-degree turn is categorically rejected: we reroute around it
