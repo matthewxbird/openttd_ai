@@ -571,9 +571,16 @@ class RailPathFinder {
             }
 
             local buildable = AIRail.BuildRail(par_tile, cur_node, next);
-            local joinable  = !buildable
-                && (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT);
-            if (!buildable && !joinable) continue;
+            local lerr      = AIError.GetLastError();
+            local joinable  = !buildable && (lerr == AIError.ERR_ALREADY_BUILT);
+            // ROCKS / rough UNOWNED ground: test-BuildRail fails AREA_NOT_CLEAR
+            // (rocks block until cleared) but the real build clears them (~GBP200).
+            // Treat as a NORMAL buildable tile - no detour, no penalty (user request).
+            // (Rival property gives a different error; only allow none/own-owned.)
+            local own = AITile.GetOwner(cur_node);
+            local clearable = !buildable && (lerr == AIError.ERR_AREA_NOT_CLEAR)
+                && (own == AICompany.COMPANY_INVALID || own == -1 || AICompany.IsMine(own));
+            if (!buildable && !joinable && !clearable) continue;
 
             // Existing rail that is NOT our goal:
             //   - Near a station: never touch it (tangles the throat).
