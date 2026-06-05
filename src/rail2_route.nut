@@ -68,9 +68,10 @@ class Rail2 {
         return null;
     }
 
-    static MAIN_CHUNKS = 250;   // fail-fast: the throat main-exit makes long hauls
-                                // explode the A* open-set; cap chunks so a hard
-                                // connect gives up quick instead of grinding to 600.
+    static MAIN_CHUNKS = 600;   // standard budget. (Was 250 fail-fast for the old
+                                // dx18 throat-exit grind; the clean dx13 exit fixed
+                                // that, and 250 starved legit routes needing a water
+                                // bridge - straightforward routes failed to path.)
     static function _BuildMain(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label) {
         local tiles = TrackBuilder._RunPathfinder(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label, Rail2.MAIN_CHUNKS);
         if (tiles == null) {
