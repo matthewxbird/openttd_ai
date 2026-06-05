@@ -32,6 +32,7 @@ require("src/maintenance.nut");
 require("src/town_authority.nut");
 require("src/planner.nut");
 require("src/junction_builder.nut");
+require("src/station_dt.nut");
 
 class MvBAI extends AIController {
     state        = null;
@@ -87,12 +88,49 @@ class MvBAI extends AIController {
     static SCAN_X2 = 186;
     static SCAN_Y2 = 158;
 
+    // DEBUG: at boot, build ONE SmartTerminus (StationDT) at the first flat spot
+    // near map centre and log build ok/fail - headless smoke for the Phase 11
+    // station geometry (no visual needed: fail=0 + station id => geometry valid).
+    static DEBUG_DT = false;
+
     function Start();
     function Save();
     function Load(version, data);
     function TryBuildRoute(candidate);
     function _FailRoute(candidate, route, new_src, new_dst);
     function _DebugStampJunction();
+    function _DebugStampDT();
+}
+
+// DEBUG smoke: build one SmartTerminus at the first flat 6x12-ish spot near map
+// centre, in each of the 4 directions, logging build result. Headless geometry
+// check for the Phase 11 rail rewrite.
+function MvBAI::_DebugStampDT() {
+    local cx = AIMap.GetMapSizeX() / 2;
+    local cy = AIMap.GetMapSizeY() / 2;
+    local num = 2; local len = 4;
+    local dirs = [StationDT.DIR_SE, StationDT.DIR_SW, StationDT.DIR_NW, StationDT.DIR_NE];
+    local di = 0;
+    local built = 0;
+    // Walk a grid of candidate corners; build one station per direction, spaced out.
+    for (local gy = -40; gy <= 40 && di < dirs.len(); gy += 16) {
+        for (local gx = -40; gx <= 40 && di < dirs.len(); gx += 16) {
+            local pt = AIMap.GetTileIndex(cx + gx, cy + gy);
+            if (!AIMap.IsValidTile(pt)) continue;
+            local dir = dirs[di];
+            if (!StationDT.CanBuild(pt, dir, num, len)) continue;
+            Money.EnsureFunds(60000);
+            local st = StationDT.Build(pt, dir, num, len, null, true);
+            if (st != null) {
+                built++;
+                Log.Info(Log.PHASE_BOOT, "[dt-smoke] OK dir=" + dir
+                    + " at (" + (cx + gx) + "," + (cy + gy) + ") arr0=" + st.arrival_tiles[0]
+                    + " dep0=" + st.departure_tiles[0]);
+            }
+            di++;
+        }
+    }
+    Log.Info(Log.PHASE_BOOT, "[dt-smoke] built " + built + "/" + dirs.len() + " directions.");
 }
 
 function MvBAI::Start() {
@@ -118,6 +156,7 @@ function MvBAI::Start() {
     if (MvBAI.DEBUG_SCAN) {
         JunctionBuilder.ScanToLog(MvBAI.SCAN_X1, MvBAI.SCAN_Y1, MvBAI.SCAN_X2, MvBAI.SCAN_Y2);
     }
+    if (MvBAI.DEBUG_DT) this._DebugStampDT();
 
     Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan/build loop.");
 
