@@ -499,6 +499,13 @@ class TrackBuilder {
             } else if (AIError.GetLastError() == AIError.ERR_ALREADY_BUILT) {
                 // already there (existing line we're joining); do NOT touch it,
                 // so a failed-route cleanup never demolishes another route's rail
+            } else if (TrackBuilder._LayThroughSignals(prev, cur, next)) {
+                // A SIGNAL on the throat-exit tile (existing rail) blocked the join.
+                // _LayThroughSignals removes it, lays the rail, restores it - safe on
+                // existing rail (only touches signals), so it runs BEFORE the
+                // IsRailTile/near_station guards that skip _ClearAndLay for the throat.
+                built++;
+                if (!pre_rail) TrackBuilder._Touch(cur);
             } else if (!near_station && !AIRail.IsRailTile(cur)
                     && !AIRail.IsRailStationTile(cur)
                     && TrackBuilder._ClearAndLay(prev, cur, next, repair)) {
@@ -561,7 +568,7 @@ class TrackBuilder {
     static function _LayThroughSignals(prev, cur, next) {
         local mx = AIMap.GetMapSizeX();
         local saved = [];   // [tile, front, type]
-        foreach (base in [prev, cur]) {
+        foreach (base in [prev, cur, next]) {
             foreach (off in [1, -1, mx, -mx]) {
                 local f = base + off;
                 if (!AIMap.IsValidTile(f)) continue;
