@@ -382,6 +382,16 @@ class Maintenance {
     // it, recall every train to a depot, and flip to the "condemning" state
     // where _CheckCondemning finishes the job once the trains are parked.
     static function _Condemn(state, r) {
+        // TRUNK PROTECTION: never tear down a trunk that a forked junction spur
+        // still runs over - demolishing it would orphan the spur's train (the
+        // dominant solo-loss path). The spur(s) must be condemned first, which
+        // decrements junction_deps (state.RemoveRoute); only then can the trunk go.
+        if (("junction_deps" in r) && r.junction_deps > 0) {
+            Log.Warn(Log.PHASE_LOOP,
+                "[condemn] " + AIIndustry.GetName(r.producer) + "->" + Route.AccepterName(r)
+                + ": trunk has " + r.junction_deps + " junction spur(s); NOT condemning (would orphan spur trains).");
+            return;
+        }
         state.blacklist.Add(r.cargo, r.producer, r.accepter);
         r.status = "condemning";
         r.condemn_checks = 0;

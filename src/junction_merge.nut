@@ -1,16 +1,19 @@
 // src/junction_merge.nut
 // AUTO-FORK JUNCTION (AAHOG CombineByFork, replicated algorithmically).
 //
-// STATUS: SCAFFOLD - NOT YET WIRED into main (intentionally). This is step 1 of
-// the "full junction stack". The pathfind-to-trunk + spur build + turnout geometry
-// are here; STILL TODO before wiring + benching:
-//   - depot for the spur + train dispatch + orders (source -> shared consumer);
-//   - add the route to state + a junction-aware lifecycle (condemn must not
-//     demolish the SHARED trunk/consumer station another route uses);
-//   - CAPACITY: the shared trunk must be double-track + PBS-signalled at the fork,
-//     or the merged traffic DEADLOCKS (measured: single-track sharing -7%). This
-//     is the hard part and the reason it's gated off until it pays.
-// Wire behind a flag, smoke that junctions FORM in-game (visual), then bench.
+// STATUS: WIRED behind MvBAI.USE_JUNCTION (OFF on main). Self-contained increment:
+// builds the source station, forks the spur onto an existing DOUBLE-TRACK trunk,
+// stamps the turnout, depot + one train -> shared consumer station, registers a
+// capacity-safe route (spur-only `touched`; trunk gets a junction_deps refcount so
+// its lifecycle won't tear the trunk out from under the spur's train).
+// NEXT (visual-debug loop, then bench):
+//   - validate junctions FORM correctly in-game (turnout geometry is the hard part);
+//   - the shared CONSUMER STATION is still a 2-platform reversing terminus - a 2nd
+//     converging line can collide at its single throat. Through-station / junction
+//     throat at the consumer is the remaining capacity piece;
+//   - scale the spur past one train (double-track the spur) once the throat is safe.
+// Gated OFF until visual-validated + bench-positive (piecemeal junction levers all
+// regressed; this only pays as the whole double-track-trunk + safe-throat stack).
 //
 // When a NEW source feeds a consumer we ALREADY serve, instead of (a) reusing
 // the consumer's single-throat station (the 2nd line collides - the in-game bug)
@@ -42,6 +45,10 @@ class JunctionMerge {
 
     // Find an existing BUILT/probation RAIL route delivering to `accepter`, whose
     // trunk (path_out) we can fork onto. Returns the route or null.
+    // CAPACITY GATE: only a DOUBLE-TRACK trunk (single_track == false) can absorb
+    // a forked spur's extra train without deadlocking (measured: merging onto a
+    // single-track corridor deadlocks, -7%). Single-track trunks are skipped here
+    // so the caller falls back to a normal (separate) build.
     static function _ExistingTrunkTo(state, accepter) {
         foreach (_, r in state.routes) {
             if (("air" in r) && r.air) continue;
@@ -49,6 +56,8 @@ class JunctionMerge {
             if (r.accepter != accepter) continue;
             if (r.path_out == null || r.path_out.len() < 4) continue;
             if (r.dst_station == null) continue;
+            if (("single_track" in r) && r.single_track) continue;   // need a double-track trunk
+            if (r.status == "condemning") continue;                  // don't fork onto a dying line
             return r;
         }
         return null;
@@ -72,10 +81,13 @@ class JunctionMerge {
     }
 
     // Try to build a merged spur from candidate `c` (new source -> consumer we
-    // already serve) onto the existing trunk. Returns true on success.
-    static function TryMerge(state, c) {
+    // already serve) onto the existing DOUBLE-TRACK trunk. Self-contained: builds
+    // the source station, forks the spur onto the trunk, stamps the turnout,
+    // depot + one train -> shared consumer station, registers a capacity-safe
+    // route. Returns true on success, false to let the caller build normally.
+    static function TryMerge(state, c, railtype) {
         local existing = JunctionMerge._ExistingTrunkTo(state, c.accepter);
-        if (existing == null) return false;   // no trunk to join; caller builds normally
+        if (existing == null) return false;   // no double-track trunk to join; caller builds normally
 
         // Source station for the new producer (its own; faces the consumer).
         local acc_tile = AIIndustry.GetLocation(c.accepter);
@@ -107,11 +119,7 @@ class JunctionMerge {
         local gap = TrackBuilder.FindGap(tiles);
         if (gap != -1) {
             Log.Warn(Log.PHASE_TRACK, "[junction] spur has a build gap at " + gap + "; abandoning.");
-            // Cleanup: remove the consecutive spur pieces we laid (skip the trunk
-            // tile at the end - never demolish the existing route's track).
-            for (local i = 0; i + 1 < tiles.len() - 1; i++) {
-                AIRail.RemoveRail(tiles[i], tiles[i + 1], tiles[i + 2 < tiles.len() ? i + 2 : i + 1]);
-            }
+            JunctionMerge._RemoveSpur(tiles);   // skip the trunk tile - never demolish existing track
             StationBuilder.Remove(src_st);
             return false;
         }
@@ -119,19 +127,82 @@ class JunctionMerge {
         // Signal the spur (one-way PBS toward the trunk).
         Signals.PlaceAlong(tiles, true, "junction-spur");
 
-        // Share the consumer station; run a train source -> consumer.
+        // Depot on the spur (so the spur's own train can be built/serviced without
+        // reaching back into the trunk's depots).
+        local depots = DepotBuilder.New(tiles, "junction-spur");
+        if (depots == null || depots.len() == 0) {
+            Log.Warn(Log.PHASE_DEPOT, "[junction] no spur depot; abandoning merge.");
+            JunctionMerge._RemoveSpur(tiles);
+            StationBuilder.Remove(src_st);
+            return false;
+        }
+
+        // One train: spur -> SHARED consumer station. (Single train on the spur
+        // for now; the trunk is double-track so the merged train runs the trunk
+        // without meeting the trunk's own train head-on. Scaling the spur past one
+        // train needs the spur itself double-tracked - a later increment.)
+        local engine = Trains.PickEngine(c.cargo, railtype);
+        local wagon  = Trains.PickWagon(c.cargo, railtype);
+        if (engine == -1 || wagon == -1) {
+            Log.Warn(Log.PHASE_TRAIN, "[junction] no engine/wagon; abandoning merge.");
+            JunctionMerge._RemoveSpur(tiles);
+            StationBuilder.Remove(src_st);
+            return false;
+        }
+        local nwag = Trains.PickNumWagons(c.distance, c.production);
+        local tid  = Trains.BuildTrain(depots[0], engine, wagon, c.cargo, nwag);
+        if (tid == -1
+            || !Trains.DispatchTrain(tid, src_st.tile, existing.dst_station.tile, false)) {
+            Log.Warn(Log.PHASE_TRAIN, "[junction] train build/dispatch failed; abandoning merge.");
+            JunctionMerge._RemoveSpur(tiles);
+            StationBuilder.Remove(src_st);
+            return false;
+        }
+
+        // Register a capacity-SAFE route. `touched` = the spur pieces ONLY (NOT the
+        // final trunk tile), so this route's own teardown can never demolish the
+        // shared trunk. The shared consumer station + trunk path_out belong to
+        // `existing` (already in state) and are protected by the normal
+        // other-route protection during any condemn.
+        local touched = [];
+        for (local i = 0; i + 1 < tiles.len(); i++) touched.push(tiles[i]);  // skip trunk tile
+
         local route = Route.New(c.cargo, c.producer, c.accepter, c.distance, c.production, false);
-        route.src_station = src_st;
-        route.dst_station = existing.dst_station;   // SHARED consumer station
-        route.path_out    = tiles;
-        route.single_track = true;   // spur is single-track for now (one train)
-        route.junction    <- true;
-        route.status      = "probation";
+        route.src_station  = src_st;
+        route.dst_station  = existing.dst_station;   // SHARED consumer station
+        route.path_out     = tiles;
+        route.path_back    = null;
+        route.single_track = true;     // spur runs one train (collision-free)
+        route.depot_tiles  = depots;
+        route.depot_tile   = depots[0];
+        route.trains       = [tid];
+        route.train_id     = tid;
+        route.backhaul     <- false;
+        route.max_trains   = 1;
+        route.touched      <- touched;
+        route.junction     <- true;                  // forked spur, shares trunk+station
+        route.trunk_key    <- Route.Key(existing.cargo, existing.producer, existing.accepter);
+        route.status       = "probation";
         route.probation_date = AIDate.GetCurrentDate();
 
+        // Mark the trunk as having a dependent spur: its lifecycle MUST NOT condemn
+        // /demolish the trunk while a junction route runs over it (would orphan the
+        // spur's train). Maintenance reads junction_deps to refuse trunk teardown.
+        existing.junction_deps <- (("junction_deps" in existing) ? existing.junction_deps : 0) + 1;
+
+        state.AddRoute(route);
         Log.Info(Log.PHASE_TRACK, "[junction] merged spur " + AIIndustry.GetName(c.producer)
             + " onto trunk -> " + Route.AccepterName(c) + " (shared station "
-            + existing.dst_station.station_id + ").");
-        return route;
+            + existing.dst_station.station_id + ", trunk now has "
+            + existing.junction_deps + " spur(s)).");
+        return true;
+    }
+
+    // Remove ONLY the spur pieces we just laid (never the final trunk tile).
+    static function _RemoveSpur(tiles) {
+        for (local i = 0; i + 1 < tiles.len() - 1; i++) {
+            AIRail.RemoveRail(tiles[i], tiles[i + 1],
+                tiles[i + 2 < tiles.len() ? i + 2 : i + 1]);
+        }
     }
 }
