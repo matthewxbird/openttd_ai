@@ -99,10 +99,14 @@ class StationDT {
         }
         local station_id = AIStation.GetStationID(corner);
 
-        // Stamp the throat (dx>=6 capture entries), rotated by k.
+        // Stamp the throat: capture entries with THROAT_MIN_DX <= dx <= 17, rotated
+        // by k. We DROP dx18 (AAHOG's post-throat curve where its main turns north):
+        // it blocks the east neighbour of our connect tiles (17,1)/(17,2), so the
+        // long-haul main can't exit straight. Dropping it leaves clean parallel ends
+        // with open ground east -> reliable connect.
         local throat = [];
         foreach (e in Captures.WronstonThroat()) {
-            if (e[1] >= StationDT.THROAT_MIN_DX) throat.push(e);
+            if (e[1] >= StationDT.THROAT_MIN_DX && e[1] <= 17) throat.push(e);
         }
         local origin = AIMap.GetTileIndex(ox, oy);
         JunctionBuilder.StampList(origin, JunctionBuilder.Rotate(throat, k));
