@@ -536,16 +536,17 @@ class TrackBuilder {
         // Terraforming a slope flat is LAST-RESORT only (repair pass): doing it on
         // the first pass fights the pathfinder's slope avoidance and slows lines.
         if (!allow_terraform) return false;
-        // WATER RECLAIM: a coastal station's main-exit crosses a few water tiles
-        // directly in front. RAISE the water tile up to the approaching land height
-        // (reclaim it to land) and lay rail - flattening to its OWN height (0) leaves
-        // it water. Only single tiles reach here; wide water still bridges (step>1).
-        if (AITile.IsWaterTile(cur)) {
-            local h = AITile.GetMaxHeight(prev);
-            if (h < 1) h = 1;
-            TrackBuilder._FlattenToHeight(cur, h);
-            if (AIRail.BuildRail(prev, cur, next)) return true;
-        }
+        // Flatten `cur` to the APPROACHING (prev) height so the rail sits LEVEL.
+        // Flattening to the tile's OWN height left a step at prev->cur - the "slope
+        // after the water" gap (a bridge lands at prev's height, the next slope tile
+        // kept its own height -> rail fails). Targeting prev's height fixes slopes
+        // AND reclaims water (raise the seabed to the land height). prev is often a
+        // bridge end here, whose height is exactly where the line should continue.
+        local h = AITile.GetMaxHeight(prev);
+        if (h < 1) h = 1;   // never target sea level (a reclaimed tile must stay land)
+        TrackBuilder._FlattenToHeight(cur, h);
+        if (AIRail.BuildRail(prev, cur, next)) return true;
+        // Last resort: prev may itself be mid-slope - try cur's own height.
         TrackBuilder._FlattenToHeight(cur, AITile.GetMaxHeight(cur));
         return AIRail.BuildRail(prev, cur, next);
     }
