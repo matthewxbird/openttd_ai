@@ -72,10 +72,8 @@ class Rail2 {
         return null;
     }
 
-    static MAIN_CHUNKS = 600;   // standard budget. (Was 250 fail-fast for the old
-                                // dx18 throat-exit grind; the clean dx13 exit fixed
-                                // that, and 250 starved legit routes needing a water
-                                // bridge - straightforward routes failed to path.)
+    static MAIN_CHUNKS = 2000;  // match TrackBuilder.MAX_CHUNKS (reach for hard routes;
+                                // afforded by the TileModel AVOID+BRIDGE search-space cut).
     static function _BuildMain(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label) {
         // repair=true: terraform slope/clear failures minimally and lay the rail,
         // instead of leaving a gap. Important for the PARALLEL back-track, which is
