@@ -119,8 +119,19 @@ class Rail2 {
         // track as guide -> the pathfinder's parallel side-bias threads it ALONGSIDE
         // the out track (clean double-track, no weave/whacky-loop) and never crosses it.
         local out_main = Rail2._BuildMain(src.main_b, src.main_b_prev, dst.main_a, dst.main_a_prev, true, [], "rail2-out");
-        local back_main = (out_main == null) ? null
-            : Rail2._BuildMain(dst.main_b, dst.main_b_prev, src.main_a, src.main_a_prev, false, out_main, "rail2-back");
+        local back_main = null;
+        if (out_main != null) {
+            // Try the CLEAN PARALLEL back-track first (isOutward=false + out as guide
+            // -> side-bias threads it alongside, no weave). If that can't thread
+            // (terrain/water the side-bias can't follow), FALL BACK to an INDEPENDENT
+            // pathfind (may weave, but connects) so the route isn't lost to a back-leg
+            // the strict parallel couldn't solve.
+            back_main = Rail2._BuildMain(dst.main_b, dst.main_b_prev, src.main_a, src.main_a_prev, false, out_main, "rail2-back");
+            if (back_main == null) {
+                Log.Warn(Log.PHASE_TRACK, "[rail2] parallel back-track failed; retrying independent.");
+                back_main = Rail2._BuildMain(dst.main_b, dst.main_b_prev, src.main_a, src.main_a_prev, false, [], "rail2-back2");
+            }
+        }
         if (out_main == null || back_main == null) {
             Log.Warn(Log.PHASE_TRACK, "[rail2] main build failed; abandoning.");
             StationDT.Demolish(src); StationDT.Demolish(dst);

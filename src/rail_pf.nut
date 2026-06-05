@@ -123,9 +123,12 @@ class RailPathFinder {
                                            // the line weaves/detours instead of just
                                            // terraforming a small bump flat (the
                                            // builder levels isolated bumps anyway)
-        this._estimate_rate       = 1;     // admissible: heuristic = true flat cost,
-                                           // so A* stays optimal (clean diagonals,
-                                           // not greedy S-curves) yet still fast
+        this._estimate_rate       = 1.4;   // WEIGHTED A* (user-requested): inflate the
+                                           // heuristic so search is greedier toward the
+                                           // goal -> far fewer nodes expanded (kills the
+                                           // 600-chunk grind, saves opcodes). Cost: paths
+                                           // can be slightly curvier/suboptimal. 1.0 =
+                                           // admissible/optimal; 1.4 = moderate weighting.
         this._max_slope           = 2;     // penalise if height changes >= 2 over 4 tiles
         this._curve_window        = 6;     // ~longest-train length; corners within = tight
         this._max_bridge_length   = 20;
