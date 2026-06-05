@@ -81,8 +81,30 @@ class Maintenance {
     static FIRST_DELIVERY_BASE     = 200;
     static FIRST_DELIVERY_PER_TILE = 4;
 
+    static REVIEW_EVERY_MONTHS = 2;     // comprehensive capacity sweep cadence
+    static ENABLE_CAPACITY_REVIEW = false;  // proactive every-2-months capacity sweep.
+                                        // OFF: it over-provisions (adds vehicles/
+                                        // platforms beyond what cargo justifies)
+                                        // -> -10% solo. The REACTIVE backlog scaling
+                                        // already handles demand. On for manual play
+                                        // (clears waiting cargo, keeps ratings high).
+
     // Run the health pass over every route, dispatching by lifecycle status.
     static function Tick(state, railtype) {
+        // EVERY 2 MONTHS: a comprehensive capacity sweep over EVERY route - scale
+        // the fleet (trains/planes/trucks) and widen stations to the CURRENT
+        // production, so routes keep up as industries grow over the game (the
+        // per-pass review only nudges one step at a time off backlog). The
+        // last-run month lives on `state` (persists; a static can't be reassigned).
+        if (Maintenance.ENABLE_CAPACITY_REVIEW) {
+            local d = AIDate.GetCurrentDate();
+            local month_idx = AIDate.GetYear(d) * 12 + AIDate.GetMonth(d);
+            if (month_idx >= state.last_review_month + Maintenance.REVIEW_EVERY_MONTHS) {
+                state.last_review_month = month_idx;
+                Maintenance.CapacityReview(state, railtype);
+            }
+        }
+
         // Collect routes to delete after the loop (don't mutate while iterating).
         local condemned_done = [];
         foreach (key, r in state.routes) {
@@ -116,6 +138,80 @@ class Maintenance {
         foreach (r in condemned_done) state.RemoveRoute(r);
     }
 
+    // Count this route's still-valid vehicles.
+    static function _AliveCount(r) {
+        local n = 0;
+        if (r.trains != null) foreach (v in r.trains) if (AIVehicle.IsValidVehicle(v)) n++;
+        return n;
+    }
+
+    // COMPREHENSIVE CAPACITY SWEEP (every REVIEW_EVERY_MONTHS months). For every
+    // BUILT route, scale the fleet and station to the CURRENT production so we keep
+    // up as industries grow - proactively, not just reacting to a backlog one step
+    // at a time. Bounded by the per-route cap, station fit, and cash.
+    static function CapacityReview(state, railtype) {
+        local reviewed = 0, added = 0;
+        foreach (_, r in state.routes) {
+            if (r.status != "built") continue;
+            if (Money.Cash() < Maintenance.MIN_CASH_FOR_TRAIN) break;   // out of money
+            reviewed++;
+            local alive = Maintenance._AliveCount(r);
+
+            // --- AIR: scale planes to the airport capacity when cargo is waiting ---
+            if (("air" in r) && r.air) {
+                local cap = Air.PlaneCap(r.src_station, r.dst_station);
+                local waiting = AIStation.GetCargoWaiting(r.src_station.station_id, r.cargo)
+                              + AIStation.GetCargoWaiting(r.dst_station.station_id, r.cargo);
+                if (waiting >= 80 && alive < cap) {
+                    local cs = Air.RouteUsesSmallAirport(r.src_station, r.dst_station)
+                        ? Air.SMALL_AIRPORT_SPEED_CAP : 0;
+                    local plane = Air.PlaneSet(r.cargo, cs);
+                    if (plane != null && Money.Cash() > plane.price) {
+                        local v = Air._BuildPlane(r.src_station.hangar, plane, r.cargo,
+                                                  r.src_station, r.dst_station);
+                        if (v != -1) { r.trains.push(v); added++; }
+                    }
+                }
+                continue;
+            }
+
+            // --- ROAD: scale trucks to current production ---
+            if (("road" in r) && r.road) {
+                if (("feeder" in r) && r.feeder) continue;   // feeders sized to the trunk
+                local veh = Road.VehicleSet(r.cargo);
+                if (veh == null) continue;
+                local output = (r.acc_is_town || !AIIndustry.IsValidIndustry(r.producer))
+                    ? r.production : AIIndustry.GetLastMonthProduction(r.producer, r.cargo);
+                local target = Road.InitialFleet(output, veh.capacity);
+                if (alive < target && Money.Cash() > veh.price) {
+                    local is_pax = (AICargo.GetTownEffect(r.cargo) == AICargo.TE_PASSENGERS);
+                    local v = Road._BuildVehicle(r.depot_tile, veh, r.cargo,
+                                                 r.src_station, r.dst_station, is_pax);
+                    if (v != -1) { r.trains.push(v); added++; }
+                }
+                continue;
+            }
+
+            // --- RAIL: widen the station to current production ONLY ---
+            // We deliberately do NOT proactively ADD TRAINS here: rail is
+            // cargo-limited (routes mostly run one train) and a 2nd+ train on our
+            // reversing-terminus stations DEADLOCKS the throat (measured: proactive
+            // train-adding benched 256 -20%). Trains are added only REACTIVELY, off
+            // a real source backlog, by _CheckRoute - which is rare because routes
+            // seldom outgrow one train. Station WIDTH still tracks output (cheap,
+            // no deadlock; readies the platform if demand ever justifies it).
+            if (!AIIndustry.IsValidIndustry(r.producer)) continue;
+            local output = AIIndustry.GetLastMonthProduction(r.producer, r.cargo);
+            if (output <= 0) continue;
+            if (output > r.production) r.production = output;
+            if (r.src_station != null) StationBuilder.GrowToMatch(r.src_station, output);
+        }
+        if (reviewed > 0) {
+            Log.Info(Log.PHASE_LOOP, "[capacity-review] swept " + reviewed
+                + " routes, +" + added + " vehicles to match demand.");
+        }
+    }
+
     // EMERGENCY CONTRACTION (Phase 0 solvency). When cash-stressed (usable money
     // can't even cover the operating buffer), running costs are about to spiral us
     // into bankruptcy - a bankrupt company scores ZERO and is the dominant 1v1
@@ -123,20 +219,36 @@ class Maintenance {
     // the most last year (recovers its capital + stops its running-cost drain).
     // One per call; called every loop while stressed until solvent. Returns true
     // if it condemned something.
+    static CONTRACTION_MIN_AGE = 360;   // a route's vehicles must be at least this
+                                        // old (days) before contraction may condemn
+                                        // it - younger routes haven't had a fair
+                                        // chance and often LOOK like losers (they
+                                        // ramped up partway through last year) while
+                                        // earning NOW (manual-test: contraction was
+                                        // deleting freshly-promoted profitable routes).
+
     static function EmergencyContraction(state) {
         if (!Money.Stressed()) return false;
         local worst = null;
-        local worst_profit = 0;   // only condemn genuine LOSERS (profit < 0)
+        local worst_profit = 0;   // only condemn genuine LOSERS (last-year profit < 0)
         foreach (_, r in state.routes) {
             if (r.status != "built") continue;
             if (r.trains == null) continue;
-            local p = 0;
+            local p_last = 0, p_this = 0, max_age = 0;
             foreach (v in r.trains) {
-                if (AIVehicle.IsValidVehicle(v)) p += AIVehicle.GetProfitLastYear(v);
+                if (!AIVehicle.IsValidVehicle(v)) continue;
+                p_last += AIVehicle.GetProfitLastYear(v);
+                p_this += AIVehicle.GetProfitThisYear(v);
+                local a = AIVehicle.GetAge(v);
+                if (a > max_age) max_age = a;
             }
-            if (p < worst_profit) { worst_profit = p; worst = r; }
+            // Protect routes that are too NEW to judge, or that have RECOVERED
+            // (earning this year) - never shed a profitable/young route.
+            if (max_age < Maintenance.CONTRACTION_MIN_AGE) continue;
+            if (p_this >= 0) continue;
+            if (p_last < worst_profit) { worst_profit = p_last; worst = r; }
         }
-        if (worst == null) return false;   // nothing losing money to shed
+        if (worst == null) return false;   // nothing genuinely + persistently losing
         local name = (("air" in worst) && worst.air) || (("road" in worst) && worst.road)
             ? (AITown.GetName(worst.producer) + "->" + Route.AccepterName(worst))
             : (AIIndustry.GetName(worst.producer) + "->" + Route.AccepterName(worst));

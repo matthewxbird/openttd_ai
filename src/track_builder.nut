@@ -25,9 +25,20 @@ class TrackBuilder {
     static DEBUG_DUMP = true;   // on a track-build failure, log an ASCII map of
                                 // the region so we can see WHY the path failed
                                 // (water/steep/blocked). Turn off once robust.
-    static MAX_CHUNKS = 2000;   // pathfinder chunks per attempt
-    static RETRY_CHUNKS = 6000; // chunks for the relaxed-cost retry
-    static MAX_REBUILD = 5;     // reroute attempts around un-buildable segments
+    static MAX_CHUNKS = 600;    // pathfinder chunks per attempt. 300 was too tight
+                                // (only short routes survived -> "too short to be
+                                // profitable", 128 -23%); 600 lets longer/medium
+                                // routes build while still giving up on the truly
+                                // complex ones fast (vs the old 2000+6000 grind).
+    static RETRY_CHUNKS = 600;  // relaxed-cost retry - also capped (was 6000, which
+                                // would just grind on after the 300 cap failed)
+    static MAX_REBUILD = 2;     // reroute attempts around un-buildable segments.
+                                // Cut 5 -> 2 (manual-test insight): if the route
+                                // didn't build first time, the reroutes around the
+                                // bad tile usually fail too - give up fast and pick
+                                // another route. (Speed doctrine; re-benched on the
+                                // fast 300-chunk base, not the old slow config where
+                                // 5->2 looked load-bearing.)
     static MAX_SMOOTH  = 3;    // flatten isolated bumps/dips up to this height diff
     static STATION_GUARD = 2;  // don't terraform this many tiles next to a station
     static LEAD_IN     = 3;    // straight tiles out of each platform before any curve
@@ -274,11 +285,11 @@ class TrackBuilder {
             local tiles = TrackBuilder._FindPath(
                 src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, ignored,
                 TrackBuilder.MAX_CHUNKS, label);
-            if (tiles == null || !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
-                Log.Warn(Log.PHASE_TRACK, "[" + label + "] retry with relaxed budget");
-                tiles = TrackBuilder._FindPathRelaxed(
-                    src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, ignored, label);
-            }
+            // NO relaxed-budget retry (manual-test feedback): if the capped search
+            // can't reach in MAX_CHUNKS, the route is too complex for us - GIVE UP
+            // and let the ranker pick a simpler, profitable route. Grinding more
+            // chunks is why we're slow vs AAHOG; speed (build many cheap routes
+            // fast) beats completeness (one hard route slowly).
             if (tiles == null || !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
                 Log.Warn(Log.PHASE_TRACK,
                     "[" + label + "] no path on attempt " + (attempt + 1)
@@ -453,10 +464,25 @@ class TrackBuilder {
                             && AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), prev, cur)) {
                         bridges++;
                         TrackBuilder._Touch(prev);   // we built this; track for cleanup
-                    } else if (TrackBuilder._GroundCross(prev, cur, label)) {
-                        built++;   // bridge failed (area not clear) - terraform + lay ground rail
                     } else {
-                        BuildDiag.Report(prev, label, "bridge span");
+                        // The pathfinder's bridge endpoint was BLOCKED at build time
+                        // (e.g. it must clear an existing rail and land BEYOND it -
+                        // the correct grade-separated crossing - or a rival took the
+                        // tile). EXTEND the bridge to the next CLEAR collinear path
+                        // tile so it spans the obstacle and lands solid. Returns the
+                        // new landing index; we splice out the spanned tiles so the
+                        // continuity check sees one clean bridge.
+                        local land_idx = TrackBuilder._BuildBridgeExtend(tiles, i);
+                        if (land_idx > i) {
+                            bridges++;
+                            for (local k = land_idx - 1; k >= i; k--) tiles.remove(k);
+                            // tiles[i] is now the bridge far end; loop i++ continues
+                            // from there (prev = far end on the next iteration).
+                        } else if (TrackBuilder._GroundCross(prev, cur, label)) {
+                            built++;   // terraform + ground rail across (short obstacles)
+                        } else {
+                            BuildDiag.Report(prev, label, "bridge span");
+                        }
                     }
                 }
                 continue;
@@ -526,6 +552,47 @@ class TrackBuilder {
             return true;
         }
         return false;
+    }
+
+    // EXTEND a blocked bridge to the next CLEAR collinear path tile. tiles[i] is
+    // the pathfinder's bridge far end that failed to build (blocked / on an
+    // obstacle); we want to span FURTHER and land on solid clear ground beyond it
+    // (the correct grade-separated crossing - e.g. a bridge over an existing rail,
+    // landing on the clear tile past it). Bridges are axis-aligned, so we only
+    // extend along the straight approach: walk forward over path tiles that stay
+    // collinear with prev->cur, and build the SHORTEST bridge that lands on a clear,
+    // level tile. Returns that landing's path index (> i) on success, else -1.
+    static function _BuildBridgeExtend(tiles, i) {
+        local prev = tiles[i - 1];
+        local px = AIMap.GetTileX(prev), py = AIMap.GetTileY(prev);
+        local cx = AIMap.GetTileX(tiles[i]), cy = AIMap.GetTileY(tiles[i]);
+        local dx = cx - px, dy = cy - py;
+        if (dx != 0 && dy != 0) return -1;     // bridges are axis-aligned only
+        local sx = (dx > 0) ? 1 : (dx < 0 ? -1 : 0);
+        local sy = (dy > 0) ? 1 : (dy < 0 ? -1 : 0);
+        local hprev = AITile.GetMaxHeight(prev);
+        for (local j = i; j < tiles.len() - 1; j++) {
+            local land = tiles[j];
+            local lx = AIMap.GetTileX(land), ly = AIMap.GetTileY(land);
+            // Must stay on the bridge axis, strictly forward of prev.
+            if (sx != 0 && (ly != py || (lx - px) * sx <= 0)) break;
+            if (sy != 0 && (lx != px || (ly - py) * sy <= 0)) break;
+            local blen = AIMap.DistanceManhattan(prev, land);
+            if (blen > 30) break;              // past max bridge length
+            if (blen < 2) continue;
+            if (!AITile.IsBuildable(land)) continue;             // endpoint must be clear
+            if (AITile.GetMaxHeight(land) != hprev) continue;    // level endpoints
+            local bl = AIBridgeList_Length(blen + 1);
+            if (!bl.IsEmpty()
+                    && AIBridge.BuildBridge(AIVehicle.VT_RAIL, bl.Begin(), prev, land)) {
+                TrackBuilder._Touch(prev);
+                Log.Info(Log.PHASE_TRACK,
+                    "[bridge] extended span over obstacle to clear tile " + land
+                    + " (len " + blen + ").");
+                return j;
+            }
+        }
+        return -1;
     }
 
     // Fallback for a failed bridge/tunnel span: terraform the gap FLAT and lay

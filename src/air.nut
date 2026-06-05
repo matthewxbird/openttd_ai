@@ -34,6 +34,7 @@ class Air {
     static AIRPORT_COST_EST = 30000;  // rough per-airport build cost for ranking
     static MAX_PLANES       = 20;     // hard ceiling; the per-route cap from
                                       // airport size (PlaneCap) is the real limit
+    static MAX_ADD_PER_PASS = 3;      // cap planes added in one re-eval pass
     static SEARCH_R         = 12;     // tiles around town centre to site an airport
     static MIN_TOWN_POP     = 500;    // don't bother with tiny towns
     static MAX_TOWNS        = 12;     // only pair the biggest N towns (keeps scan cheap)
@@ -443,21 +444,34 @@ class Air {
             "[air] " + label + " " + name + " planes=" + alive.len()
             + "/" + cap + " waiting=" + waiting);
 
+        // CAPACITY RE-EVAL: clear the backlog FAST so the station rating stays
+        // high (a pile of waiting cargo = "Very Poor" rating = less cargo
+        // generated + lower payment - manual-test feedback). One plane per pass
+        // couldn't catch up; size the add to the backlog, BOUNDED by the airport's
+        // PlaneCap (more than that just circles/congests).
         if (waiting >= 80 && alive.len() < cap
                 && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN) {
-            // Same crash-safe pick as the initial build: speed-cap on small airports.
             local cap_speed = Air.RouteUsesSmallAirport(r.src_station, r.dst_station)
                 ? Air.SMALL_AIRPORT_SPEED_CAP : 0;
             local plane = Air.PlaneSet(r.cargo, cap_speed);
-            if (plane != null && Money.Cash() > plane.price) {
-                local v = Air._BuildPlane(r.src_station.hangar, plane, r.cargo,
-                                          r.src_station, r.dst_station);
-                if (v != -1) {
-                    r.trains.push(v);
-                    Log.Info(Log.PHASE_LOOP, "[air] " + name
-                        + ": backlog " + waiting + " -> added plane (now "
-                        + r.trains.len() + ").");
+            if (plane != null) {
+                local pcap = (plane.capacity > 0) ? plane.capacity : 100;
+                local want = waiting / pcap;            // planes the backlog needs
+                if (want < 1) want = 1;
+                local room = cap - alive.len();
+                if (want > room) want = room;
+                if (want > Air.MAX_ADD_PER_PASS) want = Air.MAX_ADD_PER_PASS;
+                local added = 0;
+                while (added < want && Money.Cash() > plane.price
+                        && Money.Cash() > Maintenance.MIN_CASH_FOR_TRAIN) {
+                    local v = Air._BuildPlane(r.src_station.hangar, plane, r.cargo,
+                                              r.src_station, r.dst_station);
+                    if (v == -1) break;
+                    r.trains.push(v); added++;
                 }
+                if (added > 0) Log.Info(Log.PHASE_LOOP, "[air] " + name
+                    + ": backlog " + waiting + " -> +" + added + " planes (now "
+                    + r.trains.len() + "/" + cap + ").");
             }
         }
     }

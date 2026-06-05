@@ -45,6 +45,20 @@ class MvBAI extends AIController {
     // ones (lets the company keep expanding instead of freezing on one line).
     static MAX_CONCURRENT_PROBATION = 4;
 
+    // AIR DEFERRAL (manual-test feedback: airports too expensive early). Don't
+    // build air routes until we have a CASH cushion or a few proven income routes
+    // - early air spending is a bankruptcy risk; cheap rail/road build the cashflow
+    // first, then air (the biggest earner) scales once we can absorb the up-front.
+    static USE_AIR_DEFERRAL = false;    // defer air until cashflow (OFF: it cost
+                                        // more than it saved - delays the top earner)
+    static AIR_MIN_CASHFLOW = 100000;   // cash above which air is affordable to start
+    static AIR_MIN_PROVEN   = 1;        // ...or this many proven routes already earning.
+                                        // Softened from 200k/3: the affordability
+                                        // check already blocks broke air-building, and
+                                        // deferring the DOMINANT earner too long gutted
+                                        // small maps (128 -44%). Defer only the very
+                                        // first build, then let air scale.
+
     // RoRo drive-through terminus (Phase 10). When true, double-track routes try
     // to build far-end return loops (no reversing) so they can run more than the
     // reversing-terminus cap of trains. RORO_MAX_TRAINS is the per-route cap for
@@ -212,6 +226,20 @@ function MvBAI::Start() {
             // AIR candidate (Phase 2): own affordability + builder, then continue
             // to the next candidate on success/failure (no rail path).
             if (("air" in c) && c.air) {
+                // DEFER AIR until SOLID CASHFLOW. Two airports + a plane (~60k+) is
+                // brutal early game and a bankruptcy risk (manual-test feedback);
+                // air is the biggest earner but only once we can absorb the up-front
+                // cost. Until we have a cash cushion OR a few proven income routes,
+                // skip air and let cheap rail/road land-grab build the cashflow.
+                // Air-deferral: OFF. The affordability check already blocks broke
+                // air-building and the dual-loco/crash fixes handle early bankruptcy,
+                // so deferring the DOMINANT earner only cost value (128 -44%). Flag
+                // kept for tuning / 1v1 where early solvency may matter more.
+                if (MvBAI.USE_AIR_DEFERRAL
+                        && Money.Cash() < MvBAI.AIR_MIN_CASHFLOW
+                        && this.state.CountBuilt() < MvBAI.AIR_MIN_PROVEN) {
+                    continue;
+                }
                 // One air route per (source town, cargo): a town may hub BOTH a
                 // pax and a mail route (reusing its airport), but not duplicate
                 // the same cargo (bounds airport terminal congestion).
@@ -237,7 +265,9 @@ function MvBAI::Start() {
             }
             // ROAD candidate (Phase 3): own affordability + builder.
             if (("road" in c) && c.road) {
-                if (this.state.ProducerServed(c.producer)) continue;
+                // Gate on ROAD only - the town usually has an air pax route too,
+                // and the general ProducerServed wrongly skipped every road route.
+                if (this.state.RoadServes(c.producer)) continue;
                 local rveh = Road.VehicleSet(c.cargo);
                 local rneed = c.distance * 400 + 2 * 4000 + 2000
                             + (rveh != null ? rveh.price : 20000);

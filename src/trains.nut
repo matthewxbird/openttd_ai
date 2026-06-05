@@ -14,6 +14,10 @@ class Trains {
     static POWER_PER_WAGON = 220;  // hp budget needed per loaded wagon; below
                                    // this the train crawls, so we cap wagons or
                                    // double-head the engine
+    static DOUBLEHEAD_MIN_CASH = 150000;  // only buy a 2nd loco (double-head) when
+                                          // cash is comfortably above the operating
+                                          // buffer - a 2nd loco early is a top
+                                          // bankruptcy risk (manual-test feedback)
 
     // Representative loaded-train weight (tonnes) used to judge whether a loco
     // can actually SUSTAIN its top speed under a full platform of wagons. Rough
@@ -174,9 +178,14 @@ class Trains {
         local want = fit;
         if (max_wagons > want) want = max_wagons;   // never shorter than asked
 
-        // If the engine can't pull what fits, double-head (second engine at the
-        // front) provided that still leaves room for a worthwhile train.
-        if (power_cap < want) {
+        // If the engine can't pull what fits, double-head (second engine) provided
+        // that still leaves room for a worthwhile train - BUT only when we can
+        // AFFORD a 2nd loco. A 2nd locomotive is one of the priciest early-game
+        // buys; double-heading when cash is tight helped bankrupt us (manual-test
+        // feedback). When poor, fall through to ONE loco + a shorter train (want is
+        // capped to power_cap below) - cheaper, and we add capacity via train COUNT
+        // later once we're earning.
+        if (power_cap < want && Money.Cash() > Trains.DOUBLEHEAD_MIN_CASH) {
             local fit2 = (plat_units - 2 * engine_len) / wagon_len;
             if (fit2 >= Trains.MIN_WAGONS) {
                 local v2 = AIVehicle.BuildVehicle(depot_tile, engine);

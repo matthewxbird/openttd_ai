@@ -7,10 +7,15 @@
 class State {
     routes    = null;   // map: route_key -> Route record
     blacklist = null;   // Blacklist instance
+    last_review_month = -100;  // month-index the capacity sweep last ran (mutable
+                               // cross-tick state - lives here because a STATIC
+                               // class slot can't be reassigned at runtime in
+                               // OpenTTD Squirrel; the State instance persists)
 
     constructor() {
         this.routes    = {};
         this.blacklist = Blacklist();
+        this.last_review_month = -100;
     }
 
     function HasRoute(cargo, producer, accepter) {
@@ -58,6 +63,17 @@ class State {
     function ProducerServed(producer) {
         foreach (_, r in this.routes) {
             if (r.producer == producer) return true;
+        }
+        return false;
+    }
+
+    // True if a ROAD route already starts at this producer. Road bus routes use
+    // a town as producer; that town usually ALSO has an air pax route, so the
+    // general ProducerServed (any mode) wrongly blocked every road route. Road is
+    // gated on its OWN mode only - a town may run air pax AND local buses.
+    function RoadServes(producer) {
+        foreach (_, r in this.routes) {
+            if (r.producer == producer && ("road" in r) && r.road) return true;
         }
         return false;
     }
