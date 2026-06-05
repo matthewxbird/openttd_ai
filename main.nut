@@ -83,11 +83,11 @@ class MvBAI extends AIController {
     // read its bounding tile coords (land-info tool shows X,Y), put them here,
     // reload - the AI dumps the layout. Paste the [scan] lines back to bake a
     // template. (x1,y1) = top-left (min X, min Y), (x2,y2) = bottom-right.
-    static DEBUG_SCAN  = false;
-    static SCAN_X1 = 150;
-    static SCAN_Y1 = 122;
-    static SCAN_X2 = 186;
-    static SCAN_Y2 = 158;
+    static DEBUG_SCAN  = true;
+    static SCAN_X1 = 27;
+    static SCAN_Y1 = 185;
+    static SCAN_X2 = 39;
+    static SCAN_Y2 = 208;
 
     // DEBUG: at boot, build ONE SmartTerminus (StationDT) at the first flat spot
     // near map centre and log build ok/fail - headless smoke for the Phase 11
@@ -97,7 +97,7 @@ class MvBAI extends AIController {
     // Phase 11 rail rewrite: build rail routes on AAHOG-style SmartTerminus
     // (StationDT) with distance-scaled fleets instead of the 2-train reversing
     // terminus. OFF on main until it beats the baseline. See src/rail2_route.nut.
-    static USE_RAIL2 = true;
+    static USE_RAIL2 = false;
 
     function Start();
     function Save();
