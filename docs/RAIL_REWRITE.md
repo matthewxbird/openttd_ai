@@ -88,7 +88,41 @@ builder until rail2 beats it.
 
 Do NOT reorder — caps can't rise before the station is deadlock-free (measured).
 
+## KEY: drive-through stations are BAKED THROAT TEMPLATES (not algorithmic)
+
+`SmartStation` (`station.nut:3735`) is hand-crafted geometry. `GetRails()` returns
+a fixed list of 3-tile rail segments (`[[dx,dy],[dx,dy],[dx,dy]]` in a station-local
+coord system via `At(x,y)`, rotated by `stationDirection`) that forms the THROAT:
+the platforms (cols 0,1[,2]) merge upward through ~6 rows of rail into a single
+ARRIVAL line and a single DEPARTURE line, plus a depot. ASCII (from source):
+```
+ 6   D I     D=departure  I=arrival (the two main-line connection points)
+ 5 A B
+ 4 r r
+ 3 r r r     <- throat: platforms fan into arrival/departure
+ 2 r B r
+ 1 r r r
+ 0 s s       <- platforms (s), cols 0..platformNum-1
+   0 1 2
+```
+Exposed tiles: `GetArrivalsTiles()`, `GetDeparturesTiles()` (+ `*DangerTiles` for
+signal placement). AAHOG **stamps the throat** at the platform site, then the
+MAIN-LINE pathfinder only connects departure→(other station)arrival and back.
+
+=> **Our rewrite uses the SAME approach and our EXISTING tooling**: bake the
+drive-through throat as a `junction_builder` StampList template (transcribe
+AAHOG's `GetRails()` directly, OR capture a hand-built one in-game via the
+`junction-builder` skill — the user's GUI loop). `station_model` then = {stamp
+throat template (rotated) at src + dst; expose arrival/departure tiles; pathfind
+the double-track main between them; signal one-way PBS; dispatch N no-reverse
+trains}. This is why prior bolt-on RoRo loops failed — the throat must be a
+proper baked merge, like SmartStation, not a tacked-on return loop.
+
 ## Status log
 
-- 2026-06-05: branch created, design captured. NEXT: read SmartStation/DestRailStation
-  throat geometry + signal pattern, then implement `station_model.BuildDriveThrough`.
+- 2026-06-05: branch + design captured. Read RailStation base + SmartStation:
+  drive-through = baked throat template (GetRails) + main-line pathfind. NEXT:
+  transcribe AAHOG SmartStation throat into a junction_builder StampList template
+  (or capture via GUI skill), implement `station_model` to stamp it + expose
+  arrival/departure tiles. Then main-line pathfind + no-reverse dispatch (forced
+  order step 1). Existing `junction_builder.nut` StampList is the template engine.
