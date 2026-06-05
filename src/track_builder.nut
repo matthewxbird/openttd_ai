@@ -25,7 +25,9 @@ class TrackBuilder {
     static DEBUG_DUMP = true;   // on a track-build failure, log an ASCII map of
                                 // the region so we can see WHY the path failed
                                 // (water/steep/blocked). Turn off once robust.
-    static MAX_CHUNKS = 600;    // pathfinder chunks per attempt. 300 was too tight
+    static MAX_CHUNKS = 2000;   // pathfinder chunks per attempt. Raised back to 2000
+                                // for reach; search space is cut by the TileModel
+                                // prune (AVOID + BRIDGE tiles never expanded). 300 was too tight
                                 // (only short routes survived -> "too short to be
                                 // profitable", 128 -23%); 600 lets longer/medium
                                 // routes build while still giving up on the truly

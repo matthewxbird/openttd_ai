@@ -20,9 +20,9 @@
 //
 // COST CATEGORIES (cheapest â†’ most expensive)
 // =============================================
-//  diagonal tile        :  30   (NE/NW/SE/SW move, cheaper than two straights)
+//  diagonal tile        :  67   (NE/NW/SE/SW move, cheaper than two straights)
 //  straight tile        : 100   (baseline)
-//  gentle turn          : 200   (path changes direction over 3-tile window)
+//  gentle turn          : 300   (path changes direction over 3-tile window)
 //  slope penalty        : 100   (height rises or falls 2+ tiles)
 //  bridge per tile      : 50 extra per tile
 //  tunnel per tile      :   0   (prefer tunnel over climbing a hill)
@@ -564,12 +564,14 @@ class RailPathFinder {
             // track can never weave across and cross the out track.
             if (self._avoidSide != null && (next in self._avoidSide)) continue;
 
-            // TILE MODEL PRUNE: never path ONTO an AVOID tile (town houses,
-            // industry, unclearable objects, map edge). A cheap classification
-            // skips both the expensive test-BuildRail probe AND expanding that
-            // node - the search-space cut. (GROUND/JOIN/BRIDGE fall through to the
-            // normal probe + bridge/tunnel generator.)
-            if (TileModel.Classify(next) == TileModel.AVOID) continue;
+            // TILE MODEL PRUNE (search-space cut): never make a FLAT move onto an
+            // AVOID tile (houses/industry/objects/edge) OR a BRIDGE tile (water,
+            // rival infra, our non-track infra). Both are pruned without the
+            // expensive test-BuildRail probe or node expansion - BRIDGE tiles are
+            // crossed only via the bridge/tunnel jump generator below, never stepped
+            // on. GROUND + JOIN (our rail, run-along) fall through to the probe.
+            local _cls = TileModel.Classify(next);
+            if (_cls == TileModel.AVOID || _cls == TileModel.BRIDGE) continue;
 
             // Seed tile (no parent): always allow.
             if (par_tile == null) {

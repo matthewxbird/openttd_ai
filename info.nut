@@ -14,7 +14,14 @@ class MvBAIInfo extends AIInfo {
     function GetAPIVersion()    { return "15"; }  // valid range: "12".."15". Use "14" for stable 14.x release.
     function GetURL()           { return ""; }
 
-    // Optional settings would go here. None for v1.
+    function GetSettings() {
+        AddSetting({
+            name = "disable_air",
+            description = "Disable air: build no airports and skip scanning air routes",
+            easy_value = 0, medium_value = 0, hard_value = 0, custom_value = 0,
+            flags = AICONFIG_BOOLEAN | AICONFIG_INGAME
+        });
+    }
 }
 
 RegisterAI(MvBAIInfo());

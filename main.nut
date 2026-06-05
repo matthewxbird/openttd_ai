@@ -206,7 +206,10 @@ function MvBAI::Start() {
             local cands = CargoScan.Scan(this.railtype);
             // MULTI-MODAL: air + road candidates rank ALONGSIDE rail on the
             // shared value surface (best mode per cargo/distance falls out).
-            foreach (ac in Air.ScanCandidates(this.railtype)) cands.append(ac);
+            // Air can be disabled via the AI config setting (skip scanning + building).
+            if (AIController.GetSetting("disable_air") != 1) {
+                foreach (ac in Air.ScanCandidates(this.railtype)) cands.append(ac);
+            }
             foreach (rc in Road.ScanCandidates(this.railtype)) cands.append(rc);
             // ADAPTIVE PROFIT MODEL: pick the objective from company state, then
             // re-score by it. INDUSTRY-CHAIN BIAS: boost hauling the output of an
