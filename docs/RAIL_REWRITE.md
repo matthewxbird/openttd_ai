@@ -120,6 +120,36 @@ proper baked merge, like SmartStation, not a tacked-on return loop.
 
 ## Status log
 
+- 2026-06-05 (capture-based rebuild): rewrote StationDT around the VERIFIED
+  Captures.WronstonThroat() (AAHOG's real throat, ok=62 fail=0). Progress + open:
+  - StationDT.Build(ox,oy,k,cargo,is_source): BuildRailStation 3 platforms +
+    StampList the throat (dx>=6) rotated by k. CanBuild relief/water pre-flight.
+  - rail2_route: SiteStation(industry,partner,cargo) finds an origin near the
+    industry; TryBuild sites src+dst, lays double main via TrackBuilder._RunPathfinder,
+    distance-scaled fleet.
+  - **WIN: at k=0 + signal-correct main pairing (out: src.main_b[DEPART] ->
+    dst.main_a[ARRIVE]; back: dst.main_b -> src.main_a), trains BUILD a route and
+    reachedDst=TRUE** - they traverse AAHOG's captured throat to the destination
+    (the old hand-port never did). main_a=row dy1 (ARRIVAL, west-facing presignals),
+    main_b=row dy2 (DEPARTURE, east-facing PBS), read from the captured signals.
+  - **OPEN 1 - return leg:** trains reach dst but backAtSrc stays false -> the
+    dst-throat platform->departure path or the reverse-at-dst doesn't complete.
+    Needs GUI: watch a train at the dst SmartTerminus, see where it stalls.
+  - **OPEN 2 - orientation:** both stations were k=0 (face +X). To face each other
+    (proper geometry, likely fixes the return leg) added k-rotation + DirToward,
+    but rotated throats (k=1,2,3) REGRESSED to 0 routes - suspect JunctionBuilder
+    _RotBit 90/270 track-bit chirality (the skill's documented gotcha). Forced k=0
+    for now (DirToward call commented in SiteStation).
+  - **OPEN 3 - main fragility:** after the rotation rewrite, k=0 mains now fail to
+    build too (8/8) where the pre-rotation capture-version connected 1; siting-range
+    change (-10..4) likely positions the east-facing mains un-connectably. Revisit
+    siting so the throat-exit faces clear ground toward the partner.
+  => NEXT (GUI): verify a rotated throat stamps correct (DEBUG_JUNCTION + Rotate(k));
+  fix _RotBit chirality if 90/270 mirror; then orient stations to face each other,
+  which should let the return leg + mains connect cleanly. USE_RAIL2 OFF; main
+  bit-identical to baseline. All rail2 WIP on feat/rail-rewrite.
+
+
 - 2026-06-05 (cont.): IMPLEMENTED + smoke-tested headless. State:
   - `src/station_dt.nut` (StationDT): faithful AAHOG SmartStation port. **Builds
     4/4 directions, 16/16 throat rails, fail=0** after adding `AITile.LevelTiles`
