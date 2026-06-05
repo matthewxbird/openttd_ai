@@ -19,14 +19,19 @@
 class StationDT {
     static PLAT_NUM = 3;
     static PLAT_LEN = 6;
-    static FOOT_W = 19;   // capture width  (dx 0..18)
+    static FOOT_W = 14;   // footprint width after trimming the trailing main straight
+                          // (dx 0..13). The captured throat ran dx0..18; the post-merge
+                          // mains straighten by dx13, so dx14..18 was redundant trailing
+                          // track - trimmed (smaller footprint = easier siting).
     static FOOT_H = 4;    // capture height (dy 0..3)
     static THROAT_MIN_DX = 6;
+    static THROAT_MAX_DX = 13;   // drop the trailing straight (dx14..18)
 
-    // k=0 anchors (capture frame):
+    // k=0 anchors (capture frame). Main connects at dx13 (first clean parallel tile
+    // after the merge) instead of dx17.
     static PLAT_C1 = [0, 1];   static PLAT_C2 = [5, 3];   // platform rect corners
-    static MAIN_A  = [17, 1];  static MAIN_A_PREV = [16, 1];  // ARRIVAL track
-    static MAIN_B  = [17, 2];  static MAIN_B_PREV = [16, 2];  // DEPARTURE track
+    static MAIN_A  = [13, 1];  static MAIN_A_PREV = [12, 1];  // ARRIVAL track
+    static MAIN_B  = [13, 2];  static MAIN_B_PREV = [12, 2];  // DEPARTURE track
 
     // Rotate a point (x,y) by k*90 CW within the FOOT_W x FOOT_H grid (grid dims
     // swap each 90). Returns [x,y].
@@ -106,7 +111,10 @@ class StationDT {
         // with open ground east -> reliable connect.
         local throat = [];
         foreach (e in Captures.WronstonThroat()) {
-            if (e[1] >= StationDT.THROAT_MIN_DX && e[1] <= 17) throat.push(e);
+            if (e[1] < StationDT.THROAT_MIN_DX || e[1] > StationDT.THROAT_MAX_DX) continue;
+            // drop signals/bridges whose FAR end is also past the trim
+            if ((e[0] == "S" || e[0] == "B") && e[3] > StationDT.THROAT_MAX_DX) continue;
+            throat.push(e);
         }
         local origin = AIMap.GetTileIndex(ox, oy);
         JunctionBuilder.StampList(origin, JunctionBuilder.Rotate(throat, k));
@@ -150,16 +158,17 @@ class StationDT {
         foreach (t, _ in lo) if (AIRail.IsRailTile(t)) AITile.DemolishTile(t);
     }
 
-    // Does the station at (ox,oy,k) have a PLATFORM tile within coverage range of
-    // `target` (the industry)? If not, no cargo loads - reject the site.
-    static function Covers(ox, oy, k, target) {
+    // How many PLATFORM tiles of the station at (ox,oy,k) are within coverage of
+    // `target` - the station's "reach" over that industry. 0 = doesn't serve it.
+    static function CoverScore(ox, oy, k, target) {
         local cov = AIStation.GetCoverageRadius(AIStation.STATION_TRAIN);
+        local n = 0;
         for (local px = 0; px <= 5; px++)
             for (local py = 1; py <= 3; py++) {
                 local t = StationDT._Tile(ox, oy, StationDT._Rot(px, py, k));
-                if (AIMap.DistanceManhattan(t, target) <= cov) return true;
+                if (AIMap.DistanceManhattan(t, target) <= cov) n++;
             }
-        return false;
+        return n;
     }
 
     // Which rotation makes the main/throat exit point toward `partner` from `self`.

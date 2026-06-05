@@ -272,6 +272,9 @@ function MvBAI::Start() {
             // AIR candidate (Phase 2): own affordability + builder, then continue
             // to the next candidate on success/failure (no rail path).
             if (("air" in c) && c.air) {
+                // No airports before 1960 (user directive): let rail/road build the
+                // early network first; air comes online from 1960.
+                if (AIDate.GetYear(AIDate.GetCurrentDate()) < 1960) continue;
                 // DEFER AIR until SOLID CASHFLOW. Two airports + a plane (~60k+) is
                 // brutal early game and a bankruptcy risk (manual-test feedback);
                 // air is the biggest earner but only once we can absorb the up-front

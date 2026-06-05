@@ -71,8 +71,8 @@ class Rail2 {
     static MAIN_CHUNKS = 250;   // fail-fast: the throat main-exit makes long hauls
                                 // explode the A* open-set; cap chunks so a hard
                                 // connect gives up quick instead of grinding to 600.
-    static function _BuildMain(from_tile, from_prev, to_tile, to_prev, guide, label) {
-        local tiles = TrackBuilder._RunPathfinder(from_tile, from_prev, to_tile, to_prev, true, guide, label, Rail2.MAIN_CHUNKS);
+    static function _BuildMain(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label) {
+        local tiles = TrackBuilder._RunPathfinder(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label, Rail2.MAIN_CHUNKS);
         if (tiles == null) {
             Log.Warn(Log.PHASE_TRACK, "[rail2] " + label + " build failed.");
             return null;
@@ -111,9 +111,12 @@ class Rail2 {
         // east-facing PBS) = DEPARTURE track - at BOTH identical ends. So:
         //   out  : src.main_b (depart) -> dst.main_a (arrive)
         //   back : dst.main_b (depart) -> src.main_a (arrive)
-        local out_main = Rail2._BuildMain(src.main_b, src.main_b_prev, dst.main_a, dst.main_a_prev, [], "rail2-out");
+        // OUT track: isOutward=true, no guide. BACK track: isOutward=FALSE + the out
+        // track as guide -> the pathfinder's parallel side-bias threads it ALONGSIDE
+        // the out track (clean double-track, no weave/whacky-loop) and never crosses it.
+        local out_main = Rail2._BuildMain(src.main_b, src.main_b_prev, dst.main_a, dst.main_a_prev, true, [], "rail2-out");
         local back_main = (out_main == null) ? null
-            : Rail2._BuildMain(dst.main_b, dst.main_b_prev, src.main_a, src.main_a_prev, [], "rail2-back");
+            : Rail2._BuildMain(dst.main_b, dst.main_b_prev, src.main_a, src.main_a_prev, false, out_main, "rail2-back");
         if (out_main == null || back_main == null) {
             Log.Warn(Log.PHASE_TRACK, "[rail2] main build failed; abandoning.");
             StationDT.Demolish(src); StationDT.Demolish(dst);
