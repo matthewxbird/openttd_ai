@@ -37,6 +37,15 @@ class Rail2 {
             local db = (b[0] + 2 - ix) * (b[0] + 2 - ix) + (b[1] + 2 - iy) * (b[1] + 2 - iy);
             return da - db;
         });
+        // Pass 1: prefer an origin whose platforms COVER the industry (cargo loads).
+        foreach (c in cands) {
+            if (!StationDT.CanBuild(c[0], c[1], k)) continue;
+            if (!StationDT.Covers(c[0], c[1], k, loc)) continue;
+            local st = StationDT.Build(c[0], c[1], k, cargo, true);
+            if (st != null) return st;
+        }
+        // Pass 2: fall back to nearest buildable (the big footprint can't always
+        // both fit flat AND cover - better a near station than none).
         foreach (c in cands) {
             if (!StationDT.CanBuild(c[0], c[1], k)) continue;
             local st = StationDT.Build(c[0], c[1], k, cargo, true);

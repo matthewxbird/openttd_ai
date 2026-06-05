@@ -135,6 +135,18 @@ class StationDT {
         foreach (t, _ in lo) if (AIRail.IsRailTile(t)) AITile.DemolishTile(t);
     }
 
+    // Does the station at (ox,oy,k) have a PLATFORM tile within coverage range of
+    // `target` (the industry)? If not, no cargo loads - reject the site.
+    static function Covers(ox, oy, k, target) {
+        local cov = AIStation.GetCoverageRadius(AIStation.STATION_TRAIN);
+        for (local px = 0; px <= 5; px++)
+            for (local py = 1; py <= 3; py++) {
+                local t = StationDT._Tile(ox, oy, StationDT._Rot(px, py, k));
+                if (AIMap.DistanceManhattan(t, target) <= cov) return true;
+            }
+        return false;
+    }
+
     // Which rotation makes the main/throat exit point toward `partner` from `self`.
     static function DirToward(self_tile, partner_tile) {
         local dx = AIMap.GetTileX(partner_tile) - AIMap.GetTileX(self_tile);
