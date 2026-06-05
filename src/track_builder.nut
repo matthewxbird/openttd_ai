@@ -531,6 +531,10 @@ class TrackBuilder {
     // property (DemolishTile / Raise/LowerTile just fail), so this never touches
     // what isn't ours. Returns true if rail now sits on the tile. (Phase 8)
     static function _ClearAndLay(prev, cur, next, allow_terraform = false) {
+        // A SIGNAL on prev/cur (a station-throat exit signal) can block adding the
+        // connecting track. Remove the signal(s), lay the rail, restore them. Try
+        // this BEFORE demolishing (demolish would destroy the throat rail+signal).
+        if (TrackBuilder._LayThroughSignals(prev, cur, next)) return true;
         // Always try clearing a clearable obstacle (trees / object / stray road).
         if (AITile.DemolishTile(cur) && AIRail.BuildRail(prev, cur, next)) return true;
         // Terraforming a slope flat is LAST-RESORT only (repair pass): doing it on
@@ -549,6 +553,30 @@ class TrackBuilder {
         // Last resort: prev may itself be mid-slope - try cur's own height.
         TrackBuilder._FlattenToHeight(cur, AITile.GetMaxHeight(cur));
         return AIRail.BuildRail(prev, cur, next);
+    }
+
+    // Remove any signals on prev/cur (a throat-exit signal that blocks the join),
+    // lay the connecting rail, then RESTORE the signals. Returns true if the rail is
+    // now down. No-op (returns false) if there were no signals to remove.
+    static function _LayThroughSignals(prev, cur, next) {
+        local mx = AIMap.GetMapSizeX();
+        local saved = [];   // [tile, front, type]
+        foreach (base in [prev, cur]) {
+            foreach (off in [1, -1, mx, -mx]) {
+                local f = base + off;
+                if (!AIMap.IsValidTile(f)) continue;
+                local st = AIRail.GetSignalType(base, f);
+                if (st != AIRail.SIGNALTYPE_NONE) {
+                    saved.push([base, f, st]);
+                    AIRail.RemoveSignal(base, f);
+                }
+            }
+        }
+        if (saved.len() == 0) return false;   // no signal was in the way
+        local ok = AIRail.BuildRail(prev, cur, next)
+                || AIError.GetLastError() == AIError.ERR_ALREADY_BUILT;
+        foreach (s in saved) AIRail.BuildSignal(s[0], s[1], s[2]);   // restore
+        return ok;
     }
 
     // Build a rail bridge spanning prev->cur (collinear, distance>=2). Used as a
