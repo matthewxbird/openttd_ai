@@ -20,7 +20,8 @@ class Rail2 {
     }
 
     // Site a station near `industry`, throat/main facing `partner_tile`. Returns rec.
-    static function SiteStation(industry_id, partner_tile, cargo) {
+    // is_source: producer station (must PRODUCE the cargo) vs accepter (must ACCEPT).
+    static function SiteStation(industry_id, partner_tile, cargo, is_source) {
         local loc = AIIndustry.GetLocation(industry_id);
         local ix = AIMap.GetTileX(loc);
         local iy = AIMap.GetTileY(loc);
@@ -44,25 +45,22 @@ class Rail2 {
         // ties prefer the partner-facing rotation (cleanest main connect). This lets
         // a 90-deg-rotated or other-side placement win when it serves the industry
         // better (e.g. reaching two adjacent industries).
+        // Pick the origin whose platforms actually PRODUCE/ACCEPT the cargo best
+        // (real GetCargoProduction/Acceptance, not distance-to-centre). NO non-
+        // covering fallback - an out-of-coverage station serves nothing ("Accepts:
+        // Nothing"), so skip the route rather than build a useless station.
         local best = null; local best_val = -1;
         foreach (k in ks) {
             foreach (c in cands) {
                 if (!StationDT.CanBuild(c[0], c[1], k)) continue;
-                local cs = StationDT.CoverScore(c[0], c[1], k, loc);
-                if (cs == 0) continue;                       // must serve the industry
+                local cs = StationDT.CoverScore(c[0], c[1], k, cargo, is_source);
+                if (cs == 0) continue;                       // must really serve it
                 local val = cs * 2 + (k == base_k ? 1 : 0);  // coverage first, tie->facing
                 if (val > best_val) { best_val = val; best = [c[0], c[1], k]; }
             }
         }
         if (best != null) {
-            local st = StationDT.Build(best[0], best[1], best[2], cargo, true);
-            if (st != null) return st;
-        }
-        // Pass 2: fall back to nearest buildable, partner-facing (the big footprint
-        // can't always both fit flat AND cover - better a near station than none).
-        foreach (c in cands) {
-            if (!StationDT.CanBuild(c[0], c[1], base_k)) continue;
-            local st = StationDT.Build(c[0], c[1], base_k, cargo, true);
+            local st = StationDT.Build(best[0], best[1], best[2], cargo, is_source);
             if (st != null) return st;
         }
         return null;
@@ -101,9 +99,9 @@ class Rail2 {
         local prod_tile = AIIndustry.GetLocation(c.producer);
         local acc_tile  = ("acc_is_town" in c && c.acc_is_town)
             ? AITown.GetLocation(c.accepter) : AIIndustry.GetLocation(c.accepter);
-        local src = Rail2.SiteStation(c.producer, acc_tile, c.cargo);
+        local src = Rail2.SiteStation(c.producer, acc_tile, c.cargo, true);
         if (src == null) { Log.Warn(Log.PHASE_STATION, "[rail2] no src site"); return false; }
-        local dst = Rail2.SiteStation(c.accepter, prod_tile, c.cargo);
+        local dst = Rail2.SiteStation(c.accepter, prod_tile, c.cargo, false);
         if (dst == null) {
             Log.Warn(Log.PHASE_STATION, "[rail2] no dst site");
             StationDT.Demolish(src);

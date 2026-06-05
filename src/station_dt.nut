@@ -162,15 +162,20 @@ class StationDT {
         foreach (t, _ in lo) if (AIRail.IsRailTile(t)) AITile.DemolishTile(t);
     }
 
-    // How many PLATFORM tiles of the station at (ox,oy,k) are within coverage of
-    // `target` - the station's "reach" over that industry. 0 = doesn't serve it.
-    static function CoverScore(ox, oy, k, target) {
+    // How well the station at (ox,oy,k) actually SERVES the cargo - using the game's
+    // real catchment calc (GetCargoProduction for a source, GetCargoAcceptance for a
+    // dest), NOT distance-to-industry-centre (which built stations that "Accept:
+    // Nothing"). Returns the count of platform tiles that produce/accept; 0 = useless.
+    static function CoverScore(ox, oy, k, cargo, is_source) {
         local cov = AIStation.GetCoverageRadius(AIStation.STATION_TRAIN);
         local n = 0;
         for (local px = 0; px <= 5; px++)
             for (local py = 1; py <= 3; py++) {
                 local t = StationDT._Tile(ox, oy, StationDT._Rot(px, py, k));
-                if (AIMap.DistanceManhattan(t, target) <= cov) n++;
+                local v = is_source
+                    ? AITile.GetCargoProduction(t, cargo, 1, 1, cov)
+                    : AITile.GetCargoAcceptance(t, cargo, 1, 1, cov);
+                if (v >= (is_source ? 1 : 8)) n++;   // 8 = the game's acceptance threshold
             }
         return n;
     }
