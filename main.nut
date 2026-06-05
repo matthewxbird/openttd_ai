@@ -33,6 +33,7 @@ require("src/town_authority.nut");
 require("src/planner.nut");
 require("src/junction_builder.nut");
 require("src/station_dt.nut");
+require("src/rail2_route.nut");
 
 class MvBAI extends AIController {
     state        = null;
@@ -92,6 +93,11 @@ class MvBAI extends AIController {
     // near map centre and log build ok/fail - headless smoke for the Phase 11
     // station geometry (no visual needed: fail=0 + station id => geometry valid).
     static DEBUG_DT = false;
+
+    // Phase 11 rail rewrite: build rail routes on AAHOG-style SmartTerminus
+    // (StationDT) with distance-scaled fleets instead of the 2-train reversing
+    // terminus. OFF on main until it beats the baseline. See src/rail2_route.nut.
+    static USE_RAIL2 = false;
 
     function Start();
     function Save();
@@ -356,6 +362,13 @@ function MvBAI::Start() {
             // Decided to build this one: borrow just enough to cover it now, so
             // incremental spends (stations, track, fleet) never run dry midway.
             Money.EnsureFunds(needed);
+            // Phase 11 rail rewrite: build on AAHOG-style SmartTerminus with a
+            // distance-scaled fleet (no 2-train deadlock cap) when enabled.
+            if (MvBAI.USE_RAIL2) {
+                if (Rail2.TryBuild(this.state, c, this.railtype)) { built_one = true; break; }
+                this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
+                continue;
+            }
             if (this.TryBuildRoute(c, single_only)) {
                 built_one = true;
                 break;

@@ -120,6 +120,34 @@ proper baked merge, like SmartStation, not a tacked-on return loop.
 
 ## Status log
 
+- 2026-06-05 (cont.): IMPLEMENTED + smoke-tested headless. State:
+  - `src/station_dt.nut` (StationDT): faithful AAHOG SmartStation port. **Builds
+    4/4 directions, 16/16 throat rails, fail=0** after adding `AITile.LevelTiles`
+    (the throat bridge needs equal-height heads - `ERR_BRIDGE_HEADS_NOT_ON_SAME_HEIGHT`)
+    + obstacle-clearing before throat rails. `CanBuild` rejects relief>2.
+  - `src/rail2_route.nut` (Rail2): sites two StationDT terminals, builds the
+    double-track main via the EXISTING robust `TrackBuilder._RunPathfinder`
+    (reroute-on-UNKNOWN; a naive single pathfind failed mid-path), distance-scaled
+    fleet (`FleetSize`). **Builds a full route: "Reham Coal Mine->Ginnley Power
+    Station, trains=5, dist=74"** - proves the fleet-scale thesis is BUILDABLE
+    (5 trains on one route, vs the old 2-train cap).
+  - `main.nut`: `USE_RAIL2` flag (OFF), `DEBUG_DT` boot smoke (OFF). Wired into the
+    rail dispatch branch.
+  - **BLOCKER (needs GUI visual-debug):** the 5-train route's trains **stall in the
+    throat within ~44 days, never reach dst (reachedDst=false, STUCK=4)** -> the
+    maintenance lifecycle condemns it. The throat connectivity / signal direction /
+    depot-flow is semantically wrong somewhere I can't see headless. Suspects:
+    (a) num==2 has no throat depot, so the depot (built mid-out-main by
+    DepotBuilder) spawns trains facing the wrong way into one-way-PBS main - they
+    can't reach the source platform to load; (b) a throat segment / signal is mis-
+    rotated so arrival->platform->departure isn't a valid through-path. num==3 (depot
+    in throat) sites too rarely (bigger footprint) to test - 0 routes in a 256 smoke.
+  - **NEXT (visual loop):** flip `USE_RAIL2=true`, run a GUI game, find a rail2
+    SmartTerminus, WATCH where the 5 trains jam (leaving source? in the throat? at
+    the depot?). Fix the throat/signal/depot from what you see. Then re-bench. Until
+    then rail2 is OFF on the branch; main is untouched (bit-identical to baseline).
+    This is the documented headless wall (10/10 topology builds failed blind).
+
 - 2026-06-05: branch + design captured. Read RailStation base + SmartStation:
   drive-through = baked throat template (GetRails) + main-line pathfind. NEXT:
   transcribe AAHOG SmartStation throat into a junction_builder StampList template

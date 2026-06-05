@@ -96,25 +96,32 @@ class StationDT {
         return StationDT._Move(origin, dir, x, y);
     }
 
-    // DRY-RUN: would the whole footprint build? Cheap pre-flight before spend.
+    // The footprint bounding corners (covers platforms + throat) for leveling.
+    static function _FootprintCorners(origin, dir, num, len) {
+        local far_x = (num - 1 > 2) ? (num - 1) : 2;
+        return [StationDT._At(origin, dir, 0, 0),
+                StationDT._At(origin, dir, far_x, len + 6)];
+    }
+
+    // DRY-RUN: cheap pre-flight before spend. The footprint must be roughly FLAT
+    // (the grade-separation bridge needs equal-height heads); the real Build levels
+    // it, but a site with too much relief can't be levelled, so reject early.
     static function CanBuild(platformTile, dir, num, len) {
         local origin = StationDT._Origin(platformTile, dir, num, len);
+        local c = StationDT._FootprintCorners(origin, dir, num, len);
+        // Build a tile list over the footprint rectangle; reject if relief > 2.
+        local lo = AITileList();
+        lo.AddRectangle(c[0], c[1]);
+        if (lo.IsEmpty()) return false;
+        local maxh = 0; local minh = 99;
+        foreach (t, _ in lo) {
+            local h = AITile.GetMaxHeight(t);
+            if (h > maxh) maxh = h;
+            if (h < minh) minh = h;
+        }
+        if (maxh - minh > 2) return false;   // too hilly to level cleanly
         local tm = AITestMode();
-        // Platform rectangle buildable + roughly flat.
-        if (!AIRail.BuildRailStation(platformTile, StationDT._PlatformTrack(dir), num, len, AIStation.STATION_NEW)) {
-            return false;
-        }
-        // Throat rails.
-        foreach (seg in StationDT._ThroatRails(num)) {
-            local a = StationDT._At(origin, dir, seg[0][0], seg[0][1] + len);
-            local b = StationDT._At(origin, dir, seg[1][0], seg[1][1] + len);
-            local c = StationDT._At(origin, dir, seg[2][0], seg[2][1] + len);
-            if (!AIRail.BuildRail(a, b, c)
-                && AIError.GetLastError() != AIError.ERR_ALREADY_BUILT) {
-                return false;
-            }
-        }
-        return true;
+        return AIRail.BuildRailStation(platformTile, StationDT._PlatformTrack(dir), num, len, AIStation.STATION_NEW);
     }
 
     // Build for real. Returns a station record or null.
@@ -125,6 +132,12 @@ class StationDT {
     static function Build(platformTile, dir, num, len, cargo, is_source) {
         local origin = StationDT._Origin(platformTile, dir, num, len);
         local track  = StationDT._PlatformTrack(dir);
+
+        // 0. LEVEL the footprint (the throat bridge needs equal-height heads, and
+        //    sloped ground fails the rail/station build). AAHOG levels before any
+        //    build; AITile.LevelTiles flattens the rectangle to one height.
+        local fc = StationDT._FootprintCorners(origin, dir, num, len);
+        AITile.LevelTiles(fc[0], fc[1]);
 
         // 1. Platforms (one call builds the N x len block).
         local built = (cargo == null)
@@ -151,12 +164,18 @@ class StationDT {
             }
         }
 
-        // 3. Throat rails.
+        // 3. Throat rails. Clear any obstacle (trees/objects) on each tile first
+        //    so a non-clear tile doesn't fail the rail (ERR_AREA_NOT_CLEAR).
         local okc = 0; local fail = 0; local first_err = "";
         foreach (seg in StationDT._ThroatRails(num)) {
             local a = StationDT._At(origin, dir, seg[0][0], seg[0][1] + len);
             local b = StationDT._At(origin, dir, seg[1][0], seg[1][1] + len);
             local c = StationDT._At(origin, dir, seg[2][0], seg[2][1] + len);
+            foreach (t in [a, b, c]) {
+                if (!AITile.IsBuildable(t) && !AIRail.IsRailTile(t) && !AITile.IsStationTile(t)) {
+                    AITile.DemolishTile(t);
+                }
+            }
             if (AIRail.BuildRail(a, b, c)
                 || AIError.GetLastError() == AIError.ERR_ALREADY_BUILT) {
                 okc++;
