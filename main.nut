@@ -98,7 +98,7 @@ class MvBAI extends AIController {
     // Phase 11 rail rewrite: build rail routes on AAHOG-style SmartTerminus
     // (StationDT) with distance-scaled fleets instead of the 2-train reversing
     // terminus. OFF on main until it beats the baseline. See src/rail2_route.nut.
-    static USE_RAIL2 = false;
+    static USE_RAIL2 = true;
 
     function Start();
     function Save();
@@ -750,32 +750,40 @@ function _MarkTileZone(set, center, r) {
 // map centre, so its geometry can be inspected. Builds a short double-track
 // main + a branch leg, then stamps JunctionBuilder.BuildFlatDoubleT to tie them.
 function MvBAI::_DebugStampJunction() {
+    // Stamp the captured AAHOG throat at ALL 4 rotations on separate flat-land
+    // patches, so the rotated track-bits (JunctionBuilder._RotBit) can be
+    // eyeballed: k=0 is the known-good reference; if k=1/k=3 look MIRRORED vs
+    // k=0/k=2, _RotBit's 90/270 corner cycle is wrong. Each [debug] line logs the
+    // stamp origin (fly there in-game); [stamp] logs ok/fail per rotation.
     local cx = AIMap.GetMapSizeX() / 2;
     local cy = AIMap.GetMapSizeY() / 2;
-    // Find a LAND patch (centre is often water): walk a grid, pick the first
-    // 24x10 rectangle with no water tile.
-    local ox = -1; local oy = -1;
-    for (local gy = -50; gy <= 50 && ox == -1; gy += 6) {
-        for (local gx = -50; gx <= 50 && ox == -1; gx += 6) {
-            local px = cx + gx; local py = cy + gy;
-            local ok = true;
-            for (local y = -2; y <= 7 && ok; y++)
-                for (local x = -2; x <= 21 && ok; x++) {
-                    local t = AIMap.GetTileIndex(px + x, py + y);
-                    if (!AIMap.IsValidTile(t) || AITile.IsWaterTile(t)) ok = false;
-                }
-            if (ok) { ox = px; oy = py; }
+    for (local k = 0; k < 4; k++) {
+        // Per-rotation seed area, spaced so the 4 don't overlap.
+        local seedx = cx + (k % 2) * 44 - 22;
+        local seedy = cy + (k / 2) * 44 - 22;
+        // Find a 26x26 land patch near the seed (centre is often water).
+        local ox = -1; local oy = -1;
+        for (local gy = 0; gy <= 60 && ox == -1; gy += 4) {
+            for (local gx = 0; gx <= 60 && ox == -1; gx += 4) {
+                local px = seedx + gx - 30; local py = seedy + gy - 30;
+                local ok = true;
+                for (local y = 0; y < 26 && ok; y++)
+                    for (local x = 0; x < 26 && ok; x++) {
+                        local t = AIMap.GetTileIndex(px + x, py + y);
+                        if (!AIMap.IsValidTile(t) || AITile.IsWaterTile(t)) ok = false;
+                    }
+                if (ok) { ox = px; oy = py; }
+            }
         }
+        if (ox == -1) { Log.Warn(Log.PHASE_BOOT, "[debug] no land patch for k=" + k); continue; }
+        Money.EnsureFunds(150000);   // boot is cash-starved; level+stamp needs funds
+        local fd = StationDT._FootDims(k);   // tight level box = the rotated footprint
+        AITile.LevelTiles(AIMap.GetTileIndex(ox + 2, oy + 2),
+                          AIMap.GetTileIndex(ox + 2 + fd[0] - 1, oy + 2 + fd[1] - 1));
+        local origin = AIMap.GetTileIndex(ox + 2, oy + 2);
+        JunctionBuilder.StampList(origin, JunctionBuilder.Rotate(Captures.WronstonThroat(), k));
+        Log.Info(Log.PHASE_BOOT, "[debug] WronstonThroat k=" + k + " at (" + (ox + 2) + "," + (oy + 2) + ")");
     }
-    if (ox == -1) { Log.Warn(Log.PHASE_BOOT, "[debug] no land patch for stamp"); return; }
-
-    // VERIFY the captured AAHOG Wronston throat replays clean (skill step 3:
-    // expect [stamp] fail=0). 19 wide x 4 tall; level a generous patch + stamp.
-    AITile.LevelTiles(AIMap.GetTileIndex(ox - 2, oy - 2),
-                      AIMap.GetTileIndex(ox + 21, oy + 7));
-    local origin = AIMap.GetTileIndex(ox, oy);
-    JunctionBuilder.StampList(origin, Captures.WronstonThroat());
-    Log.Info(Log.PHASE_BOOT, "[debug] WronstonThroat stamped at (" + ox + "," + oy + ")");
 }
 
 // Save/Load are stubbed in v1.

@@ -24,12 +24,13 @@ class Rail2 {
         local loc = AIIndustry.GetLocation(industry_id);
         local ix = AIMap.GetTileX(loc);
         local iy = AIMap.GetTileY(loc);
-        // TODO: face partner via DirToward once rotated-throat track-bits are
-        // GUI-verified (90/270 chirality suspect). k=0 builds + trains reach dst.
-        local k  = 0;   // StationDT.DirToward(loc, partner_tile);
+        // Throat faces the partner (rotations verified to stamp clean). This puts
+        // src.throat -> dst and dst.throat -> src so the double main connects short
+        // and the return leg can complete.
+        local k  = StationDT.DirToward(loc, partner_tile);
         local cands = [];
-        for (local dy = -10; dy <= 4; dy++)
-            for (local dx = -10; dx <= 4; dx++)
+        for (local dy = -8; dy <= 2; dy++)
+            for (local dx = -8; dx <= 2; dx++)
                 cands.push([ix + dx, iy + dy]);
         cands.sort(function(a, b) : (ix, iy) {
             local da = (a[0] + 2 - ix) * (a[0] + 2 - ix) + (a[1] + 2 - iy) * (a[1] + 2 - iy);
@@ -75,7 +76,7 @@ class Rail2 {
         //   back : dst.main_b (depart) -> src.main_a (arrive)
         local out_main = Rail2._BuildMain(src.main_b, src.main_b_prev, dst.main_a, dst.main_a_prev, [], "rail2-out");
         local back_main = (out_main == null) ? null
-            : Rail2._BuildMain(dst.main_b, dst.main_b_prev, src.main_a, src.main_a_prev, out_main, "rail2-back");
+            : Rail2._BuildMain(dst.main_b, dst.main_b_prev, src.main_a, src.main_a_prev, [], "rail2-back");
         if (out_main == null || back_main == null) {
             Log.Warn(Log.PHASE_TRACK, "[rail2] main build failed; abandoning.");
             StationDT.Demolish(src); StationDT.Demolish(dst);
