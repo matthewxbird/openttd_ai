@@ -111,6 +111,20 @@ class StationDT {
         local origin = AIMap.GetTileIndex(ox, oy);
         JunctionBuilder.StampList(origin, JunctionBuilder.Rotate(throat, k));
 
+        // Station-integrated DEPOT at the user-verified spot: a dead-end siding at
+        // capture (12,3) - open ground just past the dy3 (3rd-platform) line end -
+        // connecting to throat tile (11,3). NOT on a through line, so it doesn't break
+        // the main/flow. Rotated by k.
+        local dep_pt = StationDT._Rot(12, 3, k);
+        local dfr_pt = StationDT._Rot(11, 3, k);
+        local depot  = StationDT._Tile(ox, oy, dep_pt);
+        local dfront = StationDT._Tile(ox, oy, dfr_pt);
+        if (!AIRail.BuildRailDepot(depot, dfront)
+            && AIError.GetLastError() != AIError.ERR_ALREADY_BUILT) {
+            Log.Warn(Log.PHASE_DEPOT, "[dt] station depot failed: " + AIError.GetLastErrorString());
+            depot = null;
+        }
+
         local maP = StationDT._Rot(StationDT.MAIN_A[0], StationDT.MAIN_A[1], k);
         local maV = StationDT._Rot(StationDT.MAIN_A_PREV[0], StationDT.MAIN_A_PREV[1], k);
         local mbP = StationDT._Rot(StationDT.MAIN_B[0], StationDT.MAIN_B[1], k);
@@ -122,6 +136,7 @@ class StationDT {
             station_id = station_id, platform_tile = corner, tile = corner,
             main_a = StationDT._Tile(ox, oy, maP), main_a_prev = StationDT._Tile(ox, oy, maV),
             main_b = StationDT._Tile(ox, oy, mbP), main_b_prev = StationDT._Tile(ox, oy, mbV),
+            depot = depot,
             ox = ox, oy = oy, k = k,
         };
     }

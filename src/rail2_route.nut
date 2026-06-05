@@ -106,10 +106,13 @@ class Rail2 {
             return false;
         }
 
-        // Depot on the back-main near the source (fresh train -> source -> load first).
-        local depot = null;
-        local d = DepotBuilder.New(back_main, "rail2-depot");
-        if (d != null && d.len() > 0) depot = d[0];
+        // Depot: the src station has one baked into its throat (dead-end siding off
+        // the dy3 line). Fall back to a back-main depot only if it didn't build.
+        local depot = ("depot" in src) ? src.depot : null;
+        if (depot == null) {
+            local d = DepotBuilder.New(back_main, "rail2-depot");
+            if (d != null && d.len() > 0) depot = d[0];
+        }
         if (depot == null) {
             Log.Warn(Log.PHASE_DEPOT, "[rail2] no depot; abandoning.");
             StationDT.Demolish(src); StationDT.Demolish(dst);
