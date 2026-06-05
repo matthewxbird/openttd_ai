@@ -123,7 +123,7 @@ class RailPathFinder {
                                            // the line weaves/detours instead of just
                                            // terraforming a small bump flat (the
                                            // builder levels isolated bumps anyway)
-        this._estimate_rate       = 2.0;   // WEIGHTED A* (user-requested): inflate the
+        this._estimate_rate       = 1.2;   // WEIGHTED A* (user-requested): inflate the
                                            // heuristic so search is greedier toward the
                                            // goal -> far fewer nodes expanded (kills the
                                            // 600-chunk grind, saves opcodes). Cost: paths
