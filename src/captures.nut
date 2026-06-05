@@ -8,6 +8,23 @@
 
 class Captures {
 
+    // 2-PLATFORM throat (Charnbury East area, scanned 2026-06-05; box origin
+    // (100,197)). REBASED to 0-origin (min dx=12, min dy=6). Two platform tracks
+    // (rows dy0/dy1) run straight (bits=1) out of the platforms (toward -x); a
+    // CROSSOVER turnout at dx4 (corners 41 = 1+8+32, 21 = 1+4+16) ties the two
+    // tracks together; the exit is dx5 with combo presignals (row0 faces out +x =
+    // DEPARTURE, row1 faces in -x = ARRIVAL). Far simpler than the 3-platform
+    // bridged merge - a cheap small-station opener. Platforms are built separately
+    // (BuildRailStation); stamp only the crossover (dx>=4).
+    static function TwoPlatThroat() {
+        return [
+            ["R",0,0,1],["R",1,0,1],["R",2,0,1],["R",3,0,1],["R",4,0,41],["R",5,0,1],
+            ["S",5,0,6,0,4],
+            ["R",0,1,1],["R",1,1,1],["R",2,1,1],["R",3,1,1],["R",4,1,21],["R",5,1,1],
+            ["S",5,1,4,1,4],
+        ];
+    }
+
     // AAHOG "Wronston" station throat+main junction, scanned 2026-06-05 from a live
     // 1v1 (box origin (70,205), 23x23). REBASED to 0-origin (subtracted min dx=4,
     // min dy=3). 3 platform rows (dy 1,2,3) run straight (bits=1) on the west side

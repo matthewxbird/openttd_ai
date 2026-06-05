@@ -85,10 +85,10 @@ class MvBAI extends AIController {
     // reload - the AI dumps the layout. Paste the [scan] lines back to bake a
     // template. (x1,y1) = top-left (min X, min Y), (x2,y2) = bottom-right.
     static DEBUG_SCAN  = false;
-    static SCAN_X1 = 70;
-    static SCAN_Y1 = 205;
-    static SCAN_X2 = 92;
-    static SCAN_Y2 = 227;
+    static SCAN_X1 = 100;
+    static SCAN_Y1 = 197;
+    static SCAN_X2 = 132;
+    static SCAN_Y2 = 210;
 
     // DEBUG: at boot, build ONE SmartTerminus (StationDT) at the first flat spot
     // near map centre and log build ok/fail - headless smoke for the Phase 11
