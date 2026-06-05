@@ -32,6 +32,7 @@ require("src/maintenance.nut");
 require("src/town_authority.nut");
 require("src/planner.nut");
 require("src/junction_builder.nut");
+require("src/captures.nut");
 require("src/station_dt.nut");
 require("src/rail2_route.nut");
 
@@ -83,7 +84,7 @@ class MvBAI extends AIController {
     // read its bounding tile coords (land-info tool shows X,Y), put them here,
     // reload - the AI dumps the layout. Paste the [scan] lines back to bake a
     // template. (x1,y1) = top-left (min X, min Y), (x2,y2) = bottom-right.
-    static DEBUG_SCAN  = true;
+    static DEBUG_SCAN  = false;
     static SCAN_X1 = 70;
     static SCAN_Y1 = 205;
     static SCAN_X2 = 92;
@@ -749,29 +750,32 @@ function _MarkTileZone(set, center, r) {
 // map centre, so its geometry can be inspected. Builds a short double-track
 // main + a branch leg, then stamps JunctionBuilder.BuildFlatDoubleT to tie them.
 function MvBAI::_DebugStampJunction() {
-    local mx = AIMap.GetMapSizeX();
-    local d  = 1;    // main runs along +x
-    local p  = mx;   // tracks/branch separated along +y
-    local base = AIMap.GetTileIndex(AIMap.GetMapSizeX() / 2, AIMap.GetMapSizeY() / 2);
-
-    // Flatten a generous square covering both arms of the cross.
-    local bx = AIMap.GetTileX(base);
-    local by = AIMap.GetTileY(base);
-    AITile.LevelTiles(AIMap.GetTileIndex(bx - 2, by - 2),
-                      AIMap.GetTileIndex(bx + 12, by + 8));
-
-    // Stamp the captured junction at all 4 rotations, spaced apart, to verify
-    // the rotation logic (track bits + offsets + signals).
-    for (local k = 0; k < 4; k++) {
-        local ox = bx + 2 + k * 16;     // 16 tiles apart along x
-        local oy = by + 2;
-        AITile.LevelTiles(AIMap.GetTileIndex(ox - 1, oy - 1),
-                          AIMap.GetTileIndex(ox + 13, oy + 13));
-        local origin = AIMap.GetTileIndex(ox, oy);
-        JunctionBuilder.StampList(origin, JunctionBuilder.Rotate(JunctionBuilder.Template1(), k));
-        Log.Info(Log.PHASE_BOOT,
-            "[debug] junction rot=" + k + " at (" + ox + "," + oy + ")");
+    local cx = AIMap.GetMapSizeX() / 2;
+    local cy = AIMap.GetMapSizeY() / 2;
+    // Find a LAND patch (centre is often water): walk a grid, pick the first
+    // 24x10 rectangle with no water tile.
+    local ox = -1; local oy = -1;
+    for (local gy = -50; gy <= 50 && ox == -1; gy += 6) {
+        for (local gx = -50; gx <= 50 && ox == -1; gx += 6) {
+            local px = cx + gx; local py = cy + gy;
+            local ok = true;
+            for (local y = -2; y <= 7 && ok; y++)
+                for (local x = -2; x <= 21 && ok; x++) {
+                    local t = AIMap.GetTileIndex(px + x, py + y);
+                    if (!AIMap.IsValidTile(t) || AITile.IsWaterTile(t)) ok = false;
+                }
+            if (ok) { ox = px; oy = py; }
+        }
     }
+    if (ox == -1) { Log.Warn(Log.PHASE_BOOT, "[debug] no land patch for stamp"); return; }
+
+    // VERIFY the captured AAHOG Wronston throat replays clean (skill step 3:
+    // expect [stamp] fail=0). 19 wide x 4 tall; level a generous patch + stamp.
+    AITile.LevelTiles(AIMap.GetTileIndex(ox - 2, oy - 2),
+                      AIMap.GetTileIndex(ox + 21, oy + 7));
+    local origin = AIMap.GetTileIndex(ox, oy);
+    JunctionBuilder.StampList(origin, Captures.WronstonThroat());
+    Log.Info(Log.PHASE_BOOT, "[debug] WronstonThroat stamped at (" + ox + "," + oy + ")");
 }
 
 // Save/Load are stubbed in v1.
