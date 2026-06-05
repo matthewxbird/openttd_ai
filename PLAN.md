@@ -1,5 +1,57 @@
 # MvB AI — Profitability & Competitiveness Plan
 
+---
+
+## Phase 11 — BUST THE LOCAL OPTIMUM (the 15× gap) *(CURRENT FOCUS, 2026-06-05)*
+
+**Measured state:** solo ~3M (deep local optimum, 10/10 incremental levers
+regressed); 1v1 vs AAHOG 0/5, MvB ~0.77M (5× up from air gains) vs AAHOG **44M**.
+AAHOG is **15× our SOLO best** — even uncontested we lose. Not a tuning gap.
+
+**Root cause (from AAHOG source, evidence-backed):** the gap is **FLEET SIZE**,
+not per-vehicle profit.
+- AAHOG `maxTrains` = the GAME setting `vehicle.max_trains` (**500**); per-route
+  `maxTrains = engineSet.maxVehicles * (pathDist+addl)/pathDist` — **train count
+  scales with distance**, capped only by the 500 game limit (`trainroute.nut:1286`).
+- AAHOG stations are **RoRo drive-through** by default (`isRoRo = !IsTransfer()`,
+  `trainroute.nut:857`) and **multi-platform** (`DestRailStation` default **3
+  platforms**) → trains load in parallel, **no reversing-terminus deadlock**.
+- Plus: dynamic profit model (roiBase→buildingTimeBase→vehicleProfitBase by phase,
+  `main.nut:781`), transfers/bi-directional/meet-place candidates, and supply-chain
+  feeding (`SearchAndBuildToMeetSrcDemand`, mostly FIRS/ECS/YETI — not default temperate).
+- Net: AAHOG runs **hundreds of vehicles**; we run **~30** (MAX_TRAINS=2/route +
+  one-route-per-producer). 44M/3M ≈ the vehicle-count ratio.
+
+**Why our caps exist:** `MAX_TRAINS=2` and one-route-per-producer are SOLVENCY
+band-aids for the **reversing-terminus deadlock** (measured sweep: 3-4 trains
+deadlock the shared throat → bankruptcy; see [[deadlock-terminus]]). So **the
+station is the keystone**: raising the fleet cap without a deadlock-free station
+already measured WORSE. Everything downstream (distance-scaled trains, denser
+network) is gated on it.
+
+### Staged bust-out (each bench-gated; topology needs the in-game visual-debug loop)
+
+1. **KEYSTONE — multi-platform drive-through station** (replace reversing terminus).
+   Replicate AAHOG's RoRo: trains enter one end, load at a platform on the through
+   line, exit the other end — N platforms so N trains never contend for one throat.
+   Our prior RoRo attempts (-17%) failed on a SHORT single-track return loop
+   (itself a bottleneck) — the fix is a proper drive-through on the double-track
+   main, not a bolt-on loop. **Headless blind-building of station topology has
+   failed 10/10; this needs the user's GUI visual-debug loop** (junction-builder
+   skill can capture an AAHOG-style layout tile-for-tile).
+2. **Distance-scaled per-route train cap** (AAHOG formula) — once deadlock-free,
+   `maxTrains` rises with distance/production instead of a flat 2.
+3. **Junctions/shared trunks** (already scaffolded, `feat/auto-junction`) — now pay,
+   because trunks become double-track + the consumer throat is deadlock-free.
+4. **Dynamic profit model + breadth** — keep building while vehicle room exists
+   (buildingTimeBase), add transfers / bi-directional where they out-score.
+
+Order is forced: 1 unlocks 2 unlocks 3/4. Do NOT chase 2-4 before 1 (the cap
+sweep already proved it regresses). This is a network-layer rewrite, multi-session.
+
+---
+
+
 Goal: make MvB AI a top-tier, aggressively profitable competitor that out-earns
 and out-expands rival companies on the same map — and, critically, **stays
 solvent under competition**. This plan is grounded in (a) a measured honest
