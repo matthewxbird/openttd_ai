@@ -45,8 +45,11 @@ class Rail2 {
         return null;
     }
 
+    static MAIN_CHUNKS = 250;   // fail-fast: the throat main-exit makes long hauls
+                                // explode the A* open-set; cap chunks so a hard
+                                // connect gives up quick instead of grinding to 600.
     static function _BuildMain(from_tile, from_prev, to_tile, to_prev, guide, label) {
-        local tiles = TrackBuilder._RunPathfinder(from_tile, from_prev, to_tile, to_prev, true, guide, label);
+        local tiles = TrackBuilder._RunPathfinder(from_tile, from_prev, to_tile, to_prev, true, guide, label, Rail2.MAIN_CHUNKS);
         if (tiles == null) {
             Log.Warn(Log.PHASE_TRACK, "[rail2] " + label + " build failed.");
             return null;

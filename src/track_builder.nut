@@ -276,15 +276,16 @@ class TrackBuilder {
     // of abandoning at the first bad tile.
     // Returns the built (and verified) tile array, or null if no clean route.
     static function _RunPathfinder(src_f, src_p, dst_f, dst_p,
-                                    is_outward, guide_tiles, label) {
+                                    is_outward, guide_tiles, label, max_chunks = null) {
         local avoid = [];   // tiles a previous attempt couldn't build on
+        local mc = (max_chunks == null) ? TrackBuilder.MAX_CHUNKS : max_chunks;
 
         for (local attempt = 0; attempt < TrackBuilder.MAX_REBUILD; attempt++) {
             local ignored = TrackBuilder._MergeIgnored(guide_tiles, avoid);
 
             local tiles = TrackBuilder._FindPath(
                 src_f, src_p, dst_f, dst_p, is_outward, guide_tiles, ignored,
-                TrackBuilder.MAX_CHUNKS, label);
+                mc, label);
             // NO relaxed-budget retry (manual-test feedback): if the capped search
             // can't reach in MAX_CHUNKS, the route is too complex for us - GIVE UP
             // and let the ranker pick a simpler, profitable route. Grinding more
