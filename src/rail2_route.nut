@@ -10,10 +10,12 @@
 class Rail2 {
     static BASE_TRAINS = 3;
     static MAX_TRAINS  = 12;
+    static GROWTH_SCALE = 0.9;   // dial fleet growth down 10% (was over-zealous)
     static function FleetSize(distance, production) {
         local byDist = Rail2.BASE_TRAINS + distance / 12;
         local byProd = 1 + production / 40;
         local n = byDist < byProd ? byDist : byProd;
+        n = (n * Rail2.GROWTH_SCALE).tointeger();   // scale growth down 10%
         if (n < 1) n = 1;
         if (n > Rail2.MAX_TRAINS) n = Rail2.MAX_TRAINS;
         return n;
