@@ -10,6 +10,8 @@
 class Rail2 {
     static BASE_TRAINS = 3;
     static MAX_TRAINS  = 12;
+    static DEPOT_SPACING = 30;  // ~1 servicing depot per side per this many tiles
+                                // of line (starting point; tune for density).
     static function FleetSize(distance, production) {
         local byDist = Rail2.BASE_TRAINS + distance / 12;
         local byProd = 1 + production / 40;
@@ -205,17 +207,28 @@ class Rail2 {
             return Rollback();
         }
 
-        // Depot: the src station has one baked into its throat (dead-end siding off
-        // the dy3 line). Fall back to a back-main depot only if it didn't build.
-        local depot = ("depot" in src) ? src.depot : null;
-        if (depot == null) {
-            local d = DepotBuilder.New(back_main, "rail2-depot");
-            if (d != null && d.len() > 0) { depot = d[0]; depot_holder[0] = depot; }
-        }
-        if (depot == null) {
+        // SERVICING DEPOTS: distribute depots ALONG the line, on BOTH running
+        // tracks, scaled to its length (~1 per side per DEPOT_SPACING tiles), so a
+        // train can duck into a depot to service/replace without a long haul back
+        // to a single end depot. Each call builds on that track's OUTER flank (the
+        // inner side is the partner track), so out+back together = both sides of the
+        // corridor. The src station also has a depot baked into its throat siding.
+        local per_side = out_main.len() / Rail2.DEPOT_SPACING;
+        if (per_side < 1) per_side = 1;
+        local depots = [];
+        if (("depot" in src) && src.depot != null) depots.push(src.depot);
+        // _Touch each distributed depot tile so a later Rollback demolishes it too
+        // (depot tiles sit off the main, so they aren't already in _touched).
+        local od = DepotBuilder.New(out_main,  "rail2-depot-out",  Rail2.DEPOT_SPACING, per_side);
+        if (od != null) foreach (t in od) { depots.push(t); TrackBuilder._Touch(t); }
+        local bd = DepotBuilder.New(back_main, "rail2-depot-back", Rail2.DEPOT_SPACING, per_side);
+        if (bd != null) foreach (t in bd) { depots.push(t); TrackBuilder._Touch(t); }
+        if (depots.len() == 0) {
             Log.Warn(Log.PHASE_DEPOT, "[rail2] no depot; abandoning.");
             return Rollback();
         }
+        // Build the initial fleet from the first depot; the rest are for servicing.
+        local depot = depots[0];
 
         local engine = Trains.PickEngine(c.cargo, railtype);
         local wagon  = Trains.PickWagon(c.cargo, railtype);
@@ -243,7 +256,7 @@ class Rail2 {
         // Record the main track tiles so a later condemn/teardown cleans them too.
         route.touched <- [];
         foreach (t in TrackBuilder._touched) route.touched.push(t);
-        route.depot_tiles = [depot];
+        route.depot_tiles = depots;   // ALL distributed depots (for servicing/teardown)
         route.depot_tile  = depot;
         route.trains   = trains;
         route.train_id = trains[0];
