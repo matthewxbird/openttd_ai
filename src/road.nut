@@ -270,14 +270,16 @@ class Road {
         local src_st = Road.BuildStop(src_pair, c.cargo, is_pax);
         if (src_st == null) return false;
         local dst_st = Road.BuildStop(dst_pair, c.cargo, is_pax);
-        if (dst_st == null) return false;
+        if (dst_st == null) { Road._RemoveStops([src_st]); return false; }
 
         local path = Road.FindPath(src_pair.front, dst_pair.front);
-        if (path == null || path.len() < 2 || !Road.BuildAlong(path)) return false;
+        if (path == null || path.len() < 2 || !Road.BuildAlong(path)) {
+            Road._RemoveStops([src_st, dst_st]); return false;
+        }
 
         // Depot beside the source stop.
         local depot = Road._BuildDepot(src_pair.tile);
-        if (depot == -1) return false;
+        if (depot == -1) { Road._RemoveStops([src_st, dst_st]); return false; }
 
         // Build an INITIAL FLEET sized to production, not just one truck (a lone
         // truck leaves cargo piling up = poor rating). One truck carries `capacity`
@@ -291,7 +293,11 @@ class Road {
             if (v == -1) break;
             fleet.push(v);
         }
-        if (fleet.len() == 0) return false;
+        if (fleet.len() == 0) {
+            AIRoad.RemoveRoadDepot(depot);
+            Road._RemoveStops([src_st, dst_st]);
+            return false;
+        }
         Log.Info(Log.PHASE_TRAIN, "[road] " + AIIndustry.GetName(c.producer)
             + " prod=" + c.production + " -> start fleet " + fleet.len()
             + " trucks (cap " + veh.capacity + " each)");
@@ -357,15 +363,56 @@ class Road {
         return null;
     }
 
+    // Build a road depot connected to the network near a stop. The old version
+    // only probed the 4 tiles touching the stop itself - in a dense town those are
+    // buildings (perpendicular) or the through-road (collinear), so it reliably
+    // failed and the whole route was abandoned with NO bus ever built. Instead,
+    // anchor off any usable ROAD tile in a small ring around the stop (the stop's
+    // through-road AND the connecting road, which runs through open fields with
+    // room to spare) and drop the depot on an adjacent flat buildable tile facing
+    // that road. Returns the depot tile, or -1.
     static function _BuildDepot(near) {
-        foreach (o in Road._Offsets()) {
-            local d = near + o[0];
-            if (!Road._Usable(d) || AITile.IsStationTile(d)) continue;
-            if (AIRoad.AreRoadTilesConnected(near, d) || AIRoad.BuildRoad(near, d)) {
-                if (AIRoad.BuildRoadDepot(d, near)) return d;
+        local mx = AIMap.GetMapSizeX();
+        local dirs = [1, -1, mx, -mx];
+        local cx = AIMap.GetTileX(near), cy = AIMap.GetTileY(near);
+        // Collect road-tile anchors nearest-first (ring radius 0..3 around the stop).
+        for (local r = 0; r <= 3; r++) {
+            for (local dy = -r; dy <= r; dy++) {
+                for (local dx = -r; dx <= r; dx++) {
+                    if (r > 0 && abs(dx) != r && abs(dy) != r) continue;   // ring edge only
+                    local anchor = AIMap.GetTileIndex(cx + dx, cy + dy);
+                    if (!AIMap.IsValidTile(anchor)) continue;
+                    if (!AIRoad.IsRoadTile(anchor) || !Road._Usable(anchor)) continue;
+                    if (AITile.IsStationTile(anchor)) continue;   // can't hang a depot off a station tile
+                    // Try to drop a depot on a flat, clear, buildable tile beside it.
+                    foreach (o in dirs) {
+                        local d = anchor + o;
+                        if (!AIMap.IsValidTile(d)) continue;
+                        if (AIRoad.IsRoadTile(d) || AITile.IsStationTile(d)) continue;
+                        if (!AITile.IsBuildable(d)) continue;
+                        if (AITile.GetSlope(d) != AITile.SLOPE_FLAT) continue;
+                        if (AIRoad.BuildRoadDepot(d, anchor)) {
+                            AIRoad.BuildRoad(d, anchor);   // ensure the depot links to the road
+                            return d;
+                        }
+                    }
+                }
             }
         }
         return -1;
+    }
+
+    // Tear down our own drive-through stops (a failed road route's cleanup, so an
+    // abandoned attempt doesn't leave orphaned bus-stop stations + connecting road
+    // on the map with no vehicle - the visible "stops but no buses" mess). Only
+    // removes the stop tile; a stop JOINED to another station (a feeder's trunk
+    // side) must NOT be passed here.
+    static function _RemoveStops(stops) {
+        foreach (st in stops) {
+            if (st != null && ("tile" in st) && AIMap.IsValidTile(st.tile)) {
+                AIRoad.RemoveRoadStation(st.tile);
+            }
+        }
     }
 
     static function _BuildVehicle(depot, veh, cargo, src_st, dst_st, is_pax) {
@@ -418,17 +465,20 @@ class Road {
         local trunk_bus = Road.BuildStop(trunk_pair, cargo, true, trunk_st.station_id);
         if (trunk_bus == null) {
             Log.Warn(Log.PHASE_STATION, "[feeder] trunk-side stop/join failed.");
+            Road._RemoveStops([src_st]);   // trunk_bus not built; src_st is ours
             return false;
         }
 
         local path = Road.FindPath(src_pair.front, trunk_pair.front);
-        if (path == null || path.len() < 2 || !Road.BuildAlong(path)) return false;
+        if (path == null || path.len() < 2 || !Road.BuildAlong(path)) {
+            Road._RemoveStops([src_st]); return false;   // leave trunk_bus (joined to trunk)
+        }
 
         local depot = Road._BuildDepot(src_pair.tile);
-        if (depot == -1) return false;
+        if (depot == -1) { Road._RemoveStops([src_st]); return false; }
 
         local v = AIVehicle.BuildVehicle(depot, veh.engine);
-        if (!AIVehicle.IsValidVehicle(v)) return false;
+        if (!AIVehicle.IsValidVehicle(v)) { AIRoad.RemoveRoadDepot(depot); Road._RemoveStops([src_st]); return false; }
         if (AIEngine.GetCargoType(veh.engine) != cargo && AIEngine.CanRefitCargo(veh.engine, cargo)) {
             AIVehicle.RefitVehicle(v, cargo);
         }
@@ -437,7 +487,10 @@ class Road {
         local ok1 = AIOrder.AppendOrder(v, src_st.tile, AIOrder.OF_FULL_LOAD_ANY);
         local ok2 = AIOrder.AppendOrder(v, trunk_bus.tile, AIOrder.OF_TRANSFER | AIOrder.OF_NO_LOAD);
         Trains.ApplyServiceInterval(v);
-        if (!ok1 || !ok2 || !AIVehicle.StartStopVehicle(v)) { AIVehicle.SellVehicle(v); return false; }
+        if (!ok1 || !ok2 || !AIVehicle.StartStopVehicle(v)) {
+            AIVehicle.SellVehicle(v); AIRoad.RemoveRoadDepot(depot); Road._RemoveStops([src_st]);
+            return false;
+        }
 
         local route = Route.New(cargo, town, town, AIMap.DistanceManhattan(src_pair.tile, trunk_pair.tile), 0, true);
         route.road        <- true;
