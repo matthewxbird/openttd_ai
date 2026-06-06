@@ -562,14 +562,15 @@ class RailPathFinder {
             if (par_tile != null && par.GetParent() != null) {
                 if (next - cur_node == par.GetParent().GetTile() - par_tile) continue;
             }
-            // SLOPE GATE (a curved rail cannot sit on a slope): a
-            // CURVED rail piece - the path TURNS at cur_node - cannot sit on a
-            // sloped tile; only STRAIGHT track may be sloped. Skip such a step
-            // early (a cheap reject before the test-build, which would fail anyway
-            // and leave a gap). Only when cur_node was reached by a single step.
-            if (par_tile != null && par_dist == 1
-                    && (next - cur_node) != (cur_node - par_tile)
-                    && AITile.GetSlope(cur_node) != AITile.SLOPE_FLAT) continue;
+            // NOTE on the slope gate (_IsSlopedRail "curves can't be sloped"):
+            // NOT applied here. In this pathfinder a diagonal is a ZIG-ZAG of
+            // alternating single steps, so every diagonal tile reads as a "turn" -
+            // a naive turn-on-slope reject kills all diagonal movement on hilly
+            // ground (measured: -60%, hilly seeds collapse to bankruptcy). A 45deg
+            // diagonal turn on a slope is buildable anyway (foundation); only a
+            // 90deg hairpin is invalid, and that is already banned above. The
+            // test-build (AIRail.BuildRail) in this loop already rejects any piece
+            // that truly can't sit on its slope, so a separate gate is redundant.
             // BACK TRACK: hard-stay on the correct side of the out track. The
             // wrong-side tiles are a HARD no-go (not just a cost) so the back
             // track can never weave across and cross the out track.
