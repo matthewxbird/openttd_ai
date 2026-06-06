@@ -108,6 +108,20 @@ class Maintenance {
         // Collect routes to delete after the loop (don't mutate while iterating).
         local condemned_done = [];
         foreach (key, r in state.routes) {
+            // CLOSED INDUSTRY: an endpoint industry that has shut down (forest
+            // depleted, mine exhausted, factory closed) can never produce or accept
+            // again - the route is dead: idle vehicles, an orphaned line/station to
+            // nowhere. Condemn it (mode-appropriate) so it's torn down and the
+            // assets recovered. Endpoint test is town-safe: a live town is still a
+            // valid town, so only an id that is NEITHER a valid industry NOR a valid
+            // town (a truly-gone industry) trips this - air/road town routes survive.
+            if (r.status != "condemning" && Maintenance._EndpointClosed(r)) {
+                Log.Warn(Log.PHASE_LOOP,
+                    "[closed-industry] route cargo=" + r.cargo + " producer=" + r.producer
+                    + " accepter=" + r.accepter + " has a shut-down endpoint; condemning.");
+                Maintenance._CondemnByMode(state, r);
+                continue;   // status now "condemning"; teardown finishes next ticks
+            }
             // AIR routes (Phase 2) have a thin, separate lifecycle - no track,
             // no stuck/deadlock logic. Hand them to Air and skip the rail passes.
             if (("air" in r) && r.air) {
@@ -143,6 +157,27 @@ class Maintenance {
         local n = 0;
         if (r.trains != null) foreach (v in r.trains) if (AIVehicle.IsValidVehicle(v)) n++;
         return n;
+    }
+
+    // An endpoint id is a DEAD (closed) industry when it is neither a current
+    // industry nor a current town. A live town endpoint (air/road pax) stays a
+    // valid town, so it never trips this; only a shut-down industry does. (Town
+    // and industry id-spaces can overlap numerically; in the rare case a town
+    // shares a closed industry's id we simply miss the closure - harmless.)
+    static function _EndpointDead(id) {
+        return !AIIndustry.IsValidIndustry(id) && !AITown.IsValidTown(id);
+    }
+
+    // True if EITHER endpoint of the route has closed.
+    static function _EndpointClosed(r) {
+        return Maintenance._EndpointDead(r.producer) || Maintenance._EndpointDead(r.accepter);
+    }
+
+    // Condemn a route using the lifecycle for its transport mode.
+    static function _CondemnByMode(state, r) {
+        if (("air" in r) && r.air)        Air._Condemn(state, r);
+        else if (("road" in r) && r.road) Road._Condemn(state, r);
+        else                               Maintenance._Condemn(state, r);
     }
 
     // COMPREHENSIVE CAPACITY SWEEP (every REVIEW_EVERY_MONTHS months). For every
