@@ -13,7 +13,7 @@
 //   - Estimator.EngineSet(...) / Estimate(...)  the AI* glue (engine lookups,
 //     cargo income, build cost). Verified in-game.
 
-// Infrastructure-maintenance cost model (AAHOG-style, empirical). When the game's
+// Infrastructure-maintenance cost model (empirical). When the game's
 // "infrastructure maintenance" setting is ON, every tile of track costs money every
 // month and the rate RISES super-linearly as you build more - a continuous bleed our
 // ROI used to ignore. We read the company's ACTUAL monthly rail cost and apportion a
@@ -137,7 +137,7 @@ class Estimator {
     //   - UNIT economics: payment per unit, per-train capacity, running cost,
     //     trip days, build cost - these depend only on (mode, cargo, DISTANCE),
     //     NOT on how much the producer makes. This is the per-(mode,cargo,dist)
-    //     "value surface" AAAHogEx precomputes and reuses across every place.
+    //     "value surface" we precompute and reuse across every place.
     //   - PRODUCTION scaling: given a producer's output, Compute() sizes the
     //     fleet and the serviced volume from the unit economics.
     // Factoring it this way (a) lets us compare MODES at a given cargo/distance
@@ -258,7 +258,7 @@ class Estimator {
     // Distance buckets for the precomputed value surface: Fibonacci-spaced from
     // 10 up to `max_dist` (10,20,30,50,80,130,210,...). Dense at short range
     // where a tile or two changes the economics a lot, sparse at long range
-    // where it doesn't - the same spacing AAAHogEx samples. PURE (unit-tested).
+    // where it doesn't - a geometric sampling spacing. PURE (unit-tested).
     static function DistanceBuckets(max_dist) {
         local out = [];
         local pred = 10;

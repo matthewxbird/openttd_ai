@@ -1,17 +1,17 @@
 // src/track_builder.nut
 // Build a double-track rail line between two "front-of-station" tiles.
 //
-// Uses our custom RailPathFinder (src/rail_pf.nut) â€” no external library
+// Uses our custom RailPathFinder (src/rail_pf.nut) - no external library
 // dependency. Trains drive on the LEFT and the two tracks never cross.
 //
 // Runs in two passes:
-//   Pass 1 ("out"): left platform â†’ left platform, isOutward=true.
+//   Pass 1 ("out"): left platform -> left platform, isOutward=true.
 //     The cost function reserves room one tile to the RIGHT of travel for the
 //     parallel return track (so the out train rides the left rail).
-//   Pass 2 ("back"): right platform â†’ right platform. The out-track tiles are
+//   Pass 2 ("back"): right platform -> right platform. The out-track tiles are
 //     handed in as a guide: they bias the back track onto the correct (right)
 //     side AND are passed as hard ignored_tiles, so the back track can never
-//     sit on an out-track tile â€” guaranteeing the two tracks never cross.
+//     sit on an out-track tile - guaranteeing the two tracks never cross.
 //
 // Which physical platform is "left" depends on station orientation, so
 // _PickPlatforms chooses per station (see below).
@@ -163,7 +163,7 @@ class TrackBuilder {
         local d_pf = TrackBuilder._PickPlatforms(dst, global_dir);
 
         // --- Pass 1: out track (left platform -> left platform) ---
-        Log.Info(Log.PHASE_TRACK, "Pass 1 (out): straight lead-ins + pathfind srcâ†’dst");
+        Log.Info(Log.PHASE_TRACK, "Pass 1 (out): straight lead-ins + pathfind src->dst");
         local s_out = TrackBuilder._BuildLeadIn(s_pf.out.enter, s_pf.out.front, src_h);
         local d_out = TrackBuilder._BuildLeadIn(d_pf.out.enter, d_pf.out.front, dst_h);
         local out_tiles = TrackBuilder._RunPathfinder(
@@ -220,7 +220,7 @@ class TrackBuilder {
         local s_pf = TrackBuilder._PickPlatforms(src, global_dir);
         local d_pf = TrackBuilder._PickPlatforms(dst, global_dir);
 
-        Log.Info(Log.PHASE_TRACK, "Back track: straight lead-ins + pathfind dstâ†’src");
+        Log.Info(Log.PHASE_TRACK, "Back track: straight lead-ins + pathfind dst->src");
         local s_back = TrackBuilder._BuildLeadIn(s_pf.back.enter, s_pf.back.front, src_h);
         local d_back = TrackBuilder._BuildLeadIn(d_pf.back.enter, d_pf.back.front, dst_h);
         local back_tiles = TrackBuilder._RunPathfinder(
@@ -318,7 +318,7 @@ class TrackBuilder {
             // NO relaxed-budget retry (manual-test feedback): if the capped search
             // can't reach in MAX_CHUNKS, the route is too complex for us - GIVE UP
             // and let the ranker pick a simpler, profitable route. Grinding more
-            // chunks is why we're slow vs AAHOG; speed (build many cheap routes
+            // chunks is why pathfinding gets slow; speed (build many cheap routes
             // fast) beats completeness (one hard route slowly).
             if (tiles == null || !TrackBuilder._Reaches(tiles, dst_f, dst_p)) {
                 Log.Warn(Log.PHASE_TRACK,
@@ -553,7 +553,7 @@ class TrackBuilder {
                 // and lay the rail. Runs even at the throat / on existing rail (it
                 // only moves the buildable side's edge corners), where _ClearAndLay
                 // is gated off - that is exactly where the gap was forming. This is
-                // AAAHogEx's connect mechanism: adjust the land, don't relocate.
+                // boundary-leveling connect: adjust the land minimally, don't relocate.
                 Log.Info(Log.PHASE_TRACK, "[" + label + "] leveled boundary to connect " + cur + ".");
                 built++;
                 leveled++;
@@ -836,25 +836,25 @@ class TrackBuilder {
                 if (ch < target)      { if (AITile.RaiseTile(tile, c[1])) moved = true; }
                 else if (ch > target) { if (AITile.LowerTile(tile, c[1])) moved = true; }
             }
-            if (!moved) break;  // can't make progress (blocked) — give up
+            if (!moved) break;  // can't make progress (blocked) - give up
         }
         return AITile.GetSlope(tile) == AITile.SLOPE_FLAT
             && AITile.GetMaxHeight(tile) == target;
     }
 
-    // ---- BOUNDARY LEVELING (ported from AAAHogEx HgTile.LevelBound) ---------
+    // ---- BOUNDARY LEVELING ------------------------------------------------
     // The connect trick: rail joins two adjacent tiles only if their SHARED EDGE
     // sits at one height. We don't need to flatten whole tiles (that fights the
     // pathfinder's slope avoidance and slows trains - measured -25%); we only
     // level the two grid corners on the edge BETWEEN the tiles. Each tile keeps
     // its far-side slope, so the rail rides a normal sloped piece and the two
-    // tiles still meet flush. This is exactly how AAAHogEx connects across height
-    // changes (LevelBound + FindLevel look-ahead) instead of relocating.
+    // tiles still meet flush. This connects rail across height changes (edge-level
+    // + look-ahead corridor grade) instead of relocating the station.
 
     static LEVEL_LOOKAHEAD = 5;   // tiles to scan for the prevailing corridor grade
 
     // The two AITile.CORNER_* that lie on the edge shared by t1 and neighbour t2
-    // (t2 is one step from t1). Mirrors AAAHogEx GetCorners(GetDirection).
+    // (t2 is one step from t1), derived from the neighbour offset t2-t1.
     static function _ConnCorners(t1, t2) {
         local mx = AIMap.GetMapSizeX();
         local d  = t2 - t1;
@@ -877,7 +877,7 @@ class TrackBuilder {
     // Level the shared edge between t1 and neighbour t2 to height `level` by
     // moving ONLY t1's two edge corners (the same grid vertices t2 shares, so the
     // edge ends flush on both sides). Bails if any corner is >= 2 from level - a
-    // big step should be bridged/sloped, not force-flattened (AAAHogEx's guard).
+    // big step should be bridged/sloped, not force-flattened.
     // Returns true if the edge is (or became) level at `level`.
     static function _LevelBound(t1, t2, level) {
         local corners = TrackBuilder._ConnCorners(t1, t2);
@@ -905,7 +905,7 @@ class TrackBuilder {
     }
 
     // LOOK-AHEAD: the prevailing ground height over the next few single-step path
-    // tiles (AAAHogEx FindLevel). Levelling toward the corridor's dominant height
+    // tiles. Levelling toward the corridor's dominant height
     // - not a single-tile bump - keeps the line on a smooth grade. Returns the
     // most common GetMaxHeight among prev..i+LOOKAHEAD, or null if no straight run.
     static function _LookaheadLevel(tiles, i) {

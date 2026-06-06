@@ -97,8 +97,8 @@ class Strategy {
     static EARLY_BUILT_EXIT = 6;
 
     // EARLY single-track is now a PER-ROUTE "simplest that works" decision, not a
-    // blanket map-size switch (AAAHogEx-style: build the cheapest layout the route
-    // actually needs, on any map). The old blanket single-track sank 256x256 (-13%)
+    // blanket map-size switch: build the cheapest layout the route actually needs,
+    // on any map. The old blanket single-track sank 256x256 (-13%)
     // because LONG, high-output lines starve on one reversing train; but that's a
     // throughput problem, not a map-size one. The estimator already sizes the fleet
     // a route's production justifies (est_num_trains, capped at MAX_TRAINS). So:

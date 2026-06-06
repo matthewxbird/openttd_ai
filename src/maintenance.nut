@@ -705,7 +705,7 @@ class Maintenance {
             if (d_back != null) foreach (t in d_back) r.depot_tiles.push(t);
 
             // Two-way PBS (single, reversing) -> one-way PBS on BOTH tracks
-            // (double: out flows srcâ†’dst, back flows dstâ†’src). The crossover at
+            // (double: out flows src->dst, back flows dst->src). The crossover at
             // each throat keeps its own two-way PBS (the train still reverses in
             // the platform), so we only re-signal the open mainlines.
             Signals.RemoveAlong(r.path_out, "out");

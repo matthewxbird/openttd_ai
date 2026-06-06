@@ -70,7 +70,7 @@ class Terminus {
                 built++;
             } else {
                 local err = AIError.GetLastErrorString();
-                // ERR_ALREADY_BUILT means the link is already there — fine.
+                // ERR_ALREADY_BUILT means the link is already there - fine.
                 if (err == "ERR_ALREADY_BUILT") built++;
             }
         }

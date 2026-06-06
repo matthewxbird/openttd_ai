@@ -152,8 +152,8 @@ class StationBuilder {
 
     // Free tiles to leave BETWEEN the two platforms when building a RoRo
     // (drive-through) station. A 1-tile gap puts the platforms 2 tiles apart,
-    // which is the room a far-end return loop needs to reverse with legal 45°
-    // curves (a 0-gap/adjacent station forces a forbidden 90° in the turnaround).
+    // which is the room a far-end return loop needs to reverse with legal 45deg
+    // curves (a 0-gap/adjacent station forces a forbidden 90deg in the turnaround).
     static RORO_GAP = 1;
 
     // Internal: attempt one (tile, direction) pair. Returns result or null.
@@ -185,7 +185,7 @@ class StationBuilder {
 
         // RoRo PRE-FLIGHT: a gapped (drive-through) station only works if the
         // far-end turnaround loop can be laid - a gapped station has NO valid
-        // reversing fallback (the gap crossover would be a forbidden 90°). So if
+        // reversing fallback (the gap crossover would be a forbidden 90deg). So if
         // the turnaround footprint isn't clear, downgrade to a normal ADJACENT
         // terminus here (eff_roro=false) rather than build a station that can't run.
         local eff_roro = roro;

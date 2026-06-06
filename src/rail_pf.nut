@@ -1,14 +1,14 @@
 // src/rail_pf.nut
-// Custom rail pathfinder wrapping the AyStar engine.
-// Adapted from AAAHogEx by rei-artist (https://github.com/rei-artist/AAAHogEx).
+// Custom rail pathfinder wrapping the AyStar engine. Our own A* cost model
+// (slope/turn/double-track penalties + TileModel prune) over a generic A* engine.
 //
 // OVERVIEW
 // ========
 // RailPathFinder supplies four callbacks to AyStar:
-//   _Cost       â€“ how expensive was each step we just took?
-//   _Estimate   â€“ how far (optimistically) are we from the goal?
-//   _Neighbours â€“ which tiles can we move to from here?
-//   _CheckDir   â€“ should we reject this direction? (always false here)
+//   _Cost       - how expensive was each step we just took?
+//   _Estimate   - how far (optimistically) are we from the goal?
+//   _Neighbours - which tiles can we move to from here?
+//   _CheckDir   - should we reject this direction? (always false here)
 //
 // KEY FEATURE: DOUBLE-TRACK SEPARATION
 // =====================================
@@ -16,9 +16,9 @@
 // `reversePath`. The pathfinder builds a `_reverseNears` distance-map
 // around the out-path and charges a heavy penalty for tiles that are
 // right next to (or on top of) the out-path, nudging the back track to
-// run one tile to the side â€” exactly what double-track needs.
+// run one tile to the side - exactly what double-track needs.
 //
-// COST CATEGORIES (cheapest â†’ most expensive)
+// COST CATEGORIES (cheapest -> most expensive)
 // =============================================
 //  straight tile        :  50   (baseline; now the cheapest move)
 //  diagonal tile        : 100   (zig-zag NE/NW/SE/SW move; now dearer than straight)
@@ -26,8 +26,8 @@
 //  slope penalty        : 100   (height rises or falls 2+ tiles)
 //  bridge per tile      : 50 extra per tile
 //  tunnel per tile      :   0   (prefer tunnel over climbing a hill)
-//  tight 180Â° turn      :1500   (immediate reversal - nearly forbidden)
-//  reverse-track penalty: 300â€“3000  (when isOutward=true, keeps room for back track)
+//  tight 180deg turn      :1500   (immediate reversal - nearly forbidden)
+//  reverse-track penalty: 300-3000  (when isOutward=true, keeps room for back track)
 //
 // USAGE EXAMPLE (from track_builder.nut)
 // ----------------------------------------
@@ -43,7 +43,7 @@
 //   local path2 = pf2.FindPath(500, null);
 
 
-// Directions: 0=W 1=E 2=N 3=S (matching AAAHogEx _dir encoding).
+// Directions: 0=W 1=E 2=N 3=S (our 4-direction encoding).
 // Stored as integer 0-3. 0xFF = "any direction" for source nodes.
 // DIAG_DIRECTIONS maps the _dir-encoded from+to combination to the
 // diagonal bitmask used by _GetDirection.
@@ -163,7 +163,7 @@ class RailPathFinder {
 
         // Build AyStar.Path seed nodes from source tile pairs.
         // Each source = [tile_A, tile_B] where we want the path to ARRIVE
-        // at tile_A from direction tile_Bâ†’tile_A. We seed two nodes so
+        // at tile_A from direction tile_B->tile_A. We seed two nodes so
         // AyStar starts with the correct directional context.
         local nsources = [];
         foreach (node in sources) {
@@ -175,8 +175,8 @@ class RailPathFinder {
     }
 
     // Run up to `limitCount * _CHUNK` AyStar iterations.
-    // Returns array of tiles (srcâ†’dst order), or null on failure.
-    // `eventPoller` (optional): object with OnPathFindingInterval() â†’ bool;
+    // Returns array of tiles (src->dst order), or null on failure.
+    // `eventPoller` (optional): object with OnPathFindingInterval() -> bool;
     // return false from there to abort early.
     static CHUNK = 50;
     function FindPath(limitCount, eventPoller) {
@@ -222,7 +222,7 @@ class RailPathFinder {
             tiles.append(node.GetTile());
             node = node.GetParent();
         }
-        // Path is stored goalâ†’start; reverse to get startâ†’goal.
+        // Path is stored goal->start; reverse to get start->goal.
         local ordered = [];
         for (local i = tiles.len() - 1; i >= 0; i--) ordered.append(tiles[i]);
         Log.Info(Log.PHASE_TRACK, "Path length = " + ordered.len() + " tiles.");
@@ -260,7 +260,7 @@ class RailPathFinder {
             t.push(tile);
             local d = AIMap.DistanceManhattan(prev, tile);
             dist.push(d);
-            dirs.push((prev - tile) / d);  // unit step in direction from tileâ†’prev
+            dirs.push((prev - tile) / d);  // unit step in direction from tile->prev
             prev = tile;
             cur  = cur.GetParent();
         }
@@ -268,9 +268,9 @@ class RailPathFinder {
         local cost = 0;
 
         // ---- TIGHT-TURN PENALTY ----------------------------------------
-        // A tight turn = the path goes Aâ†’B then reverses direction Bâ†’A within
+        // A tight turn = the path goes A->B then reverses direction B->A within
         // 4 tiles (a hairpin). Nearly impossible for a train; very heavy penalty.
-        // dirs[0] = newâ†’t[1], dirs[1] = t[1]â†’t[2], dirs[2] = t[2]â†’t[3],  etc.
+        // dirs[0] = new->t[1], dirs[1] = t[1]->t[2], dirs[2] = t[2]->t[3],  etc.
         if (self._cost_tight_turn > 0 && t.len() >= 5) {
             // Tight 180: dirs[0]==dirs[1] and dirs[2]==dirs[3] and they're opposite.
             if (dirs[0] == dirs[1] && dirs[2] == dirs[3] && dirs[0] != dirs[2]) {
@@ -395,7 +395,7 @@ class RailPathFinder {
             if (t.len() >= 4 && AIMap.DistanceManhattan(t[0], t[3]) == 3
                     && dirs[2] != dirs[0]) {
                 if (dirs[1] != dirs[2]) {
-                    // Straightâ†’diagonal transition: partial cost
+                    // Straight->diagonal transition: partial cost
                     cost += self._cost_turn / 3;
                 } else {
                     cost += self._cost_turn;
@@ -427,7 +427,7 @@ class RailPathFinder {
 
             // ---- SLOPE PENALTY ------------------------------------------
             // If the max height over `max_slope+1` tiles changes by >= max_slope
-            // tiles, it's a steep gradient â€” slow for trains.
+            // tiles, it's a steep gradient - slow for trains.
             if (self._cost_slope > 0 && t.len() >= self._max_slope + 2) {
                 local h_here = AITile.GetMaxHeight(t[0]);
                 local h_back = AITile.GetMaxHeight(t[self._max_slope + 1]);
@@ -487,7 +487,7 @@ class RailPathFinder {
     // -----------------------------------------------------------------------
     // ESTIMATE CALLBACK (heuristic)
     // Returns a lower bound on cost from cur_tile to any goal.
-    // Must never OVERestimate or A* loses optimality â€” but inflating by
+    // Must never OVERestimate or A* loses optimality - but inflating by
     // `_estimate_rate` makes search faster at the cost of some path quality.
     // -----------------------------------------------------------------------
     static function _Estimate(self, cur_tile, cur_dir, goals_map) {
@@ -524,7 +524,7 @@ class RailPathFinder {
         // Once on a bridge or tunnel, the only valid move is straight ahead
         // (no branching mid-bridge).
         if (AIBridge.IsBridgeTile(cur_node) || AITunnel.IsTunnelTile(cur_node)) {
-            // Already handled via multi-tile jump in _GetBridgesAndTunnels â€”
+            // Already handled via multi-tile jump in _GetBridgesAndTunnels -
             // if we somehow land mid-bridge, skip.
             return [];
         }
@@ -629,7 +629,7 @@ class RailPathFinder {
     }
 
     // -----------------------------------------------------------------------
-    // CHECK-DIRECTION CALLBACK â€” always allow; direction filtering is in _Cost.
+    // CHECK-DIRECTION CALLBACK - always allow; direction filtering is in _Cost.
     // -----------------------------------------------------------------------
     static function _CheckDir(tile, old_dir, new_dir, self) {
         return false;
@@ -778,7 +778,7 @@ class RailPathFinder {
         return 0xFF;
     }
 
-    // Compound direction from three tiles (preâ†’fromâ†’to).
+    // Compound direction from three tiles (pre->from->to).
     // Used as the direction stored on each Path node.
     static function _GetDir(pre, from, to) {
         if (pre == null) return RailPathFinder._Dir4(from, to);
@@ -818,11 +818,11 @@ class RailPathFinder {
     static function _RevDir(cur, prev) {
         local d = cur - prev;
         local mx = AIMap.GetMapSizeX();
-        // 90-degree rotation: Eâ†’N, Nâ†’W, Wâ†’S, Sâ†’E
-        if (d == 1)   return -mx;  // going E â†’ perpendicular is N
-        if (d == -1)  return  mx;  // going W â†’ perpendicular is S
-        if (d ==  mx) return  1;   // going S â†’ perpendicular is E
-        if (d == -mx) return -1;   // going N â†’ perpendicular is W
+        // 90-degree rotation: E->N, N->W, W->S, S->E
+        if (d == 1)   return -mx;  // going E -> perpendicular is N
+        if (d == -1)  return  mx;  // going W -> perpendicular is S
+        if (d ==  mx) return  1;   // going S -> perpendicular is E
+        if (d == -mx) return -1;   // going N -> perpendicular is W
         return 0;
     }
 }

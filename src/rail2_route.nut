@@ -1,5 +1,5 @@
 // src/rail2_route.nut
-// Phase 11 rail rewrite: build a rail route on AAHOG-captured SmartTerminus
+// Phase 11 rail rewrite: build a rail route on captured SmartTerminus
 // stations (StationDT, from Captures.WronstonThroat - verified throat geometry)
 // with a DOUBLE-TRACK main + DISTANCE-SCALED fleet (no 2-train deadlock cap).
 //
@@ -125,7 +125,7 @@ class Rail2 {
             return false;
         }
 
-        // ROLLBACK (AAAHogEx Construction.Rollback equivalent): from here on, ANY
+        // ROLLBACK (transactional build cleanup): from here on, ANY
         // failure demolishes everything this attempt built - both stations AND all
         // main track laid below - so a failed route leaves nothing behind. Without
         // this, every "main build failed; abandoning" leaked orphaned track: sunk

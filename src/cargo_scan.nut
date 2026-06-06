@@ -205,7 +205,7 @@ class CargoScan {
                 + " | score=" + c.score
                 + " | est profit/yr=" + ("est_profit" in c ? c.est_profit : "?")
                 + " roi=" + ("est_roi" in c ? c.est_roi : "?")
-                + " £/veh=" + ("est_income_per_vehicle" in c ? c.est_income_per_vehicle : "?")
+                + " GBP/veh=" + ("est_income_per_vehicle" in c ? c.est_income_per_vehicle : "?")
                 + " trains=" + ("est_num_trains" in c ? c.est_num_trains : "?"));
         }
     }

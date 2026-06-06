@@ -1,5 +1,5 @@
 // src/station_dt.nut
-// SMART TERMINUS (Phase 11) - built from AAHOG's REAL captured throats. Now
+// SMART TERMINUS (Phase 11) - built from REAL captured throat geometry. Now
 // PARAMETERIZED on a SPEC so multiple station sizes coexist:
 //   Spec2() - 2-platform crossover opener (Captures.TwoPlatThroat); cheap/small.
 //   Spec3() - 3-platform bridged merge (Captures.WronstonThroat); high throughput.

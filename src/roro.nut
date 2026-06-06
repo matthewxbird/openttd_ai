@@ -5,7 +5,7 @@
 // ===
 // Our default station is a dead-end terminus: a train drives in, REVERSES, and
 // leaves over a shared throat crossover. With 2+ trains that single crossover
-// diamond is contended and DEADLOCKS — which is why MAX_TRAINS is pinned at 2
+// diamond is contended and DEADLOCKS - which is why MAX_TRAINS is pinned at 2
 // and cramped maps prefer single-track. (See PLAN.md "reversing-terminus
 // deadlock" / Phase 10.)
 //
@@ -39,8 +39,8 @@ class RoRo {
     static TURN_DEPTH = 4;   // tiles of clear land the far-end turnaround needs
 
     // PRE-FLIGHT: is there room for the far-end turnaround loop? A flat crossover
-    // over the platform gap is impossible (it forces a forbidden 90°), so a gapped
-    // station has NO valid reversing fallback — if the loop can't be laid the route
+    // over the platform gap is impossible (it forces a forbidden 90deg), so a gapped
+    // station has NO valid reversing fallback - if the loop can't be laid the route
     // is broken. We therefore only GAP a station (build it RoRo) when this returns
     // true; otherwise it is built as a normal adjacent terminus. far_out0/far_out1
     // are the tiles just past each platform's FAR end; out_dir points OUT the near
@@ -73,7 +73,7 @@ class RoRo {
     // Build the far-end return loops at BOTH stations of a route. Returns true
     // only if BOTH loops built (so the whole route can run as a drive-through
     // loop). On failure the caller must clean-fail the route: a gapped station has
-    // NO working reversing fallback (the gap crossover would be a forbidden 90°),
+    // NO working reversing fallback (the gap crossover would be a forbidden 90deg),
     // so a half-looped route can't run. (We only reach here for stations the
     // pre-flight TurnaroundClear passed, so failure is rare.)
     static function BuildBothEnds(src, dst) {
@@ -137,7 +137,7 @@ class RoRo {
 
         // The turnaround is often SHORTER than PlaceAlong's minimum length, so it
         // would otherwise get ZERO signals and the whole loop + both platform
-        // mouths collapse into ONE pbs block — only one train could be in the
+        // mouths collapse into ONE pbs block - only one train could be in the
         // turnaround region at a time, queuing the rest (the measured bottleneck).
         // Force an entry and an exit PBS so the loop is its own block and trains
         // hold in the platforms instead. Two-way: a train passes the loop one way.

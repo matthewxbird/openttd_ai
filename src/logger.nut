@@ -22,7 +22,7 @@ class Log {
     static PHASE_REPLACE = "REPLACE";
     static PHASE_LOOP    = "LOOP";
 
-    // Informational. Default level — shows up in AI Debug window.
+    // Informational. Default level - shows up in AI Debug window.
     static function Info(phase, msg) {
         AILog.Info("[" + phase + "] " + msg);
     }

@@ -28,9 +28,9 @@ class TownAuthority {
     }
 
     // Raise our LOCAL-AUTHORITY rating in a town by planting a block of trees
-    // near its centre (cheap, ~£1-2k, and authorities love trees). Use this to
+    // near its centre (cheap, ~GBP1-2k, and authorities love trees). Use this to
     // recover from ERR_LOCAL_AUTHORITY_REFUSES before retrying a build (airport/
-    // station), or proactively when a town's rating is poor. Mirrors AAAHogEx.
+    // station), or proactively when a town's rating is poor.
     static function PlantTrees(town) {
         if (!AITown.IsValidTown(town)) return;
         local c   = AITown.GetLocation(town);

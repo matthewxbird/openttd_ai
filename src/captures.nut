@@ -1,5 +1,5 @@
 // src/captures.nut
-// CAPTURED in-game rail layouts (scanned from AAAHogEx via JunctionBuilder.ScanToLog).
+// CAPTURED in-game rail layouts (scanned via JunctionBuilder.ScanToLog).
 // Ground-truth geometry to replay with JunctionBuilder.StampList, so we build
 // PROVEN throats instead of hand-guessing tile bits. See docs/RAIL_REWRITE.md.
 //
@@ -25,7 +25,7 @@ class Captures {
         ];
     }
 
-    // AAHOG "Wronston" station throat+main junction, scanned 2026-06-05 from a live
+    // "Wronston" station throat+main junction, scanned 2026-06-05 from a live
     // 1v1 (box origin (70,205), 23x23). REBASED to 0-origin (subtracted min dx=4,
     // min dy=3). 3 platform rows (dy 1,2,3) run straight (bits=1) on the west side
     // (dx 0..6); the THROAT merge is dx ~7..12 (corner bits + a grade-sep BRIDGE

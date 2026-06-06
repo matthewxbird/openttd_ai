@@ -1,6 +1,6 @@
 // src/aystar.nut
-// Generic A* (AyStar) pathfinding engine.
-// Adapted from AAAHogEx by rei-artist (https://github.com/rei-artist/AAAHogEx).
+// Generic A* (AyStar) pathfinding engine: a priority-queue open set driving
+// caller-supplied cost/estimate/neighbour callbacks. Our own implementation.
 //
 // HOW IT WORKS
 // ============
@@ -69,9 +69,9 @@ class AyStar {
     }
 
     // Run up to `iterations` expansion steps. Returns:
-    //   AyStar.Path  — a goal was reached; walk GetParent() to reconstruct.
-    //   false        — iterations exhausted, call again to continue.
-    //   null         — open set empty, no path exists.
+    //   AyStar.Path  - a goal was reached; walk GetParent() to reconstruct.
+    //   false        - iterations exhausted, call again to continue.
+    //   null         - open set empty, no path exists.
     function FindPath(iterations) {
         while (iterations > 0) {
             if (this._open.IsEmpty()) return null;
@@ -119,7 +119,7 @@ class AyStar {
 
 
 // ---------------------------------------------------------------------------
-// AyStar.Path — one node in the search graph.
+// AyStar.Path - one node in the search graph.
 //
 // Nodes form a singly-linked list (via _parent) from the most recently
 // visited tile BACK toward the start. To reconstruct a route forward,
@@ -182,7 +182,7 @@ class AyStar.Path {
 
 
 // ---------------------------------------------------------------------------
-// AyStar.Open — priority queue for the A* open set.
+// AyStar.Open - priority queue for the A* open set.
 //
 // Backed by an AIList (tile-id -> sort-value). We store an integer ID for
 // each inserted path and keep a parallel table mapping id -> Path object.
