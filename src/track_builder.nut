@@ -558,6 +558,16 @@ class TrackBuilder {
                 built++;
                 leveled++;
                 if (!pre_rail) TrackBuilder._Touch(cur);
+            } else if (repair && TrackBuilder._ReclaimAndLay(prev, cur, next)) {
+                // WATER directly in the line's path (e.g. a river at a station
+                // throat where a bridge has no room). Reclaim it: raise the seabed
+                // to the connecting land height and lay ground rail. Last-resort
+                // (repair only) - the pathfinder normally bridges water, so this
+                // only fires on a forced tile (throat exit) a bridge couldn't span.
+                Log.Info(Log.PHASE_TRACK, "[" + label + "] reclaimed water at " + cur + " to connect.");
+                built++;
+                leveled++;
+                TrackBuilder._Touch(cur);
             } else {
                 // Unbuildable AND not level-fixable. Emit ONE classified line
                 // (owner + tile state, so "ERR_UNKNOWN" becomes meaningful); the
@@ -945,5 +955,22 @@ class TrackBuilder {
             if (AIRail.BuildRail(prev, cur, next)) return true;
         }
         return false;
+    }
+
+    // RECLAIM water on `cur` (a tile the line must cross where a bridge has no
+    // room - typically a river right at a station throat) by raising its seabed
+    // to the connecting (prev) LAND height, then lay ground rail prev->cur->next.
+    // _FlattenToHeight raises each corner one level per pass, so it lifts a sea
+    // tile (corners at 0) all the way up to land - no <2 cap (unlike LevelBound,
+    // which is for matching adjacent land edges, not full reclamation). Best-
+    // effort: if the seabed can't be raised (blocked neighbour) it stays water and
+    // we return false. Repair-mode last resort only.
+    static function _ReclaimAndLay(prev, cur, next) {
+        if (!AITile.IsWaterTile(cur)) return false;
+        local h = AITile.GetMaxHeight(prev);
+        if (h < 1) h = 1;                       // must become LAND, never sea level
+        TrackBuilder._FlattenToHeight(cur, h);  // raise the seabed up to land
+        if (AITile.IsWaterTile(cur)) return false;   // couldn't reclaim it
+        return AIRail.BuildRail(prev, cur, next);
     }
 }
