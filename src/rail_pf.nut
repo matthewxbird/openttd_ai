@@ -20,8 +20,8 @@
 //
 // COST CATEGORIES (cheapest â†’ most expensive)
 // =============================================
-//  diagonal tile        :  67   (NE/NW/SE/SW move, cheaper than two straights)
-//  straight tile        : 100   (baseline)
+//  straight tile        :  50   (baseline; now the cheapest move)
+//  diagonal tile        : 100   (zig-zag NE/NW/SE/SW move; now dearer than straight)
 //  gentle turn          : 300   (path changes direction over 3-tile window)
 //  slope penalty        : 100   (height rises or falls 2+ tiles)
 //  bridge per tile      : 50 extra per tile
@@ -94,8 +94,8 @@ class RailPathFinder {
                                                 // crossing/water penalties must BIAS
                                                 // the search, not blow the budget and
                                                 // leave the open set empty (= no path)
-        this._cost_tile           = 100;
-        this._cost_diagonal_tile  = 67;
+        this._cost_tile           = 50;   // straight step (now the CHEAP move)
+        this._cost_diagonal_tile  = 100;  // zig-zag diagonal step (now dearer than straight)
         this._cost_turn           = 300;
         this._cost_tight_turn     = 1500;
         this._cost_slope          = 100;
@@ -495,8 +495,11 @@ class RailPathFinder {
         foreach (tile, g in goals_map) {
             local dx = abs(AIMap.GetTileX(cur_tile) - AIMap.GetTileX(tile));
             local dy = abs(AIMap.GetTileY(cur_tile) - AIMap.GetTileY(tile));
-            // Best case: diagonals first (67 per tile), then straight (100 per tile).
-            local h = min(dx, dy) * 67 * 2 + abs(dx - dy) * 100;
+            // Cheapest possible: every tile is a straight step (50); the minimum
+            // number of orthogonal steps to span (dx,dy) is the Manhattan dx+dy.
+            // (Diagonal is now dearer at 100, so an all-straight route is the
+            // lower bound.) Admissible lower bound = (dx+dy) * cheapest tile.
+            local h = (dx + dy) * 50;
             if (h < min_cost) min_cost = h;
         }
         // Keep the estimate an INTEGER (aystar's heap/AIList priority must be int;
