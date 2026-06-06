@@ -377,6 +377,7 @@ class Road {
         // Continuous shuttle (load+leave), like air - keeps vehicles moving.
         local ok1 = AIOrder.AppendOrder(v, src_st.tile, 0);
         local ok2 = AIOrder.AppendOrder(v, dst_st.tile, 0);
+        Trains.ApplyServiceInterval(v);
         if (!ok1 || !ok2 || !AIVehicle.StartStopVehicle(v)) {
             AIVehicle.SellVehicle(v);
             return -1;
@@ -435,6 +436,7 @@ class Road {
         // trunk vehicle carries them onward for the big payment.
         local ok1 = AIOrder.AppendOrder(v, src_st.tile, AIOrder.OF_FULL_LOAD_ANY);
         local ok2 = AIOrder.AppendOrder(v, trunk_bus.tile, AIOrder.OF_TRANSFER | AIOrder.OF_NO_LOAD);
+        Trains.ApplyServiceInterval(v);
         if (!ok1 || !ok2 || !AIVehicle.StartStopVehicle(v)) { AIVehicle.SellVehicle(v); return false; }
 
         local route = Route.New(cargo, town, town, AIMap.DistanceManhattan(src_pair.tile, trunk_pair.tile), 0, true);

@@ -348,6 +348,7 @@ class Air {
         // it avoids the money-losing routes a full-load wait created on thin pairs.
         local ok1 = AIOrder.AppendOrder(v, src_st.tile, 0);   // no flags: load+leave
         local ok2 = AIOrder.AppendOrder(v, dst_st.tile, 0);
+        Trains.ApplyServiceInterval(v);
         if (!ok1 || !ok2 || !AIVehicle.StartStopVehicle(v)) {
             Log.Err(Log.PHASE_TRAIN, "AIR: order/start failed: " + AIError.GetLastErrorString());
             AIVehicle.SellVehicle(v);

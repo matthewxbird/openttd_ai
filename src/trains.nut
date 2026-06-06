@@ -231,32 +231,31 @@ class Trains {
 
     static SERVICE_RELIABILITY_DROP = 25;  // service when reliability falls 25%
 
-    // Try to make trains service at a 25% reliability drop. Both routes for
-    // this (AIGameSettings.SetValue and AIVehicle.SetServiceInterval) are
-    // absent in some API versions, so the whole thing is wrapped: if the calls
-    // aren't available we just fall back to the game's default servicing.
+    // AIs may NOT change the global vehicle.servint_* game settings - those
+    // SetValue calls throw, which is why the old code always logged the
+    // "not settable" warning regardless of OpenTTD version. The AI-legal route
+    // is per-vehicle: AIVehicle.SetServiceInterval, applied from each builder
+    // via ApplyServiceInterval. This boot step just reports the active mode.
     static function ConfigureServicing() {
+        local pct = false;
+        local pkey = "vehicle.servint_ispercent";
+        if (AIGameSettings.IsValid(pkey)) pct = AIGameSettings.GetValue(pkey) != 0;
+        Log.Info(Log.PHASE_BOOT,
+            "Servicing applied per-vehicle at " + Trains.SERVICE_RELIABILITY_DROP
+            + (pct ? "% reliability drop." : " day interval."));
+    }
+
+    // Set servicing on one built vehicle (train/plane/road). Per-vehicle is the
+    // only API path an AI is allowed; the value is interpreted as a reliability
+    // %-drop or a day interval per the game's servint_ispercent flag. A low
+    // reliability plane breaks down and can CRASH - wrecking station rating and
+    // bankrupting a thin economy - so keep every mode serviced. Wrapped: a stub
+    // or unexpected value just leaves the game default in place.
+    static function ApplyServiceInterval(vehicle) {
+        if (!AIVehicle.IsValidVehicle(vehicle)) return;
         try {
-            local pkey = "vehicle.servint_ispercent";
-            local pct = false;
-            if (AIGameSettings.IsValid(pkey)) pct = AIGameSettings.SetValue(pkey, 1);
-            // Service ALL modes frequently, not just trains. A low-reliability
-            // AIRCRAFT breaks down and can CRASH - and a crash wrecks the station
-            // rating (cargo stops flowing), which on a thin economy bankrupts us.
-            // Keeping planes serviced (and autoreplaced) holds reliability high.
-            foreach (key in ["vehicle.servint_trains", "vehicle.servint_aircraft",
-                             "vehicle.servint_roadveh"]) {
-                if (AIGameSettings.IsValid(key)) {
-                    AIGameSettings.SetValue(key, Trains.SERVICE_RELIABILITY_DROP);
-                }
-            }
-            Log.Info(Log.PHASE_BOOT,
-                "Servicing (trains/aircraft/road) set to " + Trains.SERVICE_RELIABILITY_DROP
-                + (pct ? "% reliability drop." : " (days)."));
-        } catch (e) {
-            Log.Warn(Log.PHASE_BOOT,
-                "Service interval not settable by AI; using game default servicing.");
-        }
+            AIVehicle.SetServiceInterval(vehicle, Trains.SERVICE_RELIABILITY_DROP);
+        } catch (e) {}
     }
 
     // Platform capacity in 1/16-tile length units.
@@ -326,6 +325,7 @@ class Trains {
             Log.Err(Log.PHASE_TRAIN, "Order append failed: " + AIError.GetLastErrorString());
             return false;
         }
+        Trains.ApplyServiceInterval(vehicle);
         if (!AIVehicle.StartStopVehicle(vehicle)) {
             Log.Err(Log.PHASE_TRAIN, "Start failed: " + AIError.GetLastErrorString());
             return false;
