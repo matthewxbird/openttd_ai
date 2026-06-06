@@ -26,14 +26,8 @@ class DepotBuilder {
     // side can't be used - the other track of the double-track pair runs there.
     // Call once for the out track and once for the back track so depots end up
     // on both running lines, on their outer flanks. `label` tags the log.
-    // spacing    = tiles between consecutive depots on this track (null = default).
-    // max_depots = cap for this track (null = default). Pass a length-scaled count
-    //   + the desired spacing to spread servicing depots ALONG a long line (~1 per
-    //   `spacing` tiles) instead of just one.
     // Returns an array of depot tile indices, or null if none built.
-    static function New(path, label = "track", spacing = null, max_depots = null) {
-        local sp  = (spacing == null) ? DepotBuilder.SPACING : spacing;
-        local cap = (max_depots == null) ? DepotBuilder.MAX_DEPOTS : max_depots;
+    static function New(path, label = "track") {
         // Depots live only in the MIDDLE of the line - skip SKIP_NEAR_STATION
         // tiles at BOTH ends so no junction is built near a station throat.
         if (path == null || path.len() < 2 * DepotBuilder.SKIP_NEAR_STATION + 3) {
@@ -44,10 +38,10 @@ class DepotBuilder {
         local hi = path.len() - 1 - DepotBuilder.SKIP_NEAR_STATION;
 
         local depots   = [];
-        local last_idx = -sp;
+        local last_idx = -DepotBuilder.SPACING;
 
-        for (local i = lo; i < hi && depots.len() < cap; i++) {
-            if (i - last_idx < sp) continue;  // keep them spread out
+        for (local i = lo; i < hi && depots.len() < DepotBuilder.MAX_DEPOTS; i++) {
+            if (i - last_idx < DepotBuilder.SPACING) continue;  // keep them spread out
 
             // Always the LEFT (outer) side - right side is the partner track.
             local depot_tile = DepotBuilder._TryBuildAt(path, i, false);
