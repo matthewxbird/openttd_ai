@@ -562,6 +562,14 @@ class RailPathFinder {
             if (par_tile != null && par.GetParent() != null) {
                 if (next - cur_node == par.GetParent().GetTile() - par_tile) continue;
             }
+            // SLOPE GATE (port of AAHOG _IsSlopedRail's turn-on-slope rule): a
+            // CURVED rail piece - the path TURNS at cur_node - cannot sit on a
+            // sloped tile; only STRAIGHT track may be sloped. Skip such a step
+            // early (a cheap reject before the test-build, which would fail anyway
+            // and leave a gap). Only when cur_node was reached by a single step.
+            if (par_tile != null && par_dist == 1
+                    && (next - cur_node) != (cur_node - par_tile)
+                    && AITile.GetSlope(cur_node) != AITile.SLOPE_FLAT) continue;
             // BACK TRACK: hard-stay on the correct side of the out track. The
             // wrong-side tiles are a HARD no-go (not just a cost) so the back
             // track can never weave across and cross the out track.
