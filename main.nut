@@ -96,7 +96,7 @@ class MvBAI extends AIController {
     // station geometry (no visual needed: fail=0 + station id => geometry valid).
     static DEBUG_DT = false;
 
-    // Phase 11 rail rewrite: build rail routes on AAHOG-style SmartTerminus
+    // Phase 11 rail rewrite: build rail routes on the SmartTerminus station
     // (StationDT) with distance-scaled fleets instead of the 2-train reversing
     // terminus. OFF on main until it beats the baseline. See src/rail2_route.nut.
     static USE_RAIL2 = true;
@@ -175,8 +175,8 @@ function MvBAI::Start() {
     Log.Info(Log.PHASE_BOOT, "Boot complete. Entering scan/build loop.");
 
     // Persisted across iterations so the loop spends its ticks BUILDING from a
-    // cached ranking rather than re-scanning the whole map every tick. AAHOG
-    // works continuously and uses its full opcode budget each tick; long Sleep()
+    // cached ranking rather than re-scanning the whole map every tick. A strong
+    // AI works continuously and uses its full opcode budget each tick; long Sleep()
     // idles waste game-time we should spend expanding. We therefore: (a) run the
     // health pass on its own spaced cadence, (b) re-scan only periodically and
     // reuse the ranking between scans, (c) build with a tiny sleep so routes go
@@ -381,9 +381,21 @@ function MvBAI::Start() {
             // Decided to build this one: borrow just enough to cover it now, so
             // incremental spends (stations, track, fleet) never run dry midway.
             Money.EnsureFunds(needed);
-            // Phase 11 rail rewrite: build on AAHOG-style SmartTerminus with a
+            // Phase 11 rail rewrite: build on the SmartTerminus station with a
             // distance-scaled fleet (no 2-train deadlock cap) when enabled.
             if (MvBAI.USE_RAIL2) {
+                // INCOME GATE (Money.IsPoor/HasIncome): don't borrow-and-
+                // burn yet another expensive rail route while we're broke AND
+                // several routes already sit unproven (not yet earning). Let them
+                // prove out, earn, or be condemned first. Conservative: fires only
+                // on the over-extension pile-up (poor + >=3 on probation), so
+                // healthy early expansion is untouched.
+                if (Money.IsPoor() && this.state.CountProbation() >= 3) {
+                    Log.Info(Log.PHASE_MONEY,
+                        "[rail2] income gate: poor with " + this.state.CountProbation()
+                        + " unproven routes; defer expansion until they earn.");
+                    continue;
+                }
                 if (Rail2.TryBuild(this.state, c, this.railtype)) { built_one = true; break; }
                 this.state.blacklist.Add(c.cargo, c.producer, c.accepter);
                 continue;
@@ -768,7 +780,7 @@ function _MarkTileZone(set, center, r) {
 // map centre, so its geometry can be inspected. Builds a short double-track
 // main + a branch leg, then stamps JunctionBuilder.BuildFlatDoubleT to tie them.
 function MvBAI::_DebugStampJunction() {
-    // Stamp the captured AAHOG throat at ALL 4 rotations on separate flat-land
+    // Stamp the captured throat at ALL 4 rotations on separate flat-land
     // patches, so the rotated track-bits (JunctionBuilder._RotBit) can be
     // eyeballed: k=0 is the known-good reference; if k=1/k=3 look MIRRORED vs
     // k=0/k=2, _RotBit's 90/270 corner cycle is wrong. Each [debug] line logs the

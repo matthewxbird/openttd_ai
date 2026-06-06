@@ -136,6 +136,45 @@ class Money {
         return Money.Usable() >= estimate;
     }
 
+    // ---- INCOME-AWARE ECONOMICS (HasIncome/IsTooExpensive/IsRich/IsPoor) --
+    // Net company income over the last `n` completed quarters (income is
+    // positive, expenses negative; their sum is the net). Lets the build loop
+    // reason about whether the business actually EARNS, not just whether it can
+    // borrow. Quarter 0 (CURRENT_QUARTER) is the in-progress one; 1 is the last
+    // completed. EARLIEST_QUARTER bounds how far back the API keeps history.
+    static function QuarterlyIncome(n = 1) {
+        local total = 0;
+        local self  = AICompany.COMPANY_SELF;
+        for (local q = AICompany.CURRENT_QUARTER + 1;
+                q < AICompany.CURRENT_QUARTER + 1 + n && q < AICompany.EARLIEST_QUARTER; q++) {
+            total += AICompany.GetQuarterlyIncome(self, q);
+            total += AICompany.GetQuarterlyExpenses(self, q);   // expenses are negative
+        }
+        return total;
+    }
+
+    // Is recent quarterly income at least `money`?
+    static function HasIncome(money) {
+        return Money.QuarterlyIncome() >= money;
+    }
+
+    // A cost we can neither sustain from income (last 4 quarters) NOR cover from
+    // spending power. Skip such routes rather than over-committing.
+    static function IsTooExpensive(cost) {
+        return Money.QuarterlyIncome(4) < cost && Money.Usable() < cost;
+    }
+
+    // Financially comfortable: lots of spending power, or solid power + income.
+    static function IsRich() {
+        local u = Money.Usable();
+        return (u > 500000 && Money.HasIncome(100000)) || u > 2000000;
+    }
+
+    // Over-extended: little spending power AND no meaningful income to lean on.
+    static function IsPoor() {
+        return Money.Usable() < 100000 && !Money.HasIncome(25000);
+    }
+
     // AI* wrapper: are we cash-stressed right now? (Usable below the buffer.)
     static function Stressed() {
         return Money.IsStressed(Money.Cash(), Money.Loan(),
