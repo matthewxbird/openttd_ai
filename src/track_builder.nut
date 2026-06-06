@@ -519,9 +519,22 @@ class TrackBuilder {
                 Log.Info(Log.PHASE_TRACK, "[" + label + "] cleared/terraformed " + cur + " to lay rail.");
                 built++;
                 TrackBuilder._Touch(cur);
+            } else if (repair && TrackBuilder._LevelConnect(tiles, i)) {
+                // HEIGHT/SLOPE connect failure (the screenshot case): the step
+                // couldn't sit because the shared edge wasn't level. LevelBound the
+                // two through-edges to a common height (look-ahead corridor grade)
+                // and lay the rail. Runs even at the throat / on existing rail (it
+                // only moves the buildable side's edge corners), where _ClearAndLay
+                // is gated off - that is exactly where the gap was forming. This is
+                // AAAHogEx's connect mechanism: adjust the land, don't relocate.
+                Log.Info(Log.PHASE_TRACK, "[" + label + "] leveled boundary to connect " + cur + ".");
+                built++;
+                leveled++;
+                if (!pre_rail) TrackBuilder._Touch(cur);
             } else {
-                // Unbuildable. Emit ONE classified line (owner + tile state, so
-                // "ERR_UNKNOWN" becomes meaningful); the reroute pass detours.
+                // Unbuildable AND not level-fixable. Emit ONE classified line
+                // (owner + tile state, so "ERR_UNKNOWN" becomes meaningful); the
+                // reroute pass detours.
                 BuildDiag.Report(cur, label, "rail step");
             }
         }
@@ -800,5 +813,110 @@ class TrackBuilder {
         }
         return AITile.GetSlope(tile) == AITile.SLOPE_FLAT
             && AITile.GetMaxHeight(tile) == target;
+    }
+
+    // ---- BOUNDARY LEVELING (ported from AAAHogEx HgTile.LevelBound) ---------
+    // The connect trick: rail joins two adjacent tiles only if their SHARED EDGE
+    // sits at one height. We don't need to flatten whole tiles (that fights the
+    // pathfinder's slope avoidance and slows trains - measured -25%); we only
+    // level the two grid corners on the edge BETWEEN the tiles. Each tile keeps
+    // its far-side slope, so the rail rides a normal sloped piece and the two
+    // tiles still meet flush. This is exactly how AAAHogEx connects across height
+    // changes (LevelBound + FindLevel look-ahead) instead of relocating.
+
+    static LEVEL_LOOKAHEAD = 5;   // tiles to scan for the prevailing corridor grade
+
+    // The two AITile.CORNER_* that lie on the edge shared by t1 and neighbour t2
+    // (t2 is one step from t1). Mirrors AAAHogEx GetCorners(GetDirection).
+    static function _ConnCorners(t1, t2) {
+        local mx = AIMap.GetMapSizeX();
+        local d  = t2 - t1;
+        if (d ==  1)   return [AITile.CORNER_S, AITile.CORNER_W];  // neighbour +x (SW)
+        if (d == -1)   return [AITile.CORNER_N, AITile.CORNER_E];  // neighbour -x (NE)
+        if (d ==  mx)  return [AITile.CORNER_S, AITile.CORNER_E];  // neighbour +y (SE)
+        if (d == -mx)  return [AITile.CORNER_N, AITile.CORNER_W];  // neighbour -y (NW)
+        return [];   // not an orthogonal neighbour
+    }
+
+    // Single-corner slope mask for a corner (to Raise/LowerTile that one corner).
+    static function _SlopeFromCorner(c) {
+        if (c == AITile.CORNER_N) return AITile.SLOPE_N;
+        if (c == AITile.CORNER_S) return AITile.SLOPE_S;
+        if (c == AITile.CORNER_E) return AITile.SLOPE_E;
+        if (c == AITile.CORNER_W) return AITile.SLOPE_W;
+        return AITile.SLOPE_FLAT;
+    }
+
+    // Level the shared edge between t1 and neighbour t2 to height `level` by
+    // moving ONLY t1's two edge corners (the same grid vertices t2 shares, so the
+    // edge ends flush on both sides). Bails if any corner is >= 2 from level - a
+    // big step should be bridged/sloped, not force-flattened (AAAHogEx's guard).
+    // Returns true if the edge is (or became) level at `level`.
+    static function _LevelBound(t1, t2, level) {
+        local corners = TrackBuilder._ConnCorners(t1, t2);
+        if (corners.len() == 0) return false;
+        local lower = 0; local raise = 0;
+        foreach (c in corners) {
+            local h = AITile.GetCornerHeight(t1, c);
+            if (abs(h - level) >= 2) return false;       // too steep for one level step
+            if (h > level)      lower = lower | TrackBuilder._SlopeFromCorner(c);
+            else if (h < level) raise = raise | TrackBuilder._SlopeFromCorner(c);
+        }
+        if (lower != 0 && !AITile.LowerTile(t1, lower)) return false;
+        if (raise != 0 && !AITile.RaiseTile(t1, raise)) return false;
+        return true;
+    }
+
+    // Level the edge between a and b to L, moving whichever tile is terraformable
+    // (never raise/lower under existing rail or a station - that fails anyway).
+    static function _LevelEdge(a, b, L) {
+        if (!AIRail.IsRailTile(a) && !AIRail.IsRailStationTile(a)
+                && TrackBuilder._LevelBound(a, b, L)) return true;
+        if (!AIRail.IsRailTile(b) && !AIRail.IsRailStationTile(b)
+                && TrackBuilder._LevelBound(b, a, L)) return true;
+        return false;
+    }
+
+    // LOOK-AHEAD: the prevailing ground height over the next few single-step path
+    // tiles (AAAHogEx FindLevel). Levelling toward the corridor's dominant height
+    // - not a single-tile bump - keeps the line on a smooth grade. Returns the
+    // most common GetMaxHeight among prev..i+LOOKAHEAD, or null if no straight run.
+    static function _LookaheadLevel(tiles, i) {
+        local tally = {};
+        local best = null; local best_n = 0;
+        local lo = (i - 1 < 0) ? 0 : i - 1;
+        local hi = i + TrackBuilder.LEVEL_LOOKAHEAD;
+        if (hi > tiles.len() - 1) hi = tiles.len() - 1;
+        for (local k = lo; k <= hi; k++) {
+            if (k > lo && AIMap.DistanceManhattan(tiles[k - 1], tiles[k]) != 1) break;  // bridge/tunnel break
+            local h = AITile.GetMaxHeight(tiles[k]);
+            tally[h] <- (h in tally ? tally[h] : 0) + 1;
+            if (tally[h] > best_n) { best_n = tally[h]; best = h; }
+        }
+        return best;
+    }
+
+    // REACTIVE CONNECT: a rail step prev->cur->next that BuildRail refused (a
+    // height/slope mismatch the pathfinder's cost couldn't fully avoid). Level the
+    // two through-edges to a common height so the piece sits and connects. Tries
+    // the look-ahead corridor height first, then the approach/depart/own heights.
+    // Repair-mode only (rail2) - the legacy first pass leaves gaps for the reroute.
+    static function _LevelConnect(tiles, i) {
+        local prev = tiles[i - 1]; local cur = tiles[i]; local next = tiles[i + 1];
+        if (AIMap.DistanceManhattan(prev, cur) != 1
+                || AIMap.DistanceManhattan(cur, next) != 1) return false;  // only flat steps
+        local cands = [
+            TrackBuilder._LookaheadLevel(tiles, i),
+            AITile.GetMaxHeight(prev),
+            AITile.GetMaxHeight(next),
+            AITile.GetMaxHeight(cur),
+        ];
+        foreach (L in cands) {
+            if (L == null || L < 1) continue;   // never target sea level
+            TrackBuilder._LevelEdge(prev, cur, L);
+            TrackBuilder._LevelEdge(cur, next, L);
+            if (AIRail.BuildRail(prev, cur, next)) return true;
+        }
+        return false;
     }
 }
