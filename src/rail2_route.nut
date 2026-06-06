@@ -74,11 +74,34 @@ class Rail2 {
 
     static MAIN_CHUNKS = 2000;  // match TrackBuilder.MAX_CHUNKS (reach for hard routes;
                                 // afforded by the TileModel AVOID+BRIDGE search-space cut).
+    // Advance ONE straight tile out of a throat (lay that piece) and return the
+    // [new_tile, new_prev] to pathfind from/to. Pushing the pathfinder's start (and
+    // goal) one tile past the throat forces a STRAIGHT exit, so the first/last curve
+    // can't land right on the throat (the recurring kink at every station). Best-
+    // effort: if the next tile is off-map or the straight piece won't lay (blocked /
+    // water / foreign rail), fall back to the throat tile itself - no change there.
+    static function _LeadOut(tile, prev) {
+        local step = tile - prev;
+        local lead = tile + step;
+        if (!AIMap.IsValidTile(lead) || AIMap.DistanceManhattan(tile, lead) != 1) return [tile, prev];
+        if (AIRail.BuildRail(prev, tile, lead)
+                || AIError.GetLastError() == AIError.ERR_ALREADY_BUILT) {
+            return [lead, tile];
+        }
+        return [tile, prev];
+    }
+
     static function _BuildMain(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label) {
+        // Start/end the pathfind one straight tile OUTSIDE each throat (see _LeadOut)
+        // so no curve forms right at the station exit/entry. The pathfinder seed
+        // includes the prev tile and the goal appends its prev, so the throat tiles
+        // stay on the path - we only shift where the free curve search may begin.
+        local s = Rail2._LeadOut(from_tile, from_prev);
+        local g = Rail2._LeadOut(to_tile, to_prev);
         // repair=true: terraform slope/clear failures minimally and lay the rail,
         // instead of leaving a gap. Important for the PARALLEL back-track, which is
         // side-constrained and often can't reroute around a one-tile slope.
-        local tiles = TrackBuilder._RunPathfinder(from_tile, from_prev, to_tile, to_prev, is_outward, guide, label, Rail2.MAIN_CHUNKS, true);
+        local tiles = TrackBuilder._RunPathfinder(s[0], s[1], g[0], g[1], is_outward, guide, label, Rail2.MAIN_CHUNKS, true);
         if (tiles == null) {
             Log.Warn(Log.PHASE_TRACK, "[rail2] " + label + " build failed.");
             return null;
