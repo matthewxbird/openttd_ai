@@ -143,8 +143,12 @@ class Trains {
     // count at what the engine can pull; if a single engine is too weak for the
     // wagons that fit, it double-heads (adds a second engine) when there is room.
     // max_wagons = demand-based upper bound (from PickNumWagons).
-    static function BuildTrain(depot_tile, engine, wagon, cargo, max_wagons) {
-        local plat_units = StationBuilder.PLATFORM_LENGTH * 16;  // length in 1/16 tiles
+    // plat_tiles = the SERVING station's platform length in tiles. Trains must fit
+    // it or they overhang the platform (rail2 SmartTerminus platforms are SHORTER
+    // than the legacy default, so a train sized for 7 tiles juts off a 4-tile one).
+    // Defaults to the legacy length when not given (legacy routes are unaffected).
+    static function BuildTrain(depot_tile, engine, wagon, cargo, max_wagons, plat_tiles = null) {
+        local plat_units = Trains.PlatformUnitsFor(plat_tiles);  // length in 1/16 tiles
 
         // Engine.
         local v = AIVehicle.BuildVehicle(depot_tile, engine);
@@ -258,22 +262,35 @@ class Trains {
         } catch (e) {}
     }
 
-    // Platform capacity in 1/16-tile length units.
+    // Platform capacity in 1/16-tile length units (legacy default length).
     static function PlatformUnits() {
         return StationBuilder.PLATFORM_LENGTH * 16;
     }
 
+    // Platform capacity for a station of `plat_tiles` tiles (1/16-tile units).
+    // Null -> the legacy default. A tile is 16 units, so a train must stay within
+    // plat_tiles * 16 or it overhangs the platform.
+    static function PlatformUnitsFor(plat_tiles) {
+        local t = (plat_tiles == null) ? StationBuilder.PLATFORM_LENGTH : plat_tiles;
+        return t * 16;
+    }
+
     // True if a train is notably shorter than the platform (room to grow).
-    static function IsUnderLength(vehicle) {
-        return AIVehicle.GetLength(vehicle) < (Trains.PlatformUnits() * 3) / 4;
+    // plat_tiles = serving station's platform length (tiles); null -> legacy.
+    // Using the right platform matters: a rail2 train that fills its SHORT platform
+    // must NOT read as under-length, or it gets recalled to a depot forever to add
+    // wagons that don't fit (churn).
+    static function IsUnderLength(vehicle, plat_tiles = null) {
+        return AIVehicle.GetLength(vehicle) < (Trains.PlatformUnitsFor(plat_tiles) * 3) / 4;
     }
 
     // Add wagons to an existing train that is sitting IN A DEPOT, growing it
     // toward the platform length but capped by the front engine's power.
-    // Returns the number of wagons added.
-    static function GrowInDepot(vehicle, wagon, cargo) {
+    // plat_tiles = the serving station's platform length (tiles); defaults to the
+    // legacy length. Returns the number of wagons added.
+    static function GrowInDepot(vehicle, wagon, cargo, plat_tiles = null) {
         local depot     = AIVehicle.GetLocation(vehicle);
-        local plat      = Trains.PlatformUnits();
+        local plat      = Trains.PlatformUnitsFor(plat_tiles);
         local etype     = AIVehicle.GetEngineType(vehicle);
         local power_cap = AIEngine.GetPower(etype) / Trains.POWER_PER_WAGON;
         if (power_cap < 1) power_cap = 1;

@@ -313,11 +313,12 @@ class Maintenance {
 
             local n = 0;
             local under = false;
+            local rpt = ("plat_tiles" in r) ? r.plat_tiles : null;
             if (r.trains != null) {
                 foreach (v in r.trains) {
                     if (!AIVehicle.IsValidVehicle(v)) continue;
                     n++;
-                    if (Trains.IsUnderLength(v)) under = true;
+                    if (Trains.IsUnderLength(v, rpt)) under = true;
                 }
             }
             // A single-track route is capped at ONE train (a second would meet
@@ -524,7 +525,7 @@ class Maintenance {
         local waiting    = AIStation.GetCargoWaiting(src_id, r.cargo);
         local src_rating = AIStation.GetCargoRating(src_id, r.cargo);
         local dst_rating = AIStation.GetCargoRating(dst_id, r.cargo);
-        local plat       = Trains.PlatformUnits();
+        local plat       = Trains.PlatformUnitsFor(("plat_tiles" in r) ? r.plat_tiles : null);
 
         // Prune dead vehicles; gather train metrics (count, length, engine).
         if (r.trains == null) r.trains = (r.train_id != -1) ? [r.train_id] : [];
@@ -666,7 +667,7 @@ class Maintenance {
                 Log.Info(Log.PHASE_LOOP,
                     "[review] " + name + ": backlog " + waiting + " -> adding a train.");
                 Maintenance._AddTrain(r, railtype);
-            } else if (shortest != null && Trains.IsUnderLength(shortest)) {
+            } else if (shortest != null && Trains.IsUnderLength(shortest, ("plat_tiles" in r) ? r.plat_tiles : null)) {
                 Log.Info(Log.PHASE_LOOP,
                     "[review] " + name + ": backlog " + waiting
                     + ", trains under-length -> recalling train " + shortest + " to lengthen.");
@@ -787,13 +788,14 @@ class Maintenance {
             Log.Info(Log.PHASE_LOOP, "[review] " + name + ": train " + v + " heading to depot to lengthen.");
             return;  // still travelling; check again next pass
         }
+        local plat_tiles = ("plat_tiles" in r) ? r.plat_tiles : null;
         local wagon = Trains.PickWagon(r.cargo, railtype);
-        local added = (wagon != -1) ? Trains.GrowInDepot(v, wagon, r.cargo) : 0;
+        local added = (wagon != -1) ? Trains.GrowInDepot(v, wagon, r.cargo, plat_tiles) : 0;
         AIVehicle.StartStopVehicle(v);
         r.lengthening = null;
         Log.Info(Log.PHASE_LOOP,
             "[review] " + name + ": lengthened train " + v + " by " + added
-            + " wagon(s) (len now " + AIVehicle.GetLength(v) + "/" + Trains.PlatformUnits()
+            + " wagon(s) (len now " + AIVehicle.GetLength(v) + "/" + Trains.PlatformUnitsFor(plat_tiles)
             + "), back in service.");
     }
 
@@ -865,7 +867,8 @@ class Maintenance {
         if (engine == -1 || wagon == -1) return;
 
         local n  = Trains.PickNumWagons(r.distance, ("production" in r) ? r.production : null);
-        local id = Trains.BuildTrain(r.depot_tile, engine, wagon, r.cargo, n);
+        local id = Trains.BuildTrain(r.depot_tile, engine, wagon, r.cargo, n,
+            ("plat_tiles" in r) ? r.plat_tiles : null);
         if (id == -1) return;
 
         local bh = ("backhaul" in r) ? r.backhaul : false;

@@ -222,9 +222,12 @@ class Rail2 {
         if (engine == -1 || wagon == -1) { Log.Warn(Log.PHASE_TRAIN, "[rail2] no engine/wagon"); return Rollback(); }
         local nwag = Trains.PickNumWagons(c.distance, c.production);
         local nfleet = Rail2.FleetSize(c.distance, c.production);
+        // The rail2 SmartTerminus platform is Spec().len tiles - SHORTER than the
+        // legacy default - so size every train to it or it overhangs the platform.
+        local plat_tiles = Rail2.Spec().len;
         local trains = [];
         for (local k = 0; k < nfleet; k++) {
-            local id = Trains.BuildTrain(depot, engine, wagon, c.cargo, nwag);
+            local id = Trains.BuildTrain(depot, engine, wagon, c.cargo, nwag, plat_tiles);
             if (id == -1) break;
             if (!Trains.DispatchTrain(id, src.platform_tile, dst.platform_tile, false)) break;
             trains.push(id);
@@ -245,6 +248,7 @@ class Rail2 {
         route.trains   = trains;
         route.train_id = trains[0];
         route.max_trains = Rail2.MAX_TRAINS;
+        route.plat_tiles <- plat_tiles;   // so later lengthening fits this platform too
         route.backhaul <- false;
         route.rail2    <- true;
         route.status   = "probation";
