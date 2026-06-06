@@ -33,6 +33,7 @@ require("src/maintenance.nut");
 require("src/town_authority.nut");
 require("src/planner.nut");
 require("src/junction_builder.nut");
+require("src/junction_merge.nut");
 require("src/captures.nut");
 require("src/station_dt.nut");
 require("src/rail2_route.nut");
@@ -77,6 +78,18 @@ class MvBAI extends AIController {
     // multi-block return loop that can actually hold >2 trains. Flip on with that.
     static USE_RORO        = false;
     static RORO_MAX_TRAINS = 6;
+
+    // AUTO-FORK JUNCTION (fork-onto-trunk merging). When a NEW producer feeds a
+    // consumer we ALREADY serve via a DOUBLE-TRACK trunk, fork a spur onto that
+    // trunk + share the consumer station instead of building a duplicate line or
+    // colliding a 2nd line into the consumer's single throat. See junction_merge.nut.
+    //
+    // OFF by default: piecemeal junction levers all regressed (own-track reuse -7%,
+    // multi-source separate-stations -8%); this only pays as the WHOLE stack
+    // (double-track trunk + safe consumer throat + auto-fork). This increment builds
+    // the fork GEOMETRY + a capacity-safe one-train spur; flip on to VISUAL-TEST that
+    // junctions form, then add the safe-throat consumer station, then bench.
+    static USE_JUNCTION    = false;
 
     static DEBUG_JUNCTION = false;
 
@@ -381,6 +394,15 @@ function MvBAI::Start() {
             // Decided to build this one: borrow just enough to cover it now, so
             // incremental spends (stations, track, fleet) never run dry midway.
             Money.EnsureFunds(needed);
+            // AUTO-FORK JUNCTION: if this producer's consumer is already served by a
+            // DOUBLE-TRACK trunk, fork a spur onto it + share the consumer station
+            // instead of a duplicate line. Returns false when there is no eligible
+            // trunk -> fall through to a normal rail build. Gated OFF by default.
+            if (MvBAI.USE_JUNCTION
+                    && JunctionMerge.TryMerge(this.state, c, this.railtype)) {
+                built_one = true;
+                break;
+            }
             // Phase 11 rail rewrite: build on the SmartTerminus station with a
             // distance-scaled fleet (no 2-train deadlock cap) when enabled.
             if (MvBAI.USE_RAIL2) {

@@ -111,6 +111,14 @@ class State {
 
     // Drop a route from the registry (after it has been torn down).
     function RemoveRoute(route) {
+        // A forked junction spur depends on its trunk: releasing the spur frees the
+        // trunk's lifecycle (junction_deps refcount) so the trunk can later condemn
+        // normally once no spur runs over it.
+        if (("junction" in route) && route.junction && ("trunk_key" in route)
+            && route.trunk_key in this.routes) {
+            local trunk = this.routes[route.trunk_key];
+            if ("junction_deps" in trunk && trunk.junction_deps > 0) trunk.junction_deps--;
+        }
         local k = Route.Key(route.cargo, route.producer, route.accepter);
         if (k in this.routes) delete this.routes[k];
     }
