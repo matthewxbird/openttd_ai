@@ -125,6 +125,36 @@ class Rail2 {
             return false;
         }
 
+        // ROLLBACK (AAAHogEx Construction.Rollback equivalent): from here on, ANY
+        // failure demolishes everything this attempt built - both stations AND all
+        // main track laid below - so a failed route leaves nothing behind. Without
+        // this, every "main build failed; abandoning" leaked orphaned track: sunk
+        // cost + a maintenance drain with no asset value (the borrow-and-burn that
+        // floored company value at 1). Protect every OTHER route's station zone so
+        // cleanup never demolishes a working line.
+        local prot = {};
+        local mx = AIMap.GetMapSizeX();
+        foreach (_, r in state.routes) {
+            foreach (st in [("src_station" in r) ? r.src_station : null,
+                            ("dst_station" in r) ? r.dst_station : null]) {
+                if (st == null || !("tile" in st)) continue;
+                for (local dy = -8; dy <= 8; dy++)
+                    for (local dx = -8; dx <= 8; dx++) {
+                        local t = st.tile + dx + dy * mx;
+                        if (AIMap.IsValidTile(t)) prot[t] <- true;
+                    }
+            }
+        }
+        TrackBuilder._touched.clear();   // from here, _touched = THIS route's main track
+        local depot_holder = [null];     // fallback depot tile (for cleanup), if any
+        local Rollback = function() : (src, dst, prot, depot_holder) {
+            TrackBuilder.SafeDemolishTouched(TrackBuilder._touched, prot);
+            if (depot_holder[0] != null) AITile.DemolishTile(depot_holder[0]);
+            StationDT.Demolish(src);
+            StationDT.Demolish(dst);
+            return false;
+        };
+
         // Double-track main. Per the captured throat's SIGNAL directions: main_a
         // (row dy1, west-facing presignals) = ARRIVAL track; main_b (row dy2,
         // east-facing PBS) = DEPARTURE track - at BOTH identical ends. So:
@@ -149,8 +179,7 @@ class Rail2 {
         }
         if (out_main == null || back_main == null) {
             Log.Warn(Log.PHASE_TRACK, "[rail2] main build failed; abandoning.");
-            StationDT.Demolish(src); StationDT.Demolish(dst);
-            return false;
+            return Rollback();
         }
 
         // Depot: the src station has one baked into its throat (dead-end siding off
@@ -158,17 +187,16 @@ class Rail2 {
         local depot = ("depot" in src) ? src.depot : null;
         if (depot == null) {
             local d = DepotBuilder.New(back_main, "rail2-depot");
-            if (d != null && d.len() > 0) depot = d[0];
+            if (d != null && d.len() > 0) { depot = d[0]; depot_holder[0] = depot; }
         }
         if (depot == null) {
             Log.Warn(Log.PHASE_DEPOT, "[rail2] no depot; abandoning.");
-            StationDT.Demolish(src); StationDT.Demolish(dst);
-            return false;
+            return Rollback();
         }
 
         local engine = Trains.PickEngine(c.cargo, railtype);
         local wagon  = Trains.PickWagon(c.cargo, railtype);
-        if (engine == -1 || wagon == -1) { Log.Warn(Log.PHASE_TRAIN, "[rail2] no engine/wagon"); return false; }
+        if (engine == -1 || wagon == -1) { Log.Warn(Log.PHASE_TRAIN, "[rail2] no engine/wagon"); return Rollback(); }
         local nwag = Trains.PickNumWagons(c.distance, c.production);
         local nfleet = Rail2.FleetSize(c.distance, c.production);
         local trains = [];
@@ -178,7 +206,7 @@ class Rail2 {
             if (!Trains.DispatchTrain(id, src.platform_tile, dst.platform_tile, false)) break;
             trains.push(id);
         }
-        if (trains.len() == 0) { Log.Warn(Log.PHASE_TRAIN, "[rail2] no trains dispatched"); return false; }
+        if (trains.len() == 0) { Log.Warn(Log.PHASE_TRAIN, "[rail2] no trains dispatched"); return Rollback(); }
 
         local route = Route.New(c.cargo, c.producer, c.accepter, c.distance, c.production,
             ("acc_is_town" in c) ? c.acc_is_town : false);
@@ -186,6 +214,9 @@ class Rail2 {
         route.dst_station = dst;
         route.path_out  = out_main;
         route.path_back = back_main;
+        // Record the main track tiles so a later condemn/teardown cleans them too.
+        route.touched <- [];
+        foreach (t in TrackBuilder._touched) route.touched.push(t);
         route.depot_tiles = [depot];
         route.depot_tile  = depot;
         route.trains   = trains;

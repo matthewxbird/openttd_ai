@@ -53,6 +53,33 @@ class TrackBuilder {
     static _touched = [];
     static function _Touch(t) { TrackBuilder._touched.push(t); }
 
+    // Roll back a list of tiles we laid rail on (a failed build), demolishing each
+    // one safely. Shared by the legacy _FailRoute and the rail2 route rollback so
+    // a failed attempt never leaves orphaned track on the map (sunk cost + a
+    // maintenance drag with no asset value - the borrow-and-burn that floors
+    // company value). Guards, matching _FailRoute:
+    //   - never a station tile (would break a platform);
+    //   - never a tile in `prot_tiles` (another route's station/throat zone);
+    //   - never a rival's rail (not ours to clear);
+    //   - cap demolitions inside a town's authority (mass-clearing tanks our local
+    //     rating, which then gets our stations/airports there refused).
+    static function SafeDemolishTouched(touched, prot_tiles, town_demo_cap = 2) {
+        if (touched == null) return;
+        local near_town = 0;
+        foreach (t in touched) {
+            if (!AIMap.IsValidTile(t)) continue;
+            if (AIRail.IsRailStationTile(t)) continue;
+            if (prot_tiles != null && (t in prot_tiles)) continue;
+            if (AIRail.IsRailTile(t) && !AICompany.IsMine(AITile.GetOwner(t))) continue;
+            local town = AITile.GetTownAuthority(t);
+            if (AITown.IsValidTown(town)) {
+                if (near_town >= town_demo_cap) continue;
+                near_town++;
+            }
+            AITile.DemolishTile(t);
+        }
+    }
+
     static PREFLIGHT_RADIUS = 6;   // search this far around each industry for endpoints
 
     // PRE-FLIGHT (test mode, FREE): is there ANY rail path between these two
